@@ -28,8 +28,6 @@ pnpm-debug.log*
 .DS_Store
 
 # Generated GraphQL
-apps/jira-plus-plus/src/components/**/__generated__
-apps/jira-plus-plus/src/graphql/__generated__
 apps/api/src/generated
 **/__pycache__
 test-results/

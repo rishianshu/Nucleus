@@ -23,7 +23,7 @@ Nucleus is our opinionated platform for unifying metadata, AI-assisted reporting
    - GraphQL registry client feeds report definitions, versions, dashboards, and run telemetry to the designer.
    - Agent personas can suggest queries, generate drafts, and explain schema context using the metadata macros.
 4. **Operational Guardrails**
-   - Specs in `docs/nucleus/specs/platform/2025-10` define capabilities, kv semantics, orchestration rules, and login expectations.
+   - Specs in `docs/specs/platform/2025-10` define capabilities, kv semantics, orchestration rules, and login expectations.
    - `Agent.md` plus the acceptance specs drive automated Playwright smoke tests (metadata auth/connection, etc.) and CLI verification scripts.
 
 ## Where to start
