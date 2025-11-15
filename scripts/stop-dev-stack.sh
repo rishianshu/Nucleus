@@ -14,10 +14,7 @@ stop_component() {
   (cd "$PROJECT_ROOT" && "$script") || true
 }
 
-stop_component "web" "$PROJECT_ROOT/scripts/stop-web-bg.sh"
-stop_component "designer" "$PROJECT_ROOT/scripts/stop-designer-bg.sh"
-stop_component "core api" "$PROJECT_ROOT/scripts/stop-core-api-bg.sh"
-stop_component "reporting api" "$PROJECT_ROOT/scripts/stop-reporting-api-bg.sh"
+stop_component "metadata ui" "$PROJECT_ROOT/scripts/stop-metadata-ui-bg.sh"
 stop_component "metadata api" "$PROJECT_ROOT/scripts/stop-metadata-api-bg.sh"
 stop_component "keycloak" "$PROJECT_ROOT/scripts/stop-keycloak.sh"
 

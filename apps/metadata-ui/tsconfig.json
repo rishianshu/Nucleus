@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "rootDir": "../..",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@reporting/ui-sdk": ["../../packages/reporting-ui-sdk/src"],
+      "@reporting/registry": ["../../packages/reporting-registry/src"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

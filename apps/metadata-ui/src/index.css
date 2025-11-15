@@ -1,0 +1,52 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply min-h-screen bg-slate-100 text-slate-900 font-sans antialiased transition-colors duration-300 ease-out;
+}
+
+.dark body {
+  @apply bg-slate-950 text-slate-100;
+}
+
+.glass-panel {
+  @apply rounded-3xl border border-slate-200/70 bg-white/70 backdrop-blur-2xl shadow-glow transition-colors duration-300 dark:border-white/10 dark:bg-slate-900/80;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-400/60 dark:bg-slate-700/60;
+}
+
+.monaco-editor .agent-inline-annotation {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.02));
+  border-radius: 12px;
+}
+
+.monaco-editor .agent-inline-annotation-gutter {
+  border-left: 3px solid rgba(16, 185, 129, 0.75);
+  margin-left: 4px;
+}
+
+.monaco-editor .agent-inline-annotation-gutter::after {
+  content: "★";
+  color: rgba(5, 150, 105, 0.9);
+  font-size: 10px;
+  margin-left: 4px;
+  position: relative;
+  top: -1px;
+}
