@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: metadata-service
+Version: 0.0.1
+Summary: Metadata runtime helpers (collection, access) exposed as a standalone package
+Author: Ingestion Platform Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# Metadata Service Package
+
+Wraps metadata collection/runtime helpers so ingestion and reconciliation depend
+on a dedicated package instead of internal modules. The implementation now lives
+entirely under this package; the old shims have been removed.

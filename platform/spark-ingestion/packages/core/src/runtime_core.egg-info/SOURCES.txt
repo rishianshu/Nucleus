@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/runtime_core/__init__.py
+src/runtime_core/metadata.py
+src/runtime_core.egg-info/PKG-INFO
+src/runtime_core.egg-info/SOURCES.txt
+src/runtime_core.egg-info/dependency_links.txt
+src/runtime_core.egg-info/top_level.txt

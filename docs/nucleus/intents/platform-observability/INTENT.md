@@ -1,0 +1,18 @@
+- title: Spec: Observability and SLOs
+- slug: platform-observability
+- type: feature
+- context: migrated from specs/platform/2025-10/observability.md
+- why_now: consolidate nucleus → agent-friendly intents
+- scope_in:
+  - Implement SPEC.md as described
+- scope_out:
+  - Unrelated refactors
+- acceptance:
+  1. See ACCEPTANCE.md
+- constraints:
+  - Keep ci-check under 8 minutes
+- non_negotiables:
+  - Do not modify // @custom blocks or *_custom.* files
+- refs:
+  - original: specs/platform/2025-10/observability.md
+- status: ready

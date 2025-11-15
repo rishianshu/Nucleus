@@ -1,0 +1,66 @@
+[
+  {
+    "id": "seed-endpoint-sample-pg",
+    "sourceId": "seed-endpoint-sample-pg",
+    "name": "Sample Analytics Warehouse",
+    "description": "Seeded PostgreSQL endpoint used for metadata smoke tests.",
+    "verb": "POST",
+    "url": "postgresql://sample-host:5432/analytics",
+    "authPolicy": "basic",
+    "domain": "postgres",
+    "labels": [
+      "sample",
+      "warehouse",
+      "jdbc"
+    ],
+    "config": {
+      "templateId": "jdbc.postgres.sample",
+      "parameters": {
+        "host": "sample-host",
+        "port": "5432",
+        "database": "analytics",
+        "username": "readonly",
+        "sslmode": "disable"
+      }
+    },
+    "projectId": "global",
+    "createdAt": "2025-11-11T20:21:25.817Z",
+    "updatedAt": "2025-11-11T20:21:25.817Z",
+    "deletedAt": null,
+    "deletionReason": null
+  },
+  {
+    "id": "8d231201f7374d26829e14b0093b5218",
+    "sourceId": "global-smoke-endpoint-1762892508003-f33c0312e45a4ae7bae8540d4fed9fca",
+    "name": "Smoke Endpoint 1762892508003",
+    "description": "Updated via lifecycle test",
+    "verb": "GET",
+    "url": "https://metadata-smoke.example.com/api",
+    "projectId": "global",
+    "labels": [
+      "smoke",
+      "test"
+    ],
+    "deletedAt": "2025-11-11T20:21:48.022Z",
+    "deletionReason": null,
+    "createdAt": "2025-11-11T20:21:48.007Z",
+    "updatedAt": "2025-11-11T20:21:48.022Z"
+  },
+  {
+    "id": "c7c640310ed24dc1a84375aa2cda6261",
+    "sourceId": "global-smoke-endpoint-1762893212777-ddf92bd99c2a48ae90dd4f71d615a78f",
+    "name": "Smoke Endpoint 1762893212777",
+    "description": "Updated via lifecycle test",
+    "verb": "GET",
+    "url": "https://metadata-smoke.example.com/api",
+    "projectId": "global",
+    "labels": [
+      "smoke",
+      "test"
+    ],
+    "deletedAt": "2025-11-11T20:33:32.791Z",
+    "deletionReason": null,
+    "createdAt": "2025-11-11T20:33:32.781Z",
+    "updatedAt": "2025-11-11T20:33:32.791Z"
+  }
+]

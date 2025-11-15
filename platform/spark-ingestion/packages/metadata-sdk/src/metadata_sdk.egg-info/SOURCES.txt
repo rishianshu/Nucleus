@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/metadata_sdk/__init__.py
+src/metadata_sdk/client.py
+src/metadata_sdk/context.py
+src/metadata_sdk/models.py
+src/metadata_sdk/transports.py
+src/metadata_sdk.egg-info/PKG-INFO
+src/metadata_sdk.egg-info/SOURCES.txt
+src/metadata_sdk.egg-info/dependency_links.txt
+src/metadata_sdk.egg-info/top_level.txt
+src/metadata_sdk/services/__init__.py
+src/metadata_sdk/services/catalog.py
+src/metadata_sdk/services/ingestion.py
+src/metadata_sdk/services/schemas.py

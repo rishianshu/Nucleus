@@ -1,0 +1,19 @@
+[project]
+name = "runtime-common"
+version = "0.0.1"
+description = "Shared connectors, logging, and orchestration primitives for ingestion/recon runtimes"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Ingestion Platform Team"}]
+readme = "README.md"
+dependencies = ["sqlalchemy>=2.0.0", "psycopg2-binary>=2.9.0"]
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

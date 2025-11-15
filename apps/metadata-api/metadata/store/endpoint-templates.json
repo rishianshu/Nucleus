@@ -1,0 +1,2325 @@
+[
+  {
+    "id": "jdbc.postgres",
+    "family": "JDBC",
+    "title": "PostgreSQL",
+    "vendor": "Postgres",
+    "description": "Collect metadata from a PostgreSQL cluster via read-only credentials.",
+    "domain": "database.postgres",
+    "categories": [
+      "warehouse",
+      "lakehouse"
+    ],
+    "protocols": [
+      "jdbc",
+      "postgresql"
+    ],
+    "versions": [
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16"
+    ],
+    "defaultPort": 5432,
+    "driver": "org.postgresql.Driver",
+    "docsUrl": "https://www.postgresql.org/docs/current/jdbc.html",
+    "agentPrompt": "Guide the user through connecting to PostgreSQL. Required fields: host, port, database, username, password. Offer help generating read-only roles.",
+    "defaultLabels": [
+      "postgres",
+      "jdbc"
+    ],
+    "fields": [
+      {
+        "key": "host",
+        "label": "Host",
+        "valueType": "HOSTNAME",
+        "required": true,
+        "semantic": "HOST",
+        "description": null,
+        "placeholder": "db.example.com",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "port",
+        "label": "Port",
+        "valueType": "PORT",
+        "required": true,
+        "semantic": "PORT",
+        "description": null,
+        "placeholder": "5432",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "database",
+        "label": "Database",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "DATABASE",
+        "description": null,
+        "placeholder": "analytics",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "username",
+        "label": "Username",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "USERNAME",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "password",
+        "label": "Password",
+        "valueType": "PASSWORD",
+        "required": true,
+        "semantic": "PASSWORD",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "schemas",
+        "label": "Schemas",
+        "valueType": "LIST",
+        "required": false,
+        "semantic": "SCHEMA",
+        "description": "Comma-separated list of schemas to crawl. Leave blank to include all.",
+        "placeholder": "public",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "version_hint",
+        "label": "Version hint",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Provide the known server version (e.g., 15.3, 19c) if automatic detection is unavailable.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "role",
+        "label": "Role",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Optional role to SET ROLE after connecting.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "ssl_mode",
+        "label": "SSL mode",
+        "valueType": "ENUM",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Matches libpq sslmode. Use verify-full for strict hostname validation.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "disable",
+            "value": "disable",
+            "description": null
+          },
+          {
+            "label": "allow",
+            "value": "allow",
+            "description": null
+          },
+          {
+            "label": "prefer",
+            "value": "prefer",
+            "description": null
+          },
+          {
+            "label": "require",
+            "value": "require",
+            "description": null
+          },
+          {
+            "label": "verify-ca",
+            "value": "verify-ca",
+            "description": null
+          },
+          {
+            "label": "verify-full",
+            "value": "verify-full",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "prefer",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "ssl_root_cert",
+        "label": "SSL root certificate",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "FILE_PATH",
+        "description": "Absolute path to the CA certificate when using verify-ca or verify-full.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "ssl_mode",
+            "values": [
+              "verify-ca",
+              "verify-full"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "ssl_client_cert",
+        "label": "Client certificate",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "FILE_PATH",
+        "description": "Path to client certificate when mutual TLS is required.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "ssl_mode",
+            "values": [
+              "require",
+              "verify-ca",
+              "verify-full"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "ssl_client_key",
+        "label": "Client private key",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "FILE_PATH",
+        "description": "Path to the private key that pairs with the client certificate.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "ssl_mode",
+            "values": [
+              "require",
+              "verify-ca",
+              "verify-full"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "application_name",
+        "label": "Application name",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Sets application_name for audit visibility.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "connect_timeout_ms",
+        "label": "Connect timeout (ms)",
+        "valueType": "NUMBER",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Overrides the default JDBC connectTimeout in milliseconds.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "statement_timeout_ms",
+        "label": "Statement timeout (ms)",
+        "valueType": "NUMBER",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Optional timeout enforced via SET statement_timeout after connect.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "additional_parameters",
+        "label": "Additional JDBC parameters",
+        "valueType": "JSON",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "JSON map of extra driver parameters (e.g., \"targetServerType\":\"primary\").",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      }
+    ],
+    "capabilities": [
+      {
+        "key": "tables",
+        "label": "Tables & views",
+        "description": "Discovers table/view names, owners, storage stats."
+      },
+      {
+        "key": "columns",
+        "label": "Column metadata",
+        "description": "Data types, nullability, default expressions."
+      },
+      {
+        "key": "dependencies",
+        "label": "Foreign keys",
+        "description": "Extracts FK relationships for lineage overlays."
+      },
+      {
+        "key": "metadata",
+        "label": "Catalog metadata",
+        "description": "Supports metadata harvesting via Postgres adapters."
+      },
+      {
+        "key": "preview",
+        "label": "Live preview",
+        "description": "Supports limited SELECT ... LIMIT queries for previewing datasets."
+      },
+      {
+        "key": "profiles",
+        "label": "Column profiles",
+        "description": "Computes column statistics via Postgres aggregate queries."
+      }
+    ],
+    "sampleConfig": {
+      "driver": "postgresql",
+      "sslMode": "prefer",
+      "connectionTimeoutMs": 10000
+    },
+    "connection": {
+      "urlTemplate": "postgresql://{username}:{password}@{host}:{port}/{database}",
+      "defaultVerb": "POST"
+    },
+    "descriptorVersion": "2.0",
+    "minVersion": "9.6",
+    "maxVersion": null,
+    "probing": {
+      "methods": [
+        {
+          "key": "pg_setting_server_version",
+          "label": "current_setting('server_version')",
+          "strategy": "SQL",
+          "statement": "SELECT current_setting('server_version') AS version",
+          "description": "Queries server_version GUC via read-only SHOW privileges.",
+          "requires": [],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        },
+        {
+          "key": "pg_version_function",
+          "label": "SELECT version()",
+          "strategy": "SQL",
+          "statement": "SELECT version() AS version",
+          "description": "Fallback probe that parses the PostgreSQL banner.",
+          "requires": [],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        }
+      ],
+      "fallbackMessage": "If both probes fail, capture SELECT version() output manually or provide the server_version parameter."
+    }
+  },
+  {
+    "id": "jdbc.oracle",
+    "family": "JDBC",
+    "title": "Oracle",
+    "vendor": "Oracle",
+    "description": "Connect to Oracle databases via JDBC.",
+    "domain": "database.oracle",
+    "categories": [
+      "warehouse",
+      "lakehouse"
+    ],
+    "protocols": [
+      "jdbc"
+    ],
+    "versions": [
+      "11g",
+      "12c",
+      "18c",
+      "19c",
+      "21c"
+    ],
+    "defaultPort": 1521,
+    "driver": "oracle.jdbc.OracleDriver",
+    "docsUrl": "https://docs.oracle.com/en/database/oracle/oracle-database/",
+    "agentPrompt": "Collect host, port, service name (database), username, and password for the Oracle instance. Ensure the account has read-only access.",
+    "defaultLabels": [
+      "oracle",
+      "jdbc"
+    ],
+    "fields": [
+      {
+        "key": "host",
+        "label": "Host / SCAN address",
+        "valueType": "HOSTNAME",
+        "required": true,
+        "semantic": "HOST",
+        "description": null,
+        "placeholder": "db01.mycorp.net",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "port",
+        "label": "Listener port",
+        "valueType": "PORT",
+        "required": true,
+        "semantic": "PORT",
+        "description": null,
+        "placeholder": "1521",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "connection_type",
+        "label": "Connection mode",
+        "valueType": "ENUM",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": "Oracle supports service names (recommended), SID, or Oracle Net descriptors.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "Service name",
+            "value": "SERVICE_NAME",
+            "description": null
+          },
+          {
+            "label": "SID",
+            "value": "SID",
+            "description": null
+          },
+          {
+            "label": "TNS descriptor / alias",
+            "value": "TNS_DESCRIPTOR",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "SERVICE_NAME",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "service_name",
+        "label": "Service name",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "PDB or service (e.g., orclpdb1.mycorp.net).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "connection_type",
+            "values": [
+              "SERVICE_NAME"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "sid",
+        "label": "SID",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Legacy SID (e.g., ORCL).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "connection_type",
+            "values": [
+              "SID"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "tns_alias",
+        "label": "TNS alias",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Alias defined inside tnsnames.ora.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "connection_type",
+            "values": [
+              "TNS_DESCRIPTOR"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "tns_descriptor",
+        "label": "TNS descriptor",
+        "valueType": "TEXT",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Inline descriptor when aliases are not available.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "connection_type",
+            "values": [
+              "TNS_DESCRIPTOR"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "username",
+        "label": "Username",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "USERNAME",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "password",
+        "label": "Password",
+        "valueType": "PASSWORD",
+        "required": true,
+        "semantic": "PASSWORD",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "wallet_path",
+        "label": "Wallet directory",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "FILE_PATH",
+        "description": "Absolute path to the wallet (zip or extracted directory) for TCPS/Autonomous DB.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "wallet_password",
+        "label": "Wallet password",
+        "valueType": "PASSWORD",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Password for the wallet if encryption is enabled.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "ssl_server_dn_match",
+        "label": "Server DN match",
+        "valueType": "BOOLEAN",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Set to true to enforce server DN matching (recommended for TCPS).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "schemas",
+        "label": "Schemas",
+        "valueType": "LIST",
+        "required": false,
+        "semantic": "SCHEMA",
+        "description": "Comma-separated schema whitelist (e.g., HR, FINANCE).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "version_hint",
+        "label": "Version hint",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Provide the Oracle version (e.g., 19c) if probes cannot run.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      }
+    ],
+    "capabilities": [
+      {
+        "key": "tables",
+        "label": "Tables & views",
+        "description": "Discovers table/view names, owners, storage stats."
+      },
+      {
+        "key": "columns",
+        "label": "Column metadata",
+        "description": "Data types, nullability, default expressions."
+      },
+      {
+        "key": "dependencies",
+        "label": "Foreign keys",
+        "description": "Extracts FK relationships for lineage overlays."
+      },
+      {
+        "key": "metadata",
+        "label": "Catalog metadata",
+        "description": "Supports Oracle-specific metadata harvesting."
+      },
+      {
+        "key": "preview",
+        "label": "Live preview",
+        "description": "Supports sampling queries via read-only sessions."
+      }
+    ],
+    "sampleConfig": null,
+    "connection": {
+      "urlTemplate": "oracle+cx_oracle://{username}:{password}@{host}:{port}/?service_name={service_name}",
+      "defaultVerb": "POST"
+    },
+    "descriptorVersion": "2.0",
+    "minVersion": "11g",
+    "maxVersion": null,
+    "probing": {
+      "methods": [
+        {
+          "key": "oracle_v_instance",
+          "label": "SELECT version FROM v$instance",
+          "strategy": "SQL",
+          "statement": "SELECT version FROM v$instance",
+          "description": "Requires SELECT on v$instance; returns precise Oracle version.",
+          "requires": [],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        },
+        {
+          "key": "oracle_v_version",
+          "label": "SELECT banner FROM v$version",
+          "strategy": "SQL",
+          "statement": "SELECT banner FROM v$version WHERE ROWNUM = 1",
+          "description": "Fallback banner probe when v$instance access is restricted.",
+          "requires": [],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        }
+      ],
+      "fallbackMessage": "If v$ views are unavailable, request the exact Oracle version from the DBA."
+    }
+  },
+  {
+    "id": "jdbc.mssql",
+    "family": "JDBC",
+    "title": "SQL Server",
+    "vendor": "Microsoft",
+    "description": "Ingest data from Microsoft SQL Server via JDBC.",
+    "domain": "database.mssql",
+    "categories": [
+      "warehouse",
+      "lakehouse"
+    ],
+    "protocols": [
+      "jdbc"
+    ],
+    "versions": [
+      "2012",
+      "2014",
+      "2016",
+      "2017",
+      "2019",
+      "2022"
+    ],
+    "defaultPort": 1433,
+    "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+    "docsUrl": "https://learn.microsoft.com/sql/connect/jdbc/",
+    "agentPrompt": "Collect host, port, database, username, and password for the SQL Server instance. Ensure the login has read permissions.",
+    "defaultLabels": [
+      "mssql",
+      "jdbc"
+    ],
+    "fields": [
+      {
+        "key": "host",
+        "label": "Host",
+        "valueType": "HOSTNAME",
+        "required": true,
+        "semantic": "HOST",
+        "description": null,
+        "placeholder": "db.example.com",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "port",
+        "label": "Port",
+        "valueType": "PORT",
+        "required": true,
+        "semantic": "PORT",
+        "description": null,
+        "placeholder": "1433",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "instance_name",
+        "label": "Instance name",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "If connecting to a named instance, provide it here (e.g., MSSQLSERVER, ANALYTICS).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "database",
+        "label": "Database",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "DATABASE",
+        "description": null,
+        "placeholder": "analytics",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "username",
+        "label": "Username",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "USERNAME",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "password",
+        "label": "Password",
+        "valueType": "PASSWORD",
+        "required": true,
+        "semantic": "PASSWORD",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "schemas",
+        "label": "Schemas",
+        "valueType": "LIST",
+        "required": false,
+        "semantic": "SCHEMA",
+        "description": "Comma-separated list of schemas to crawl. Leave blank to include all.",
+        "placeholder": "public",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "version_hint",
+        "label": "Version hint",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Provide the known server version (e.g., 15.3, 19c) if automatic detection is unavailable.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "authentication",
+        "label": "Authentication mode",
+        "valueType": "ENUM",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Choose Active Directory auth when using AAD credentials.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "SQL login",
+            "value": "SQL_LOGIN",
+            "description": null
+          },
+          {
+            "label": "Active Directory password",
+            "value": "AD_PASSWORD",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "SQL_LOGIN",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "domain",
+        "label": "Domain",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "NetBIOS or FQDN domain for Active Directory authentication.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "authentication",
+            "values": [
+              "AD_PASSWORD"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "encrypt",
+        "label": "Encrypt",
+        "valueType": "ENUM",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Controls the Encrypt driver parameter.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "Optional",
+            "value": "optional",
+            "description": null
+          },
+          {
+            "label": "Mandatory",
+            "value": "mandatory",
+            "description": null
+          },
+          {
+            "label": "Strict",
+            "value": "strict",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "optional",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "trust_server_certificate",
+        "label": "Trust server certificate",
+        "valueType": "BOOLEAN",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Set true to bypass certificate validation (testing only).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "application_intent",
+        "label": "Application intent",
+        "valueType": "ENUM",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Set ReadOnly when targeting secondary replicas.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "ReadWrite",
+            "value": "ReadWrite",
+            "description": null
+          },
+          {
+            "label": "ReadOnly",
+            "value": "ReadOnly",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "multi_subnet_failover",
+        "label": "Multi subnet failover",
+        "valueType": "BOOLEAN",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Enable when using Always On availability groups.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "transparent_network_ip_resolution",
+        "label": "Transparent network IP resolution",
+        "valueType": "BOOLEAN",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Disable when using legacy DNS behavior by setting false.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      }
+    ],
+    "capabilities": [
+      {
+        "key": "tables",
+        "label": "Tables & views",
+        "description": "Discovers table/view names, owners, storage stats."
+      },
+      {
+        "key": "columns",
+        "label": "Column metadata",
+        "description": "Data types, nullability, default expressions."
+      },
+      {
+        "key": "dependencies",
+        "label": "Foreign keys",
+        "description": "Extracts FK relationships for lineage overlays."
+      },
+      {
+        "key": "procedures",
+        "label": "Stored procedure support",
+        "description": "Supports execution of stored procedures for metadata probes."
+      },
+      {
+        "key": "preview",
+        "label": "Live preview",
+        "description": "Supports TOP clauses for sampling datasets."
+      }
+    ],
+    "sampleConfig": null,
+    "connection": {
+      "urlTemplate": "mssql+pyodbc://{username}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server",
+      "defaultVerb": "POST"
+    },
+    "descriptorVersion": "2.0",
+    "minVersion": "2012",
+    "maxVersion": null,
+    "probing": {
+      "methods": [
+        {
+          "key": "sqlserver_product_version",
+          "label": "SERVERPROPERTY('ProductVersion')",
+          "strategy": "SQL",
+          "statement": "SELECT CONVERT(NVARCHAR(50), SERVERPROPERTY('ProductVersion')) AS version",
+          "description": "Retrieves the semantic version for SQL Server.",
+          "requires": [],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        },
+        {
+          "key": "sqlserver_at_version",
+          "label": "SELECT @@VERSION",
+          "strategy": "SQL",
+          "statement": "SELECT @@VERSION AS banner",
+          "description": "Fallback banner probe.",
+          "requires": [],
+          "returnsVersion": true,
+          "returnsCapabilities": [
+            "preview"
+          ]
+        }
+      ],
+      "fallbackMessage": "If SERVERPROPERTY access is denied, request SELECT @@VERSION output from the DBA."
+    }
+  },
+  {
+    "id": "jdbc.generic",
+    "family": "JDBC",
+    "title": "JDBC source",
+    "vendor": "JDBC",
+    "description": "Generic JDBC source",
+    "domain": null,
+    "categories": [
+      "warehouse",
+      "lakehouse"
+    ],
+    "protocols": [
+      "jdbc"
+    ],
+    "versions": [],
+    "defaultPort": null,
+    "driver": null,
+    "docsUrl": null,
+    "agentPrompt": null,
+    "defaultLabels": [
+      "jdbc"
+    ],
+    "fields": [
+      {
+        "key": "host",
+        "label": "Host",
+        "valueType": "HOSTNAME",
+        "required": true,
+        "semantic": "HOST",
+        "description": null,
+        "placeholder": "db.example.com",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "port",
+        "label": "Port",
+        "valueType": "PORT",
+        "required": true,
+        "semantic": "PORT",
+        "description": null,
+        "placeholder": "5432",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "database",
+        "label": "Database",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "DATABASE",
+        "description": null,
+        "placeholder": "analytics",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "username",
+        "label": "Username",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "USERNAME",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "password",
+        "label": "Password",
+        "valueType": "PASSWORD",
+        "required": true,
+        "semantic": "PASSWORD",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "schemas",
+        "label": "Schemas",
+        "valueType": "LIST",
+        "required": false,
+        "semantic": "SCHEMA",
+        "description": "Comma-separated list of schemas to crawl. Leave blank to include all.",
+        "placeholder": "public",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "version_hint",
+        "label": "Version hint",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Provide the known server version (e.g., 15.3, 19c) if automatic detection is unavailable.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      }
+    ],
+    "capabilities": [
+      {
+        "key": "tables",
+        "label": "Tables & views",
+        "description": "Discovers table/view names, owners, storage stats."
+      },
+      {
+        "key": "columns",
+        "label": "Column metadata",
+        "description": "Data types, nullability, default expressions."
+      },
+      {
+        "key": "dependencies",
+        "label": "Foreign keys",
+        "description": "Extracts FK relationships for lineage overlays."
+      }
+    ],
+    "sampleConfig": null,
+    "connection": {
+      "urlTemplate": "jdbc:generic://{host}:{port}/{database}",
+      "defaultVerb": "POST"
+    },
+    "descriptorVersion": "2.0",
+    "minVersion": null,
+    "maxVersion": null,
+    "probing": null
+  },
+  {
+    "id": "http.rest",
+    "family": "HTTP",
+    "title": "HTTP API",
+    "vendor": "Generic",
+    "description": "Connect to REST/GraphQL APIs over HTTP(S).",
+    "domain": "service.http",
+    "categories": [
+      "saas",
+      "api"
+    ],
+    "protocols": [
+      "http",
+      "https"
+    ],
+    "versions": [],
+    "defaultPort": null,
+    "driver": null,
+    "docsUrl": "https://developer.mozilla.org/docs/Web/HTTP",
+    "agentPrompt": "Collect the base URL, authentication method (API key or token), and any custom headers required to reach the API.",
+    "defaultLabels": [
+      "http",
+      "api"
+    ],
+    "fields": [
+      {
+        "key": "base_url",
+        "label": "Base URL",
+        "valueType": "URL",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": "Root URL for the API, without a trailing slash.",
+        "placeholder": "https://api.example.com",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "http_method",
+        "label": "Default method",
+        "valueType": "ENUM",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "GET",
+            "value": "GET",
+            "description": null
+          },
+          {
+            "label": "POST",
+            "value": "POST",
+            "description": null
+          },
+          {
+            "label": "PUT",
+            "value": "PUT",
+            "description": null
+          },
+          {
+            "label": "PATCH",
+            "value": "PATCH",
+            "description": null
+          },
+          {
+            "label": "DELETE",
+            "value": "DELETE",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "GET",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "auth_type",
+        "label": "Authentication",
+        "valueType": "ENUM",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "None",
+            "value": "NONE",
+            "description": null
+          },
+          {
+            "label": "API key",
+            "value": "API_KEY",
+            "description": null
+          },
+          {
+            "label": "Bearer token",
+            "value": "BEARER",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "NONE",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "api_key",
+        "label": "API key",
+        "valueType": "PASSWORD",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Static API key issued by the provider.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "auth_type",
+            "values": [
+              "API_KEY"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "api_key_header",
+        "label": "API key header",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Header name used to send the API key.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "auth_type",
+            "values": [
+              "API_KEY"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "bearer_token",
+        "label": "Bearer token",
+        "valueType": "PASSWORD",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Bearer token supplied via Authorization header.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "auth_type",
+            "values": [
+              "BEARER"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "custom_headers",
+        "label": "Custom headers",
+        "valueType": "JSON",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "JSON map of additional headers to include with every request.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "pagination",
+        "label": "Pagination strategy",
+        "valueType": "ENUM",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "None",
+            "value": "NONE",
+            "description": null
+          },
+          {
+            "label": "Page + size",
+            "value": "PAGE",
+            "description": null
+          },
+          {
+            "label": "Cursor",
+            "value": "CURSOR",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "NONE",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "page_param",
+        "label": "Page parameter",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Query parameter name for the page number (e.g., page).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "pagination",
+            "values": [
+              "PAGE"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "page_size_param",
+        "label": "Page size parameter",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Query parameter for page size/limit.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "pagination",
+            "values": [
+              "PAGE"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "cursor_param",
+        "label": "Cursor parameter",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Parameter carrying the cursor token.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "pagination",
+            "values": [
+              "CURSOR"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "version_hint",
+        "label": "Version hint",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "API version identifier if not detectable automatically (e.g., v2).",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      }
+    ],
+    "capabilities": [
+      {
+        "key": "metadata",
+        "label": "Schema introspection",
+        "description": "Supports fetching schema or collection metadata from the API."
+      },
+      {
+        "key": "preview",
+        "label": "Sample data",
+        "description": "Supports paginated preview requests for quick inspection."
+      },
+      {
+        "key": "webhook",
+        "label": "Webhook sourcing",
+        "description": "Can register webhooks for incremental updates if provided by the API."
+      }
+    ],
+    "sampleConfig": null,
+    "connection": {
+      "urlTemplate": "{base_url}",
+      "defaultVerb": "GET"
+    },
+    "descriptorVersion": "2.0",
+    "minVersion": null,
+    "maxVersion": null,
+    "probing": {
+      "methods": [
+        {
+          "key": "http_options",
+          "label": "HTTP OPTIONS",
+          "strategy": "HTTP",
+          "statement": "OPTIONS {base_url}",
+          "description": "Invoke the base URL with an OPTIONS request to inspect allowed methods and CORS headers.",
+          "requires": [
+            "base_url"
+          ],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        },
+        {
+          "key": "http_health",
+          "label": "GET /health",
+          "strategy": "HTTP",
+          "statement": "GET {base_url}/health",
+          "description": "Optional health probe if the API exposes a health endpoint.",
+          "requires": [
+            "base_url"
+          ],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        }
+      ],
+      "fallbackMessage": "Provide the API version manually if automated probes are unavailable."
+    }
+  },
+  {
+    "id": "stream.kafka",
+    "family": "STREAM",
+    "title": "Kafka / Confluent",
+    "vendor": "Apache Kafka",
+    "description": "Subscribe to Kafka topics via consumer groups for metadata collection or CDC.",
+    "domain": "stream.kafka",
+    "categories": [
+      "streaming",
+      "cdc"
+    ],
+    "protocols": [
+      "kafka",
+      "ssl",
+      "sasl"
+    ],
+    "versions": [],
+    "defaultPort": null,
+    "driver": null,
+    "docsUrl": "https://kafka.apache.org/documentation/",
+    "agentPrompt": "Collect bootstrap servers, security protocol (PLAINTEXT/SSL/SASL), authentication material, and target topics.",
+    "defaultLabels": [
+      "stream",
+      "kafka"
+    ],
+    "fields": [
+      {
+        "key": "bootstrap_servers",
+        "label": "Bootstrap servers",
+        "valueType": "STRING",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": "Comma-separated host:port pairs for the Kafka cluster.",
+        "placeholder": "broker01:9092,broker02:9092",
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "security_protocol",
+        "label": "Security protocol",
+        "valueType": "ENUM",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "PLAINTEXT",
+            "value": "PLAINTEXT",
+            "description": null
+          },
+          {
+            "label": "SSL",
+            "value": "SSL",
+            "description": null
+          },
+          {
+            "label": "SASL_SSL",
+            "value": "SASL_SSL",
+            "description": null
+          },
+          {
+            "label": "SASL_PLAINTEXT",
+            "value": "SASL_PLAINTEXT",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": "PLAINTEXT",
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "sasl_mechanism",
+        "label": "SASL mechanism",
+        "valueType": "ENUM",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [
+          {
+            "label": "PLAIN",
+            "value": "PLAIN",
+            "description": null
+          },
+          {
+            "label": "SCRAM-SHA-256",
+            "value": "SCRAM-SHA-256",
+            "description": null
+          },
+          {
+            "label": "SCRAM-SHA-512",
+            "value": "SCRAM-SHA-512",
+            "description": null
+          }
+        ],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "security_protocol",
+            "values": [
+              "SASL_SSL",
+              "SASL_PLAINTEXT"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "sasl_username",
+        "label": "SASL username",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "security_protocol",
+            "values": [
+              "SASL_SSL",
+              "SASL_PLAINTEXT"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "sasl_password",
+        "label": "SASL password",
+        "valueType": "PASSWORD",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "security_protocol",
+            "values": [
+              "SASL_SSL",
+              "SASL_PLAINTEXT"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "ssl_ca",
+        "label": "CA certificate path",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Filesystem path to the trusted CA certificate.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "security_protocol",
+            "values": [
+              "SSL",
+              "SASL_SSL"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "ssl_cert",
+        "label": "Client certificate path",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "security_protocol",
+            "values": [
+              "SSL",
+              "SASL_SSL"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "ssl_key",
+        "label": "Client private key path",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": true,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": [
+          {
+            "field": "security_protocol",
+            "values": [
+              "SSL",
+              "SASL_SSL"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "topics",
+        "label": "Topics",
+        "valueType": "LIST",
+        "required": true,
+        "semantic": "GENERIC",
+        "description": "Comma-separated list of topics to scan for metadata.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "consumer_group",
+        "label": "Consumer group",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": "Consumer group ID used for offsets when streaming records.",
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": false,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      },
+      {
+        "key": "version_hint",
+        "label": "Broker version hint",
+        "valueType": "STRING",
+        "required": false,
+        "semantic": "GENERIC",
+        "description": null,
+        "placeholder": null,
+        "helpText": null,
+        "options": [],
+        "regex": null,
+        "min": null,
+        "max": null,
+        "defaultValue": null,
+        "advanced": true,
+        "sensitive": false,
+        "dependsOn": null,
+        "dependsValue": null,
+        "visibleWhen": null
+      }
+    ],
+    "capabilities": [
+      {
+        "key": "metadata",
+        "label": "Topic metadata",
+        "description": "Fetches topic configurations, partitions, and replication metadata."
+      },
+      {
+        "key": "cdc",
+        "label": "Change streams",
+        "description": "Supports subscribing to topics that deliver CDC events."
+      },
+      {
+        "key": "preview",
+        "label": "Sample records",
+        "description": "Allows sampling a limited number of records for inspection."
+      }
+    ],
+    "sampleConfig": null,
+    "connection": {
+      "urlTemplate": "kafka://{bootstrap_servers}",
+      "defaultVerb": "POST"
+    },
+    "descriptorVersion": "2.0",
+    "minVersion": null,
+    "maxVersion": null,
+    "probing": {
+      "methods": [
+        {
+          "key": "kafka_metadata",
+          "label": "Broker metadata",
+          "strategy": "KAFKA",
+          "statement": "Describe cluster metadata via AdminClient",
+          "description": "Uses the Kafka Admin client to fetch broker metadata and supported features.",
+          "requires": [
+            "bootstrap_servers"
+          ],
+          "returnsVersion": true,
+          "returnsCapabilities": []
+        }
+      ],
+      "fallbackMessage": "Provide the Kafka cluster version manually if admin APIs are unavailable."
+    }
+  }
+]

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: recon-runtime
+Version: 0.0.1
+Summary: Reconciliation runtime extracted from the ingestion platform
+Author: Ingestion Platform Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# recon-runtime
+
+Editable workspace package housing the reconciliation CLI and checks. This mirrors
+`ingestion-runtime` so both runtimes can eventually be published separately.

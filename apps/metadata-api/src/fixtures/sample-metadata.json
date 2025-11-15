@@ -1,0 +1,73 @@
+{
+  "projectId": "global",
+  "labels": ["sample", "catalog"],
+  "endpoints": [
+    {
+      "id": "seed-endpoint-sample-pg",
+      "sourceId": "seed-endpoint-sample-pg",
+      "name": "Sample Analytics Warehouse",
+      "description": "Seeded PostgreSQL endpoint used for metadata smoke tests.",
+      "verb": "POST",
+      "url": "postgresql://sample-host:5432/analytics",
+      "authPolicy": "basic",
+      "domain": "postgres",
+      "labels": ["sample", "warehouse", "jdbc"],
+      "config": {
+        "templateId": "jdbc.postgres.sample",
+        "parameters": {
+          "host": "sample-host",
+          "port": "5432",
+          "database": "analytics",
+          "username": "readonly",
+          "sslmode": "disable"
+        }
+      }
+    }
+  ],
+  "datasets": [
+    {
+      "id": "sample_catalog_jira_issues",
+      "labels": ["sample", "jira"],
+      "sourceEndpointId": "seed-endpoint-sample-pg",
+      "payload": {
+        "dataset": {
+          "id": "sample_catalog_jira_issues",
+          "displayName": "Seeded Jira Issues",
+          "description": "Synthetic dataset representing Jira issues for smoke testing.",
+          "fields": [
+            { "name": "issue_id", "type": "STRING", "description": "Issue key" },
+            { "name": "summary", "type": "STRING", "description": "Short description" },
+            { "name": "status", "type": "STRING", "description": "Workflow status" },
+            { "name": "assignee", "type": "STRING", "description": "Current assignee" },
+            { "name": "updated_at", "type": "TIMESTAMP", "description": "Last update timestamp" }
+          ]
+        },
+        "schema": "PUBLIC",
+        "name": "jira_issues",
+        "description": "Synthetic Jira issues synchronized nightly.",
+        "labels": ["jira", "issues", "sample"],
+        "statistics": {
+          "record_count": 1280,
+          "sample_size": 20,
+          "last_profiled_at": "2024-10-01T00:00:00Z"
+        },
+        "sample_rows": [
+          {
+            "issue_id": "ISSUE-1",
+            "summary": "Demo bug fix",
+            "status": "IN_PROGRESS",
+            "assignee": "Ada",
+            "updated_at": "2024-09-30T12:00:00Z"
+          },
+          {
+            "issue_id": "ISSUE-2",
+            "summary": "Sample feature request",
+            "status": "DONE",
+            "assignee": "Bruno",
+            "updated_at": "2024-09-18T08:30:00Z"
+          }
+        ]
+      }
+    }
+  ]
+}

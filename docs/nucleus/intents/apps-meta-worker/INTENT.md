@@ -1,0 +1,18 @@
+- title: Spec: Meta Worker Application
+- slug: apps-meta-worker
+- type: feature
+- context: migrated from specs/apps/2025-10/meta-worker.md
+- why_now: consolidate nucleus → agent-friendly intents
+- scope_in:
+  - Implement SPEC.md as described
+- scope_out:
+  - Unrelated refactors
+- acceptance:
+  1. See ACCEPTANCE.md
+- constraints:
+  - Keep ci-check under 8 minutes
+- non_negotiables:
+  - Do not modify // @custom blocks or *_custom.* files
+- refs:
+  - original: specs/apps/2025-10/meta-worker.md
+- status: ready

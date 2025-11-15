@@ -1,0 +1,105 @@
+generator metadata_client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/.metadata-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("METADATA_DATABASE_URL")
+}
+
+model MetadataProject {
+  id          String            @id @default(uuid())
+  slug        String            @unique
+  displayName String
+  description String?
+  labels      String[]          @default([])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  records     MetadataRecord[]
+  endpoints   MetadataEndpoint[]
+}
+
+model MetadataRecord {
+  id        String          @id @default(uuid())
+  projectId String
+  project   MetadataProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domain    String
+  labels    String[]        @default([])
+  payload   Json
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([projectId, domain])
+}
+
+model MetadataEndpoint {
+  id          String            @id @default(uuid())
+  projectId   String?
+  project     MetadataProject?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceId    String            @unique
+  name        String
+  description String?
+  verb        String
+  url         String
+  authPolicy  String?
+  domain      String?
+  labels      String[]          @default([])
+  config      Json?
+  detectedVersion String?
+  versionHint String?
+  capabilities String[] @default([])
+  runs        MetadataCollectionRun[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+  deletionReason String?
+
+  @@index([projectId])
+}
+
+model MetadataDomain {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MetadataCollectionRun {
+  id          String                     @id @default(uuid())
+  endpointId  String
+  endpoint    MetadataEndpoint           @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  status      MetadataCollectionStatus   @default(QUEUED)
+  requestedBy String?
+  requestedAt DateTime                   @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  workflowId  String?
+  temporalRunId String?
+  error       String?
+  filters     Json?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+
+  @@index([endpointId])
+}
+
+enum MetadataCollectionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+model MetadataEndpointTemplate {
+  id        String   @id
+  family    String
+  title     String
+  vendor    String
+  descriptor Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

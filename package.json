@@ -1,0 +1,33 @@
+{
+  "name": "nucleus-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.18.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "bootstrap": "pnpm install && pnpm -r build",
+    "build": "pnpm -r build",
+    "check:metadata-lifecycle": "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-lifecycle.spec.ts --project=chromium",
+    "dev:metadata-api": "pnpm --filter @apps/metadata-api dev",
+    "metadata:worker": "pnpm --filter @apps/metadata-api temporal:worker",
+    "dev:metadata-stack": "concurrently --kill-others --names 'metadata-api,metadata-worker' \"pnpm --filter @apps/metadata-api dev\" \"pnpm --filter @apps/metadata-api temporal:worker\"",
+    "prisma:generate:metadata": "rm -rf apps/metadata-api/prisma && cp -R prisma/metadata apps/metadata-api/prisma && export METADATA_DATABASE_URL=$(dotenv -e .env -- node scripts/metadata/resolve-db-url.cjs) && PRISMA_GENERATE_SKIP_AUTOINSTALL=1 dotenv -e .env -- pnpm --dir apps/metadata-api prisma generate --schema prisma/schema.prisma",
+    "migrate:metadata": "rm -rf apps/metadata-api/prisma && cp -R prisma/metadata apps/metadata-api/prisma && export METADATA_DATABASE_URL=$(dotenv -e .env -- node scripts/metadata/resolve-db-url.cjs) && dotenv -e .env -- pnpm --dir apps/metadata-api prisma migrate deploy --schema prisma/schema.prisma",
+    "migrate:metadata:dev": "rm -rf apps/metadata-api/prisma && cp -R prisma/metadata apps/metadata-api/prisma && export METADATA_DATABASE_URL=$(dotenv -e .env -- node scripts/metadata/resolve-db-url.cjs) && dotenv -e .env -- pnpm --dir apps/metadata-api prisma migrate dev --schema prisma/schema.prisma",
+    "start:metadata": "pnpm prisma:generate:metadata && pnpm migrate:metadata && pnpm dev:metadata-stack",
+    "start:keycloak": "bash scripts/start-keycloak.sh",
+    "stop:keycloak": "bash scripts/stop-keycloak.sh",
+    "metadata:workers:start": "bash scripts/metadata/start-workers.sh",
+    "metadata:workers:stop": "bash scripts/metadata/stop-workers.sh",
+    "metadata:workers:status": "bash scripts/metadata/status-workers.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^20.11.30",
+    "concurrently": "^9.1.0",
+    "dotenv-cli": "^7.3.0"
+  }
+}

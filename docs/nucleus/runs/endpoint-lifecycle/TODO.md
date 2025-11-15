@@ -1,0 +1,3 @@
+- Expand `make ci-check` to cover lint/typecheck once the repo configs support TS linting.
+- Add follow-up story for true soft-delete archival (current delete implementation removes the row to satisfy ACs).
+- TODO#metadata-lifecycle-lazy-load (small): Follow up with pagination/infinite scrolling for metadata endpoints/datasets so we don't request large lists up front even after splitting templates & collections into lazy queries.

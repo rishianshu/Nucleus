@@ -1,0 +1,18 @@
+- title: Spec: Meta API Application
+- slug: apps-meta-api
+- type: feature
+- context: migrated from specs/apps/2025-10/meta-api.md
+- why_now: consolidate nucleus → agent-friendly intents
+- scope_in:
+  - Implement SPEC.md as described
+- scope_out:
+  - Unrelated refactors
+- acceptance:
+  1. See ACCEPTANCE.md
+- constraints:
+  - Keep ci-check under 8 minutes
+- non_negotiables:
+  - Do not modify // @custom blocks or *_custom.* files
+- refs:
+  - original: specs/apps/2025-10/meta-api.md
+- status: ready

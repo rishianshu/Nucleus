@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: metadata-gateway
+Version: 0.0.1
+Summary: Metadata gateway abstraction for the ingestion runtimes
+Author: Ingestion Platform Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# Metadata Gateway
+
+Provides a consistent API for emitting and querying metadata records, backed by
+embedded storage today and ready for a remote service tomorrow.

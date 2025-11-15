@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: runtime-common
+Version: 0.0.1
+Summary: Shared connectors, logging, and orchestration primitives for ingestion/recon runtimes
+Author: Ingestion Platform Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# runtime-common
+
+Shared runtime building blocks (connectors, logging, events, notification,
+filesystem helpers) used by both ingestion and reconciliation runtimes. This
+package keeps the platform from duplicating generic modules inside each runtime
+package.

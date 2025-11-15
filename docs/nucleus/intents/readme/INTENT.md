@@ -1,0 +1,18 @@
+- title: Specifications
+- slug: readme
+- type: feature
+- context: migrated from specs/README.md
+- why_now: consolidate nucleus → agent-friendly intents
+- scope_in:
+  - Implement SPEC.md as described
+- scope_out:
+  - Unrelated refactors
+- acceptance:
+  1. See ACCEPTANCE.md
+- constraints:
+  - Keep ci-check under 8 minutes
+- non_negotiables:
+  - Do not modify // @custom blocks or *_custom.* files
+- refs:
+  - original: specs/README.md
+- status: ready

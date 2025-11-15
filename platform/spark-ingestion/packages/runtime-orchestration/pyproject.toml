@@ -1,0 +1,19 @@
+[project]
+name = "runtime-orchestration"
+version = "0.0.1"
+description = "Coordinators that wire together ingestion, metadata, and other runtimes"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Ingestion Platform Team"}]
+readme = "README.md"
+dependencies = ["metadata-sdk>=0.0.1"]
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

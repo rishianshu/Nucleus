@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: metadata-sdk
+Version: 0.0.1
+Summary: Thin SDK for emitting and querying metadata using the runtime gateway
+Author: Ingestion Platform Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# Metadata SDK
+
+Provides a lightweight interface for emitting and querying metadata records
+against the shared metadata gateway. Includes opinionated CDM-style models for
+common domains (ingestion metrics, runtime metrics, schemas) while allowing
+custom records for unmodeled use cases.

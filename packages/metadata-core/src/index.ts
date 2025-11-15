@@ -1,0 +1,1604 @@
+import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { createHash, randomUUID as nodeRandomUUID } from "node:crypto";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+export type MetadataLabel = string;
+export type MetadataEndpointTemplateFamily = "JDBC" | "HTTP" | "STREAM";
+
+export type MetadataEndpointFieldValueType =
+  | "STRING"
+  | "PASSWORD"
+  | "NUMBER"
+  | "BOOLEAN"
+  | "URL"
+  | "HOSTNAME"
+  | "PORT"
+  | "JSON"
+  | "ENUM"
+  | "LIST"
+  | "TEXT";
+
+export type MetadataEndpointFieldSemantic =
+  | "HOST"
+  | "PORT"
+  | "DATABASE"
+  | "USERNAME"
+  | "PASSWORD"
+  | "API_TOKEN"
+  | "PROJECT"
+  | "SCHEMA"
+  | "TABLE"
+  | "WAREHOUSE"
+  | "ROLE"
+  | "ENVIRONMENT"
+  | "CLUSTER"
+  | "TOPIC"
+  | "GENERIC";
+
+export type MetadataEndpointFieldOption = {
+  label: string;
+  value: string;
+  description?: string;
+};
+
+export type MetadataEndpointFieldVisibilityRule = {
+  field: string;
+  values: string[];
+};
+
+export type MetadataEndpointFieldDescriptor = {
+  key: string;
+  label: string;
+  required: boolean;
+  valueType: MetadataEndpointFieldValueType;
+  semantic?: MetadataEndpointFieldSemantic;
+  description?: string;
+  placeholder?: string;
+  helpText?: string;
+  regex?: string;
+  min?: number;
+  max?: number;
+  defaultValue?: string;
+  advanced?: boolean;
+  sensitive?: boolean;
+  dependsOn?: string;
+  dependsValue?: string;
+  visibleWhen?: MetadataEndpointFieldVisibilityRule[] | null;
+  options?: MetadataEndpointFieldOption[];
+};
+
+export type MetadataEndpointCapabilityDescriptor = {
+  key: string;
+  label: string;
+  description?: string;
+};
+
+export type MetadataEndpointConnectionTemplateDescriptor = {
+  urlTemplate?: string;
+  defaultVerb?: string;
+};
+
+export type MetadataEndpointProbingMethodDescriptor = {
+  key: string;
+  label: string;
+  strategy: string;
+  statement?: string;
+  description?: string;
+  requires?: string[];
+  returnsVersion?: boolean;
+  returnsCapabilities?: string[];
+};
+
+export type MetadataEndpointProbingPlanDescriptor = {
+  methods: MetadataEndpointProbingMethodDescriptor[];
+  fallbackMessage?: string;
+};
+
+export type MetadataEndpointTemplateDescriptor = {
+  id: string;
+  family: "JDBC" | "HTTP" | "STREAM";
+  title: string;
+  vendor: string;
+  description?: string;
+  domain?: string;
+  categories: string[];
+  protocols: string[];
+  versions?: string[];
+  defaultPort?: number;
+  driver?: string;
+  docsUrl?: string;
+  agentPrompt?: string;
+  defaultLabels?: string[];
+  fields: MetadataEndpointFieldDescriptor[];
+  capabilities: MetadataEndpointCapabilityDescriptor[];
+  sampleConfig?: Record<string, unknown>;
+  connection?: MetadataEndpointConnectionTemplateDescriptor | null;
+  descriptorVersion?: string;
+  minVersion?: string;
+  maxVersion?: string;
+  probing?: MetadataEndpointProbingPlanDescriptor | null;
+};
+
+export type MetadataEndpointTestResult = {
+  success: boolean;
+  message?: string;
+  detectedVersion?: string;
+  capabilities?: string[];
+  details?: Record<string, unknown>;
+};
+
+export type MetadataEndpointDescriptor = {
+  id?: string;
+  sourceId?: string;
+  name: string;
+  description?: string;
+  verb: HttpVerb;
+  url: string;
+  authPolicy?: string;
+  projectId?: string;
+  domain?: string;
+  labels?: string[];
+  config?: Record<string, unknown> | null;
+  detectedVersion?: string | null;
+  versionHint?: string | null;
+  capabilities?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  deletionReason?: string | null;
+};
+
+export type HttpVerb = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export type MetadataDomainSummary = {
+  key: string;
+  title: string;
+  description?: string;
+  itemCount: number;
+};
+
+export type MetadataRecordInput<TPayload> = {
+  id?: string;
+  projectId: string;
+  domain: string;
+  labels?: MetadataLabel[];
+  payload: TPayload;
+};
+
+export type MetadataRecord<TPayload> = MetadataRecordInput<TPayload> & {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RecordFilter = {
+  projectId?: string;
+  labels?: string[];
+  search?: string;
+  limit?: number;
+};
+
+export type TenantContext = {
+  tenantId: string;
+  projectId: string;
+  actorId?: string;
+};
+
+export type GraphEntityInput = {
+  id?: string;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string;
+  sourceSystem?: string;
+  specRef?: string;
+  properties?: Record<string, unknown>;
+};
+
+export type GraphEntity = GraphEntityInput & {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GraphEntityFilter = {
+  entityTypes?: string[];
+  search?: string;
+  limit?: number;
+};
+
+export type GraphEdgeInput = {
+  id?: string;
+  edgeType: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  confidence?: number;
+  specRef?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type GraphEdge = GraphEdgeInput & {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GraphEdgeFilter = {
+  edgeTypes?: string[];
+  sourceEntityId?: string;
+  targetEntityId?: string;
+  limit?: number;
+};
+
+export type GraphStoreCapabilities = {
+  vectorSearch: boolean;
+  pathQueries: boolean;
+  annotations: boolean;
+};
+
+export type GraphEmbeddingInput = {
+  entityId: string;
+  vector: number[];
+  modelId: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type GraphEmbedding = GraphEmbeddingInput & {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  hash: string;
+  createdAt: string;
+};
+
+export interface GraphStore {
+  capabilities(): Promise<GraphStoreCapabilities>;
+  upsertEntity(input: GraphEntityInput, context: TenantContext): Promise<GraphEntity>;
+  getEntity(id: string, context: TenantContext): Promise<GraphEntity | null>;
+  listEntities(filter: GraphEntityFilter | undefined, context: TenantContext): Promise<GraphEntity[]>;
+  upsertEdge(input: GraphEdgeInput, context: TenantContext): Promise<GraphEdge>;
+  listEdges(filter: GraphEdgeFilter | undefined, context: TenantContext): Promise<GraphEdge[]>;
+  putEmbedding(input: GraphEmbeddingInput, context: TenantContext): Promise<GraphEmbedding>;
+  searchEmbeddings(
+    query: { vector: number[]; limit?: number; modelId?: string },
+    context: TenantContext,
+  ): Promise<GraphEmbedding[]>;
+}
+
+export type GraphStoreFactoryOptions = {
+  driver?: string;
+  metadataStore: MetadataStore;
+};
+
+export interface MetadataStore {
+  listRecords<T = Record<string, unknown>>(domain: string, filter?: RecordFilter): Promise<MetadataRecord<T>[]>;
+  getRecord<T = Record<string, unknown>>(domain: string, id: string): Promise<MetadataRecord<T> | null>;
+  upsertRecord<T = Record<string, unknown>>(input: MetadataRecordInput<T>): Promise<MetadataRecord<T>>;
+  deleteRecord(domain: string, id: string): Promise<void>;
+  listDomains(): Promise<MetadataDomainSummary[]>;
+  listEndpoints(projectId?: string): Promise<MetadataEndpointDescriptor[]>;
+  registerEndpoint(endpoint: MetadataEndpointDescriptor): Promise<MetadataEndpointDescriptor>;
+  listEndpointTemplates(family?: MetadataEndpointTemplateFamily): Promise<MetadataEndpointTemplateDescriptor[]>;
+  saveEndpointTemplates(templates: MetadataEndpointTemplateDescriptor[]): Promise<void>;
+}
+
+export type FileMetadataStoreOptions = {
+  rootDir?: string;
+  filename?: string;
+};
+
+const DEFAULT_DATA_DIR = path.resolve(process.cwd(), "metadata", "store");
+const RECORDS_FILE = "records.json";
+const ENDPOINTS_FILE = "endpoints.json";
+const ENDPOINT_TEMPLATES_FILE = "endpoint-templates.json";
+const DEFAULT_OBJECT_STORE_DIR = path.resolve(process.cwd(), "metadata", "objects");
+const DEFAULT_KV_STORE_FILE = path.resolve(process.cwd(), "metadata", "kv-store.json");
+const DEFAULT_JSON_STORE_DIR = path.resolve(process.cwd(), "metadata", "json");
+const DEFAULT_CODE_STORE_DIR = path.resolve(process.cwd(), "metadata", "code");
+
+export class FileMetadataStore implements MetadataStore {
+  private readonly rootDir: string;
+  private readonly recordsFile: string;
+  private readonly endpointsFile: string;
+  private readonly endpointTemplatesFile: string;
+
+  constructor(options?: FileMetadataStoreOptions) {
+    this.rootDir = options?.rootDir ?? DEFAULT_DATA_DIR;
+    this.recordsFile = path.resolve(this.rootDir, options?.filename ?? RECORDS_FILE);
+    this.endpointsFile = path.resolve(this.rootDir, ENDPOINTS_FILE);
+    this.endpointTemplatesFile = path.resolve(this.rootDir, ENDPOINT_TEMPLATES_FILE);
+  }
+
+  async listRecords<T = Record<string, unknown>>(domain: string, filter?: RecordFilter): Promise<MetadataRecord<T>[]> {
+    const records = await this.loadRecords<T>();
+    return records
+      .filter((record) => record.domain === domain)
+      .filter((record) => {
+        if (filter?.projectId && record.projectId !== filter.projectId) {
+          return false;
+        }
+        if (filter?.labels?.length) {
+          const labels = record.labels ?? [];
+          if (!filter.labels.every((label) => labels.includes(label))) {
+            return false;
+          }
+        }
+        if (filter?.search) {
+          const haystack = JSON.stringify(record.payload).toLowerCase();
+          if (!haystack.includes(filter.search.toLowerCase())) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .slice(0, filter?.limit ?? Number.POSITIVE_INFINITY);
+  }
+
+  async getRecord<T = Record<string, unknown>>(domain: string, id: string): Promise<MetadataRecord<T> | null> {
+    const records = await this.loadRecords<T>();
+    return records.find((record) => record.domain === domain && record.id === id) ?? null;
+  }
+
+  async upsertRecord<T = Record<string, unknown>>(input: MetadataRecordInput<T>): Promise<MetadataRecord<T>> {
+    const records = await this.loadRecords<T>();
+    let record = records.find((entry) => entry.domain === input.domain && entry.id === input.id);
+    const now = new Date().toISOString();
+    if (!record) {
+      record = {
+        id: input.id ?? cryptoRandomId(),
+        projectId: input.projectId,
+        domain: input.domain,
+        labels: input.labels ?? [],
+        payload: input.payload,
+        createdAt: now,
+        updatedAt: now,
+      } as MetadataRecord<T>;
+      records.push(record);
+    } else {
+      record.projectId = input.projectId;
+      record.labels = input.labels ?? [];
+      record.payload = input.payload;
+      record.updatedAt = now;
+    }
+    await this.persistRecords(records);
+    return record;
+  }
+
+  async deleteRecord(domain: string, id: string): Promise<void> {
+    const records = await this.loadRecords();
+    const next = records.filter((record) => !(record.domain === domain && record.id === id));
+    await this.persistRecords(next);
+  }
+
+  async listDomains(): Promise<MetadataDomainSummary[]> {
+    const records = await this.loadRecords();
+    const domainMap = new Map<string, MetadataDomainSummary>();
+    records.forEach((record) => {
+      const entry = domainMap.get(record.domain) ?? {
+        key: record.domain,
+        title: record.domain,
+        itemCount: 0,
+      };
+      entry.itemCount += 1;
+      domainMap.set(record.domain, entry);
+    });
+    return Array.from(domainMap.values());
+  }
+
+  async listEndpoints(projectId?: string): Promise<MetadataEndpointDescriptor[]> {
+    const endpoints = await this.loadEndpoints();
+    if (!projectId) {
+      return sortEndpointsByUpdatedAt(endpoints);
+    }
+    return sortEndpointsByUpdatedAt(endpoints.filter((endpoint) => endpoint.projectId === projectId));
+  }
+
+  async registerEndpoint(endpoint: MetadataEndpointDescriptor): Promise<MetadataEndpointDescriptor> {
+    const endpoints = await this.loadEndpoints();
+    const existingIndex = endpoints.findIndex((entry) => entry.id === endpoint.id);
+    const now = new Date().toISOString();
+    if (existingIndex >= 0) {
+      const existing = endpoints[existingIndex];
+      const updated: MetadataEndpointDescriptor = {
+        ...existing,
+        ...endpoint,
+        sourceId: endpoint.sourceId ?? existing.sourceId ?? generateSourceId(endpoint),
+        createdAt: existing.createdAt ?? endpoint.createdAt ?? now,
+        updatedAt: now,
+        deletedAt: endpoint.deletedAt ?? existing.deletedAt ?? null,
+        deletionReason: endpoint.deletionReason ?? existing.deletionReason ?? null,
+      };
+      endpoints[existingIndex] = updated;
+      await this.persistEndpoints(endpoints);
+      return updated;
+    }
+    const descriptor: MetadataEndpointDescriptor = {
+      ...endpoint,
+      id: endpoint.id ?? cryptoRandomId(),
+      sourceId: endpoint.sourceId ?? generateSourceId(endpoint),
+      createdAt: endpoint.createdAt ?? now,
+      updatedAt: endpoint.updatedAt ?? now,
+      deletedAt: endpoint.deletedAt ?? null,
+      deletionReason: endpoint.deletionReason ?? null,
+    };
+    endpoints.push(descriptor);
+    await this.persistEndpoints(endpoints);
+    return descriptor;
+  }
+
+  async listEndpointTemplates(family?: MetadataEndpointTemplateFamily): Promise<MetadataEndpointTemplateDescriptor[]> {
+    const templates = await this.loadEndpointTemplates();
+    return family ? templates.filter((template) => template.family === family) : templates;
+  }
+
+  async saveEndpointTemplates(templates: MetadataEndpointTemplateDescriptor[]): Promise<void> {
+    const existing = await this.loadEndpointTemplates();
+    const merged = new Map(existing.map((template) => [template.id, template]));
+    templates.forEach((template) => merged.set(template.id, template));
+    await this.persistEndpointTemplates(Array.from(merged.values()));
+  }
+
+  private async loadEndpointTemplates(): Promise<MetadataEndpointTemplateDescriptor[]> {
+    try {
+      const contents = await readFile(this.endpointTemplatesFile, "utf-8");
+      const parsed = JSON.parse(contents);
+      if (Array.isArray(parsed)) {
+        return parsed as MetadataEndpointTemplateDescriptor[];
+      }
+      return [];
+    } catch (error) {
+      if (isENOENT(error)) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async persistEndpointTemplates(templates: MetadataEndpointTemplateDescriptor[]): Promise<void> {
+    await ensureParentDir(this.endpointTemplatesFile);
+    await writeFile(this.endpointTemplatesFile, JSON.stringify(templates, null, 2));
+  }
+
+  private async loadRecords<T = Record<string, unknown>>(): Promise<MetadataRecord<T>[]> {
+    await ensureDir(this.rootDir);
+    try {
+      const contents = await readFile(this.recordsFile, "utf-8");
+      const parsed = JSON.parse(contents) as MetadataRecord<T>[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error: unknown) {
+      if (isENOENT(error)) {
+        await this.persistRecords([]);
+        return [];
+      }
+      if (error instanceof SyntaxError) {
+        // eslint-disable-next-line no-console
+        console.warn(`Metadata store at ${this.recordsFile} is corrupted. Resetting the manifest.`);
+        await this.persistRecords([]);
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async persistRecords(records: MetadataRecord<unknown>[]): Promise<void> {
+    await ensureDir(this.rootDir);
+    await writeFile(this.recordsFile, JSON.stringify(records, null, 2), "utf-8");
+  }
+
+  private async loadEndpoints(): Promise<MetadataEndpointDescriptor[]> {
+    await ensureDir(this.rootDir);
+    try {
+      const contents = await readFile(this.endpointsFile, "utf-8");
+      const raw = JSON.parse(contents);
+      const parsed = Array.isArray(raw) ? (raw as MetadataEndpointDescriptor[]) : [];
+      let mutated = false;
+      const normalized = parsed.map((entry) => {
+        if (entry.sourceId && entry.sourceId.trim().length > 0) {
+          return entry;
+        }
+        mutated = true;
+        return { ...entry, sourceId: generateSourceId(entry) };
+      });
+      if (mutated) {
+        await this.persistEndpoints(normalized);
+      }
+      return normalized;
+    } catch (error: unknown) {
+      if (isENOENT(error)) {
+        await this.persistEndpoints([]);
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async persistEndpoints(endpoints: MetadataEndpointDescriptor[]): Promise<void> {
+    await ensureDir(this.rootDir);
+    await writeFile(this.endpointsFile, JSON.stringify(endpoints, null, 2), "utf-8");
+  }
+}
+
+type PrismaMetadataClient = {
+  metadataRecord: {
+    findMany(args: unknown): Promise<any[]>;
+    findUnique(args: unknown): Promise<any | null>;
+    create(args: unknown): Promise<any>;
+    upsert(args: unknown): Promise<any>;
+    delete(args: unknown): Promise<void>;
+    groupBy?(args: unknown): Promise<any[]>;
+  };
+  metadataDomain?: {
+    findMany(args?: unknown): Promise<any[]>;
+  };
+  metadataProject?: {
+    findUnique(args: unknown): Promise<any | null>;
+    create(args: unknown): Promise<any>;
+  };
+  metadataEndpoint: {
+    findUnique?(args: unknown): Promise<any | null>;
+    findMany(args?: unknown): Promise<any[]>;
+    upsert(args: unknown): Promise<any>;
+  };
+  metadataEndpointTemplate?: {
+    findMany(args?: unknown): Promise<any[]>;
+    upsert(args: unknown): Promise<any>;
+  };
+};
+
+export class PrismaMetadataStore implements MetadataStore {
+  constructor(private readonly prisma: PrismaMetadataClient) {}
+
+  async listRecords<T = Record<string, unknown>>(domain: string, filter?: RecordFilter): Promise<MetadataRecord<T>[]> {
+    const resolvedProjectId = await this.resolveProjectId(filter?.projectId ?? null);
+    const where: Record<string, unknown> = {
+      domain,
+      projectId: resolvedProjectId ?? filter?.projectId,
+      labels: filter?.labels?.length ? { hasEvery: filter.labels } : undefined,
+    };
+    const records = await this.prisma.metadataRecord.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: filter?.search ? undefined : filter?.limit,
+    });
+    const filtered = filter?.search
+      ? records.filter((record) => {
+          const haystack = JSON.stringify(record.payload ?? {}).toLowerCase();
+          return haystack.includes(filter.search!.toLowerCase());
+        })
+      : records;
+    const limited = filter?.limit ? filtered.slice(0, filter.limit) : filtered;
+    return limited.map((record) => mapPrismaRecord<T>(record));
+  }
+
+  async getRecord<T = Record<string, unknown>>(domain: string, id: string): Promise<MetadataRecord<T> | null> {
+    const record = await this.prisma.metadataRecord.findUnique({ where: { id } });
+    if (!record || record.domain !== domain) {
+      return null;
+    }
+    return mapPrismaRecord<T>(record);
+  }
+
+  async upsertRecord<T = Record<string, unknown>>(input: MetadataRecordInput<T>): Promise<MetadataRecord<T>> {
+    const ensuredProjectId = await this.ensureProject(input.projectId);
+    if (input.id) {
+      const upserted = await this.prisma.metadataRecord.upsert({
+        where: { id: input.id },
+        update: {
+          projectId: ensuredProjectId,
+          domain: input.domain,
+          labels: input.labels ?? [],
+          payload: input.payload,
+        },
+        create: {
+          id: input.id,
+          projectId: ensuredProjectId,
+          domain: input.domain,
+          labels: input.labels ?? [],
+          payload: input.payload,
+        },
+      });
+      return mapPrismaRecord<T>(upserted);
+    }
+    const created = await this.prisma.metadataRecord.create({
+      data: {
+        projectId: ensuredProjectId,
+        domain: input.domain,
+        labels: input.labels ?? [],
+        payload: input.payload,
+      },
+    });
+    return mapPrismaRecord<T>(created);
+  }
+
+  async deleteRecord(domain: string, id: string): Promise<void> {
+    const record = await this.prisma.metadataRecord.findUnique({ where: { id } });
+    if (!record || record.domain !== domain) {
+      return;
+    }
+    await this.prisma.metadataRecord.delete({ where: { id } });
+  }
+
+  async listDomains(): Promise<MetadataDomainSummary[]> {
+    const explicit = (await this.prisma.metadataDomain?.findMany?.()) ?? [];
+    if (explicit.length > 0) {
+      return explicit.map((domain: any) => ({
+        key: domain.key,
+        title: domain.title,
+        description: domain.description ?? undefined,
+        itemCount: domain.itemCount ?? 0,
+      }));
+    }
+    if (typeof this.prisma.metadataRecord.groupBy === "function") {
+      const aggregates = await this.prisma.metadataRecord.groupBy({
+        by: ["domain"],
+        _count: { domain: true },
+      });
+      return aggregates.map((entry: any) => ({
+        key: entry.domain,
+        title: entry.domain,
+        itemCount: entry._count?.domain ?? 0,
+      }));
+    }
+    const records = await this.prisma.metadataRecord.findMany({
+      select: { domain: true },
+    });
+    const domainCounts = records.reduce<Record<string, number>>((acc, record) => {
+      acc[record.domain] = (acc[record.domain] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(domainCounts).map(([key, count]) => ({
+      key,
+      title: key,
+      itemCount: count,
+    }));
+  }
+
+  async listEndpoints(projectId?: string): Promise<MetadataEndpointDescriptor[]> {
+    const resolvedProjectId = await this.resolveProjectId(projectId ?? null);
+    const endpoints = await this.prisma.metadataEndpoint.findMany({
+      where: resolvedProjectId ? { projectId: resolvedProjectId } : undefined,
+      orderBy: { updatedAt: "desc" },
+    });
+    return endpoints.map(mapPrismaEndpoint);
+  }
+
+  async registerEndpoint(endpoint: MetadataEndpointDescriptor): Promise<MetadataEndpointDescriptor> {
+    const endpointId = endpoint.id ?? cryptoRandomId();
+    const normalizedSourceId =
+      endpoint.sourceId && endpoint.sourceId.trim().length > 0 ? endpoint.sourceId.trim() : undefined;
+    const ensuredProjectId = await this.ensureProject(endpoint.projectId ?? null);
+    const result = await this.prisma.metadataEndpoint.upsert({
+      where: { id: endpointId },
+      update: {
+        name: endpoint.name,
+        description: endpoint.description ?? null,
+        verb: endpoint.verb,
+        url: endpoint.url,
+        authPolicy: endpoint.authPolicy ?? null,
+        projectId: ensuredProjectId,
+        domain: endpoint.domain ?? null,
+        labels: endpoint.labels ?? (endpoint.domain ? [endpoint.domain] : []),
+        config: endpoint.config ?? null,
+        detectedVersion: endpoint.detectedVersion ?? null,
+        versionHint: endpoint.versionHint ?? null,
+        capabilities: endpoint.capabilities ?? [],
+        ...(normalizedSourceId ? { sourceId: normalizedSourceId } : {}),
+        deletedAt: endpoint.deletedAt ?? null,
+        deletionReason: endpoint.deletionReason ?? null,
+      },
+      create: {
+        id: endpointId,
+        sourceId: normalizedSourceId ?? generateSourceId(endpoint),
+        name: endpoint.name,
+        description: endpoint.description ?? null,
+        verb: endpoint.verb,
+        url: endpoint.url,
+        authPolicy: endpoint.authPolicy ?? null,
+        projectId: ensuredProjectId,
+        domain: endpoint.domain ?? null,
+        labels: endpoint.labels ?? (endpoint.domain ? [endpoint.domain] : []),
+        config: endpoint.config ?? null,
+        detectedVersion: endpoint.detectedVersion ?? null,
+        versionHint: endpoint.versionHint ?? null,
+        capabilities: endpoint.capabilities ?? [],
+        deletedAt: endpoint.deletedAt ?? null,
+        deletionReason: endpoint.deletionReason ?? null,
+      },
+    });
+    return mapPrismaEndpoint(result);
+  }
+
+  async listEndpointTemplates(family?: MetadataEndpointTemplateFamily): Promise<MetadataEndpointTemplateDescriptor[]> {
+    const templateClient = this.prisma.metadataEndpointTemplate;
+    if (!templateClient?.findMany) {
+      return [];
+    }
+    const templates = await templateClient.findMany({
+      where: family ? { family } : undefined,
+    });
+    return templates.map(mapPrismaEndpointTemplate);
+  }
+
+  async saveEndpointTemplates(templates: MetadataEndpointTemplateDescriptor[]): Promise<void> {
+    const templateClient = this.prisma.metadataEndpointTemplate;
+    if (!templateClient?.upsert) {
+      return;
+    }
+    await Promise.all(
+      templates.map((template) =>
+        templateClient.upsert({
+          where: { id: template.id },
+          update: {
+            family: template.family,
+            title: template.title,
+            vendor: template.vendor,
+            descriptor: template,
+          },
+          create: {
+            id: template.id,
+            family: template.family,
+            title: template.title,
+            vendor: template.vendor,
+            descriptor: template,
+          },
+        }),
+      ),
+    );
+  }
+
+  private async ensureProject(projectId?: string | null): Promise<string | null> {
+    if (!projectId) {
+      return null;
+    }
+    const normalized = projectId.trim();
+    if (!normalized.length) {
+      return null;
+    }
+    const projectClient = this.prisma.metadataProject;
+    if (!projectClient?.findUnique || !projectClient?.create) {
+      return normalized;
+    }
+    const resolved = await this.resolveProjectId(normalized);
+    if (resolved && resolved !== normalized) {
+      return resolved;
+    }
+    if (resolved === normalized) {
+      const exists = await projectClient.findUnique({ where: { id: normalized } });
+      if (exists) {
+        return normalized;
+      }
+    }
+    const slug = slugify(normalized);
+    const existingBySlug = await projectClient.findUnique({ where: { slug } });
+    if (existingBySlug) {
+      return existingBySlug.id ?? normalized;
+    }
+    await projectClient.create({
+      data: {
+        id: normalized,
+        slug,
+        displayName: normalized,
+      },
+    });
+    return normalized;
+  }
+
+  private async resolveProjectId(projectId?: string | null): Promise<string | null> {
+    if (!projectId) {
+      return null;
+    }
+    const normalized = projectId.trim();
+    if (!normalized.length) {
+      return null;
+    }
+    const projectClient = this.prisma.metadataProject;
+    if (!projectClient?.findUnique) {
+      return normalized;
+    }
+    const existing = await projectClient.findUnique({ where: { id: normalized } });
+    if (existing) {
+      return normalized;
+    }
+    const slug = slugify(normalized);
+    const existingBySlug = await projectClient.findUnique({ where: { slug } });
+    if (existingBySlug) {
+      return existingBySlug.id ?? normalized;
+    }
+    return normalized;
+  }
+}
+
+function mapPrismaRecord<T>(record: any): MetadataRecord<T> {
+  return {
+    id: record.id,
+    projectId: record.projectId,
+    domain: record.domain,
+    labels: record.labels ?? [],
+    payload: record.payload as T,
+    createdAt: (record.createdAt instanceof Date ? record.createdAt : new Date(record.createdAt)).toISOString(),
+    updatedAt: (record.updatedAt instanceof Date ? record.updatedAt : new Date(record.updatedAt)).toISOString(),
+  };
+}
+
+function sortEndpointsByUpdatedAt(endpoints: MetadataEndpointDescriptor[]): MetadataEndpointDescriptor[] {
+  return [...endpoints].sort((a, b) => {
+    const aTime = Date.parse(a.updatedAt ?? a.createdAt ?? "") || 0;
+    const bTime = Date.parse(b.updatedAt ?? b.createdAt ?? "") || 0;
+    return bTime - aTime;
+  });
+}
+
+function mapPrismaEndpoint(endpoint: any): MetadataEndpointDescriptor {
+  return {
+    id: endpoint.id,
+    sourceId: endpoint.sourceId ?? undefined,
+    name: endpoint.name,
+    description: endpoint.description ?? undefined,
+    verb: endpoint.verb as HttpVerb,
+    url: endpoint.url,
+    authPolicy: endpoint.authPolicy ?? undefined,
+    projectId: endpoint.projectId ?? undefined,
+    domain: endpoint.domain ?? undefined,
+    labels: endpoint.labels ?? undefined,
+    config: endpoint.config ?? undefined,
+    detectedVersion: endpoint.detectedVersion ?? undefined,
+    versionHint: endpoint.versionHint ?? undefined,
+    capabilities: endpoint.capabilities ?? [],
+    createdAt:
+      endpoint.createdAt instanceof Date
+        ? endpoint.createdAt.toISOString()
+        : new Date(endpoint.createdAt ?? Date.now()).toISOString(),
+    updatedAt:
+      endpoint.updatedAt instanceof Date
+        ? endpoint.updatedAt.toISOString()
+        : new Date(endpoint.updatedAt ?? Date.now()).toISOString(),
+    deletedAt:
+      endpoint.deletedAt instanceof Date
+        ? endpoint.deletedAt.toISOString()
+        : endpoint.deletedAt
+          ? new Date(endpoint.deletedAt).toISOString()
+          : null,
+    deletionReason: endpoint.deletionReason ?? null,
+  };
+}
+
+function mapPrismaEndpointTemplate(template: any): MetadataEndpointTemplateDescriptor {
+  const descriptor = (template.descriptor ?? {}) as MetadataEndpointTemplateDescriptor;
+  return {
+    ...descriptor,
+    id: descriptor.id ?? template.id,
+    family: descriptor.family ?? template.family,
+    title: descriptor.title ?? template.title,
+    vendor: descriptor.vendor ?? template.vendor,
+  };
+}
+
+function cryptoRandomId(): string {
+  try {
+    return nodeRandomUUID().replace(/-/g, "");
+  } catch {
+    return Math.random().toString(36).slice(2, 10);
+  }
+}
+
+function generateSourceId(endpoint: MetadataEndpointDescriptor): string {
+  const projectSlug = slugify(endpoint.projectId ?? "global");
+  const nameSlug = slugify(endpoint.name || "endpoint");
+  const base = [projectSlug, nameSlug].filter(Boolean).join("-");
+  return `${base}-${cryptoRandomId()}`;
+}
+
+function slugify(value: string): string {
+  return value
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "source";
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  try {
+    await mkdir(dir, { recursive: true });
+  } catch (error) {
+    if (!isEEXIST(error)) {
+      throw error;
+    }
+  }
+}
+
+async function ensureParentDir(filePath: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+}
+
+function isENOENT(error: unknown): boolean {
+  return Boolean((error as NodeJS.ErrnoException)?.code === "ENOENT");
+}
+
+function isEEXIST(error: unknown): boolean {
+  return Boolean((error as NodeJS.ErrnoException)?.code === "EEXIST");
+}
+
+type GraphEntityRecordPayload = {
+  tenantId: string;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string;
+  sourceSystem?: string;
+  specRef?: string;
+  properties?: Record<string, unknown>;
+  version: number;
+  projectId: string;
+};
+
+type GraphEdgeRecordPayload = {
+  tenantId: string;
+  edgeType: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  confidence?: number;
+  specRef?: string;
+  metadata?: Record<string, unknown>;
+  projectId: string;
+};
+
+type GraphEmbeddingRecordPayload = {
+  tenantId: string;
+  projectId: string;
+  entityId: string;
+  modelId: string;
+  vector: number[];
+  hash: string;
+  metadata?: Record<string, unknown>;
+};
+
+const GRAPH_ENTITY_DOMAIN = "graph.entity";
+const GRAPH_EDGE_DOMAIN = "graph.edge";
+const GRAPH_EMBEDDING_DOMAIN = "graph.embedding";
+
+class MetadataGraphStore implements GraphStore {
+  constructor(private readonly store: MetadataStore) {}
+
+  async capabilities(): Promise<GraphStoreCapabilities> {
+    return {
+      vectorSearch: true,
+      pathQueries: false,
+      annotations: true,
+    };
+  }
+
+  async upsertEntity(input: GraphEntityInput, context: TenantContext): Promise<GraphEntity> {
+    const existing = input.id
+      ? await this.store.getRecord<GraphEntityRecordPayload>(GRAPH_ENTITY_DOMAIN, input.id)
+      : null;
+    const nextVersion = existing ? (existing.payload?.version ?? 0) + 1 : 1;
+    const record = await this.store.upsertRecord<GraphEntityRecordPayload>({
+      id: input.id,
+      projectId: context.projectId,
+      domain: GRAPH_ENTITY_DOMAIN,
+      labels: [context.tenantId, input.entityType],
+      payload: {
+        tenantId: context.tenantId,
+        entityType: input.entityType,
+        displayName: input.displayName,
+        canonicalPath: input.canonicalPath,
+        sourceSystem: input.sourceSystem,
+        specRef: input.specRef,
+        properties: input.properties ?? {},
+        version: nextVersion,
+        projectId: context.projectId,
+      },
+    });
+    return mapRecordToGraphEntity(record);
+  }
+
+  async getEntity(id: string, context: TenantContext): Promise<GraphEntity | null> {
+    const record = await this.store.getRecord<GraphEntityRecordPayload>(GRAPH_ENTITY_DOMAIN, id);
+    if (!record || record.projectId !== context.projectId) {
+      return null;
+    }
+    return mapRecordToGraphEntity(record);
+  }
+
+  async listEntities(filter: GraphEntityFilter | undefined, context: TenantContext): Promise<GraphEntity[]> {
+    const records = await this.store.listRecords<GraphEntityRecordPayload>(GRAPH_ENTITY_DOMAIN, {
+      projectId: context.projectId,
+      limit: filter?.limit,
+    });
+    return records
+      .filter((record) => (filter?.entityTypes?.length ? filter.entityTypes.includes(record.payload.entityType) : true))
+      .filter((record) => {
+        if (!filter?.search) {
+          return true;
+        }
+        const haystack = `${record.payload.displayName} ${record.payload.canonicalPath ?? ""} ${JSON.stringify(
+          record.payload.properties ?? {},
+        )}`.toLowerCase();
+        return haystack.includes(filter.search.toLowerCase());
+      })
+      .map(mapRecordToGraphEntity);
+  }
+
+  async upsertEdge(input: GraphEdgeInput, context: TenantContext): Promise<GraphEdge> {
+    const record = await this.store.upsertRecord<GraphEdgeRecordPayload>({
+      id: input.id,
+      projectId: context.projectId,
+      domain: GRAPH_EDGE_DOMAIN,
+      labels: [context.tenantId, input.edgeType],
+      payload: {
+        tenantId: context.tenantId,
+        edgeType: input.edgeType,
+        sourceEntityId: input.sourceEntityId,
+        targetEntityId: input.targetEntityId,
+        confidence: input.confidence,
+        specRef: input.specRef,
+        metadata: input.metadata ?? {},
+        projectId: context.projectId,
+      },
+    });
+    return mapRecordToGraphEdge(record);
+  }
+
+  async listEdges(filter: GraphEdgeFilter | undefined, context: TenantContext): Promise<GraphEdge[]> {
+    const records = await this.store.listRecords<GraphEdgeRecordPayload>(GRAPH_EDGE_DOMAIN, {
+      projectId: context.projectId,
+      limit: filter?.limit,
+    });
+    return records
+      .filter((record) => (filter?.edgeTypes?.length ? filter.edgeTypes.includes(record.payload.edgeType) : true))
+      .filter((record) => {
+        if (filter?.sourceEntityId && record.payload.sourceEntityId !== filter.sourceEntityId) {
+          return false;
+        }
+        if (filter?.targetEntityId && record.payload.targetEntityId !== filter.targetEntityId) {
+          return false;
+        }
+        return true;
+      })
+      .map(mapRecordToGraphEdge);
+  }
+
+  async putEmbedding(input: GraphEmbeddingInput, context: TenantContext): Promise<GraphEmbedding> {
+    const hash = hashVector(input.vector);
+    const record = await this.store.upsertRecord<GraphEmbeddingRecordPayload>({
+      id: `${input.entityId}-${hash}`,
+      projectId: context.projectId,
+      domain: GRAPH_EMBEDDING_DOMAIN,
+      labels: [context.tenantId, input.modelId],
+      payload: {
+        tenantId: context.tenantId,
+        projectId: context.projectId,
+        entityId: input.entityId,
+        modelId: input.modelId,
+        vector: input.vector,
+        hash,
+        metadata: input.metadata ?? {},
+      },
+    });
+    return mapRecordToGraphEmbedding(record);
+  }
+
+  async searchEmbeddings(
+    query: { vector: number[]; limit?: number; modelId?: string },
+    context: TenantContext,
+  ): Promise<GraphEmbedding[]> {
+    const records = await this.store.listRecords<GraphEmbeddingRecordPayload>(GRAPH_EMBEDDING_DOMAIN, {
+      projectId: context.projectId,
+    });
+    const scored = records
+      .filter((record) => (query.modelId ? record.payload.modelId === query.modelId : true))
+      .map((record) => {
+        const similarity = cosineSimilarity(query.vector, record.payload.vector);
+        return { record, similarity };
+      })
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, query.limit ?? 10);
+    return scored.map((entry) => mapRecordToGraphEmbedding(entry.record));
+  }
+}
+
+function mapRecordToGraphEntity(record: MetadataRecord<GraphEntityRecordPayload>): GraphEntity {
+  return {
+    id: record.id,
+    tenantId: record.payload.tenantId,
+    projectId: record.projectId,
+    entityType: record.payload.entityType,
+    displayName: record.payload.displayName,
+    canonicalPath: record.payload.canonicalPath,
+    sourceSystem: record.payload.sourceSystem,
+    specRef: record.payload.specRef,
+    properties: record.payload.properties ?? {},
+    version: record.payload.version ?? 1,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function mapRecordToGraphEdge(record: MetadataRecord<GraphEdgeRecordPayload>): GraphEdge {
+  return {
+    id: record.id,
+    tenantId: record.payload.tenantId,
+    projectId: record.projectId,
+    edgeType: record.payload.edgeType,
+    sourceEntityId: record.payload.sourceEntityId,
+    targetEntityId: record.payload.targetEntityId,
+    confidence: record.payload.confidence,
+    specRef: record.payload.specRef,
+    metadata: record.payload.metadata ?? {},
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function mapRecordToGraphEmbedding(record: MetadataRecord<GraphEmbeddingRecordPayload>): GraphEmbedding {
+  return {
+    id: record.id,
+    tenantId: record.payload.tenantId,
+    projectId: record.projectId,
+    entityId: record.payload.entityId,
+    modelId: record.payload.modelId,
+    vector: record.payload.vector,
+    hash: record.payload.hash,
+    metadata: record.payload.metadata ?? {},
+    createdAt: record.createdAt,
+  };
+}
+
+export function createGraphStore(options: GraphStoreFactoryOptions): GraphStore {
+  const driver = (options.driver ?? "metadata").toLowerCase();
+  switch (driver) {
+    case "metadata":
+    case "postgres":
+      return new MetadataGraphStore(options.metadataStore);
+    default:
+      throw new Error(`Unsupported graph store driver: ${driver}`);
+  }
+}
+
+export interface ObjectStore {
+  putObject(key: string, body: Buffer | Uint8Array | string): Promise<void>;
+  getObject(key: string): Promise<Buffer | null>;
+  deleteObject(key: string): Promise<void>;
+  generatePresignedUrl?(key: string, options?: { expiresInSeconds?: number }): Promise<string>;
+}
+
+export type ObjectStoreFactoryOptions = {
+  driver?: string;
+  rootDir?: string;
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  forcePathStyle?: boolean;
+};
+
+class FileObjectStore implements ObjectStore {
+  constructor(private readonly rootDir: string) {}
+
+  async putObject(key: string, body: Buffer | Uint8Array | string): Promise<void> {
+    const resolved = this.resolvePath(key);
+    await ensureParentDir(resolved);
+    const data = typeof body === "string" ? body : Buffer.from(body);
+    await writeFile(resolved, data);
+  }
+
+  async getObject(key: string): Promise<Buffer | null> {
+    try {
+      const resolved = this.resolvePath(key);
+      const data = await readFile(resolved);
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    try {
+      await unlink(this.resolvePath(key));
+    } catch {
+      // ignore
+    }
+  }
+
+  async generatePresignedUrl(key: string): Promise<string> {
+    const resolved = this.resolvePath(key);
+    return pathToFileURL(resolved).toString();
+  }
+
+  private resolvePath(key: string): string {
+    const normalized = key.replace(/^\/+/, "");
+    return path.resolve(this.rootDir, normalized);
+  }
+}
+
+class S3ObjectStore implements ObjectStore {
+  constructor(private readonly client: S3Client, private readonly bucket: string) {}
+
+  async putObject(key: string, body: Buffer | Uint8Array | string): Promise<void> {
+    const payload = typeof body === "string" ? Buffer.from(body) : Buffer.isBuffer(body) ? body : Buffer.from(body);
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: payload,
+      }),
+    );
+  }
+
+  async getObject(key: string): Promise<Buffer | null> {
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        }),
+      );
+      if (!response.Body) {
+        return null;
+      }
+      const chunks: Uint8Array[] = [];
+      const stream = response.Body as NodeJS.ReadableStream;
+      for await (const chunk of stream) {
+        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+      }
+      return Buffer.concat(chunks);
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+  }
+
+  async generatePresignedUrl(key: string, options?: { expiresInSeconds?: number }): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    return getSignedUrl(this.client, command, { expiresIn: options?.expiresInSeconds ?? 300 });
+  }
+}
+
+export function createObjectStore(options?: ObjectStoreFactoryOptions): ObjectStore {
+  const driver = (options?.driver ?? process.env.OBJECT_STORE_DRIVER ?? "file").toLowerCase();
+  switch (driver) {
+    case "file":
+      return new FileObjectStore(options?.rootDir ?? process.env.OBJECT_STORE_ROOT ?? DEFAULT_OBJECT_STORE_DIR);
+    case "s3": {
+      const bucket = options?.bucket ?? process.env.OBJECT_STORE_BUCKET;
+      if (!bucket) {
+        throw new Error("OBJECT_STORE_BUCKET is required for s3 driver");
+      }
+      const endpoint = options?.endpoint ?? process.env.OBJECT_STORE_ENDPOINT;
+      const region = options?.region ?? process.env.OBJECT_STORE_REGION ?? "us-east-1";
+      const accessKeyId = options?.accessKeyId ?? process.env.OBJECT_STORE_ACCESS_KEY;
+      const secretAccessKey = options?.secretAccessKey ?? process.env.OBJECT_STORE_SECRET_KEY;
+      if (!accessKeyId || !secretAccessKey) {
+        throw new Error("OBJECT_STORE_ACCESS_KEY and OBJECT_STORE_SECRET_KEY are required for s3 driver");
+      }
+      const forcePathStyle =
+        options?.forcePathStyle ??
+        (process.env.OBJECT_STORE_FORCE_PATH_STYLE ? process.env.OBJECT_STORE_FORCE_PATH_STYLE === "true" : true);
+      const client = new S3Client({
+        region,
+        endpoint,
+        forcePathStyle,
+        credentials: {
+          accessKeyId,
+          secretAccessKey,
+        },
+      });
+      return new S3ObjectStore(client, bucket);
+    }
+    default:
+      throw new Error(`Unsupported object store driver: ${driver}`);
+  }
+}
+
+export interface KeyValueStore {
+  get<T = unknown>(key: string): Promise<{ value: T | null; version: string | null }>;
+  put<T = unknown>(key: string, value: T, options?: { expectedVersion?: string | null }): Promise<string>;
+  delete(key: string, options?: { expectedVersion?: string | null }): Promise<void>;
+}
+
+type KeyValueStoreFactoryOptions = {
+  driver?: string;
+  filePath?: string;
+};
+
+type FileKeyValueEntry = {
+  value: unknown;
+  version: string;
+  updatedAt: string;
+};
+
+class FileKeyValueStore implements KeyValueStore {
+  constructor(private readonly filePath: string) {}
+
+  async get<T = unknown>(key: string): Promise<{ value: T | null; version: string | null }> {
+    const store = await this.load();
+    const entry = store[key];
+    if (!entry) {
+      return { value: null, version: null };
+    }
+    return {
+      value: entry.value as T,
+      version: entry.version,
+    };
+  }
+
+  async put<T = unknown>(key: string, value: T, options?: { expectedVersion?: string | null }): Promise<string> {
+    const store = await this.load();
+    const current = store[key];
+    if (options?.expectedVersion && current?.version !== options.expectedVersion) {
+      throw new Error("CAS mismatch");
+    }
+    const version = cryptoRandomId();
+    store[key] = {
+      value,
+      version,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.persist(store);
+    return version;
+  }
+
+  async delete(key: string, options?: { expectedVersion?: string | null }): Promise<void> {
+    const store = await this.load();
+    const current = store[key];
+    if (!current) {
+      return;
+    }
+    if (options?.expectedVersion && current.version !== options.expectedVersion) {
+      throw new Error("CAS mismatch");
+    }
+    delete store[key];
+    await this.persist(store);
+  }
+
+  private async load(): Promise<Record<string, FileKeyValueEntry>> {
+    try {
+      const raw = await readFile(this.filePath, "utf-8");
+      const parsed = JSON.parse(raw);
+      return typeof parsed === "object" && parsed ? (parsed as Record<string, FileKeyValueEntry>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private async persist(store: Record<string, FileKeyValueEntry>): Promise<void> {
+    await ensureParentDir(this.filePath);
+    await writeFile(this.filePath, JSON.stringify(store, null, 2), "utf-8");
+  }
+}
+
+export function createKeyValueStore(options?: KeyValueStoreFactoryOptions): KeyValueStore {
+  const driver = (options?.driver ?? process.env.KV_STORE_DRIVER ?? "file").toLowerCase();
+  switch (driver) {
+    case "file":
+      return new FileKeyValueStore(options?.filePath ?? process.env.KV_STORE_FILE ?? DEFAULT_KV_STORE_FILE);
+    default:
+      throw new Error(`Unsupported KV store driver: ${driver}`);
+  }
+}
+
+export interface JsonDocumentStore {
+  getDocument<T = unknown>(collection: string, id: string): Promise<T | null>;
+  upsertDocument<T = unknown>(collection: string, id: string, document: T): Promise<void>;
+  deleteDocument(collection: string, id: string): Promise<void>;
+}
+
+type JsonDocumentStoreFactoryOptions = {
+  driver?: string;
+  rootDir?: string;
+  objectStoreOptions?: ObjectStoreFactoryOptions;
+};
+
+class FileJsonDocumentStore implements JsonDocumentStore {
+  constructor(private readonly rootDir: string) {}
+
+  async getDocument<T = unknown>(collection: string, id: string): Promise<T | null> {
+    try {
+      const raw = await readFile(this.resolve(collection, id), "utf-8");
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  async upsertDocument<T = unknown>(collection: string, id: string, document: T): Promise<void> {
+    const resolved = this.resolve(collection, id);
+    await ensureParentDir(resolved);
+    await writeFile(resolved, JSON.stringify(document, null, 2), "utf-8");
+  }
+
+  async deleteDocument(collection: string, id: string): Promise<void> {
+    try {
+      await unlink(this.resolve(collection, id));
+    } catch {
+      // ignore
+    }
+  }
+
+  private resolve(collection: string, id: string): string {
+    return path.resolve(this.rootDir, collection, `${id}.json`);
+  }
+}
+
+class ObjectJsonDocumentStore implements JsonDocumentStore {
+  constructor(private readonly store: ObjectStore, private readonly prefix: string) {}
+
+  async getDocument<T = unknown>(collection: string, id: string): Promise<T | null> {
+    const key = this.key(collection, id);
+    const data = await this.store.getObject(key);
+    if (!data) {
+      return null;
+    }
+    return JSON.parse(data.toString("utf-8")) as T;
+  }
+
+  async upsertDocument<T = unknown>(collection: string, id: string, document: T): Promise<void> {
+    const key = this.key(collection, id);
+    const payload = JSON.stringify(document, null, 2);
+    await this.store.putObject(key, payload);
+  }
+
+  async deleteDocument(collection: string, id: string): Promise<void> {
+    const key = this.key(collection, id);
+    await this.store.deleteObject(key);
+  }
+
+  private key(collection: string, id: string): string {
+    return `${this.prefix}/${collection}/${id}.json`;
+  }
+}
+
+export function createJsonDocumentStore(options?: JsonDocumentStoreFactoryOptions): JsonDocumentStore {
+  const driver = (options?.driver ?? process.env.JSON_STORE_DRIVER ?? "file").toLowerCase();
+  switch (driver) {
+    case "file":
+      return new FileJsonDocumentStore(options?.rootDir ?? process.env.JSON_STORE_ROOT ?? DEFAULT_JSON_STORE_DIR);
+    case "s3": {
+      const prefix = process.env.JSON_STORE_PREFIX ?? "json";
+      const objectStore =
+        options?.objectStoreOptions && options.objectStoreOptions.driver
+          ? createObjectStore(options.objectStoreOptions)
+          : createObjectStore({ driver: "s3" });
+      return new ObjectJsonDocumentStore(objectStore, prefix);
+    }
+    default:
+      throw new Error(`Unsupported JSON store driver: ${driver}`);
+  }
+}
+
+export interface CodeStore {
+  saveSnippet(input: { path: string; content: string }): Promise<void>;
+  readSnippet(path: string): Promise<string | null>;
+  deleteSnippet(path: string): Promise<void>;
+}
+
+type CodeStoreFactoryOptions = {
+  driver?: string;
+  rootDir?: string;
+  objectStoreOptions?: ObjectStoreFactoryOptions;
+};
+
+class FileCodeStore implements CodeStore {
+  constructor(private readonly rootDir: string) {}
+
+  async saveSnippet(input: { path: string; content: string }): Promise<void> {
+    const resolved = this.resolve(input.path);
+    await ensureParentDir(resolved);
+    await writeFile(resolved, input.content, "utf-8");
+  }
+
+  async readSnippet(pathName: string): Promise<string | null> {
+    try {
+      return await readFile(this.resolve(pathName), "utf-8");
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteSnippet(pathName: string): Promise<void> {
+    try {
+      await unlink(this.resolve(pathName));
+    } catch {
+      // ignore
+    }
+  }
+
+  private resolve(pathName: string): string {
+    const normalized = pathName.replace(/^\/+/, "");
+    return path.resolve(this.rootDir, normalized);
+  }
+}
+
+class ObjectCodeStore implements CodeStore {
+  constructor(private readonly store: ObjectStore, private readonly prefix: string) {}
+
+  async saveSnippet(input: { path: string; content: string }): Promise<void> {
+    const key = this.key(input.path);
+    await this.store.putObject(key, input.content);
+  }
+
+  async readSnippet(pathName: string): Promise<string | null> {
+    const key = this.key(pathName);
+    const data = await this.store.getObject(key);
+    return data ? data.toString("utf-8") : null;
+  }
+
+  async deleteSnippet(pathName: string): Promise<void> {
+    const key = this.key(pathName);
+    await this.store.deleteObject(key);
+  }
+
+  private key(pathName: string): string {
+    const normalized = pathName.replace(/^\/+/, "");
+    return `${this.prefix}/${normalized}`;
+  }
+}
+
+export function createCodeStore(options?: CodeStoreFactoryOptions): CodeStore {
+  const driver = (options?.driver ?? process.env.CODE_STORE_DRIVER ?? "file").toLowerCase();
+  switch (driver) {
+    case "file":
+      return new FileCodeStore(options?.rootDir ?? process.env.CODE_STORE_ROOT ?? DEFAULT_CODE_STORE_DIR);
+    case "s3": {
+      const prefix = process.env.CODE_STORE_PREFIX ?? "code";
+      const objectStore =
+        options?.objectStoreOptions && options.objectStoreOptions.driver
+          ? createObjectStore(options.objectStoreOptions)
+          : createObjectStore({ driver: "s3" });
+      return new ObjectCodeStore(objectStore, prefix);
+    }
+    default:
+      throw new Error(`Unsupported code store driver: ${driver}`);
+  }
+}
+
+function hashVector(vector: number[]): string {
+  const hash = createHash("sha256");
+  vector.forEach((value) => {
+    hash.update(value.toString());
+    hash.update("|");
+  });
+  return hash.digest("hex");
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (!a.length || a.length !== b.length) {
+    return 0;
+  }
+  let dot = 0;
+  let magA = 0;
+  let magB = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  if (!magA || !magB) {
+    return 0;
+  }
+  return dot / (Math.sqrt(magA) * Math.sqrt(magB));
+}

@@ -1,0 +1,80 @@
+{
+  "jdbc": {
+    "url": "jdbc:oracle:thin:@//172.31.15.20:1521/DSLPROD",
+    "user": "IBREPORTS",
+    "password": "ibreport$123",
+    "driver": "oracle.jdbc.OracleDriver",
+    "fetchsize": 10000,
+    "dialect": "oracle",
+    "default_num_partitions": 8
+  },
+  "runtime": {
+    "job_name": "zoom_dl",
+    "dynamicAllocation": false,
+    "initialExecutors": 2,
+    "raw_root": "hdfs:///datalake/ingestion-fm/raw/zoom_dl",
+    "final_root": "hdfs:///datalake/ingestion-fm/final/zoom_dl",
+    "timezone": "Asia/Kolkata",
+    "append_table_schema": false,
+    "max_parallel_tables": 4,
+    "write_format": "parquet",
+    "compression": "snappy",
+    "finalize_full_refresh": true,
+    "finalize_strategy": "copy_and_swap_final",
+    "hive": {
+      "enabled": true,
+      "db": "zoom_dl_ing"
+    },
+    "state_backend": "singlestore",
+    "state": {
+      "singlestore": {
+        "ddlEndpoint": "172.31.137.151:3306",
+        "user": "informatica",
+        "password": "infass!123",
+        "database": "monitoring2",
+        "eventsTable": "control_etl_events",
+        "watermarksTable": "control_watermarks",
+        "sourceId": "zoom-spark-datalake"
+      }
+    },
+    "staging": {
+      "root": "hdfs:///datalake/ingestion-fm/staging/zoom/_staging_slices",
+      "ttl_hours": 72,
+      "enabled": true
+    },
+    "scd1_slicing": {
+      "enabled": true,
+      "max_duration_hours": 168,
+      "max_count": 10000000,
+      "target_rows_per_slice": 1000000,
+      "max_partitions": 24
+    },
+    "intermediate": {
+      "enabled": true,
+      "type": "iceberg",
+      "_type_options": "iceberg | parquet",
+      "catalog": "ice",
+      "db": "staging",
+      "warehouse": "hdfs:///datalake/ingestion-fm/staging/zoom/intermediate/iceberg"
+    },
+    "final_parquet_mirror": {
+      "enabled": true,
+      "root": "hdfs:///datalake/ingestion-fm/zoom/final_parquet",
+      "partition_col": "load_date"
+    },
+    "hive_reg": {
+      "doc": "Used for SCD1 Final",
+      "enabled": true,
+      "db": "zoom_dl_ing",
+      "partition_col": "load_date",
+      "use_msck": false
+    },
+    "log_file": "/home/informaticaadmin/etl_monitoring/zoom_dl_ingest.log",
+    "state_flush_every": 50,
+    "metadata_gateway": {
+      "ingestion_metrics": false,
+      "ingestion_runtime": false
+    }
+  },
+  "tables": []
+}
