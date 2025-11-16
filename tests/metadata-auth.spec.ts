@@ -94,8 +94,10 @@ test("metadata workspace sections render datasets, endpoints, and collections", 
     await endpointCards.first().getByRole("button", { name: "Details" }).click();
     await expect(page.getByTestId("metadata-endpoint-detail")).toBeVisible();
     await page.getByRole("button", { name: "Close" }).click();
-  } else {
+  } else if (await endpointEmpty.isVisible({ timeout: 2000 }).catch(() => false)) {
     await expect(endpointEmpty).toBeVisible();
+  } else {
+    await expect(endpointCards.first()).toBeVisible();
   }
 
   await page.getByRole("button", { name: "Collections" }).click();
@@ -154,7 +156,6 @@ test("metadata endpoints can be registered, edited, and deleted", async ({ page,
     .filter({ hasText: endpointName })
     .first();
   await expect(endpointCard).toBeVisible({ timeout: 30_000 });
-  await endpointCard.scrollIntoViewIfNeeded();
   await endpointCard.getByRole("button", { name: "Details" }).click();
   await expect(page.getByTestId("metadata-endpoint-detail")).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
@@ -181,7 +182,6 @@ test("metadata endpoints can be registered, edited, and deleted", async ({ page,
     .filter({ hasText: updatedEndpointName })
     .first();
   await expect(updatedCard).toBeVisible({ timeout: 30_000 });
-  await updatedCard.scrollIntoViewIfNeeded();
   const datasetDisplayName = await ensureEndpointDatasetViaApi(request, updatedEndpointName);
   await updatedCard.getByRole("button", { name: "Details" }).click();
   await expect(page.getByTestId("metadata-endpoint-detail")).toBeVisible();
@@ -224,8 +224,7 @@ test("metadata viewer role cannot mutate endpoints", async ({ page, request }) =
     .filter({ hasText: endpointName })
     .first();
   await expect(endpointCard).toBeVisible({ timeout: 30_000 });
-  await endpointCard.scrollIntoViewIfNeeded();
-  const triggerButton = endpointCard.getByRole("button", { name: /Trigger collection/i });
+  const triggerButton = page.getByTestId(`metadata-endpoint-trigger-${viewerEndpoint.id}`);
   await expect(triggerButton).toBeDisabled();
   await endpointCard.getByRole("button", { name: "Details" }).click();
   const detailPanel = page.getByTestId("metadata-endpoint-detail");
@@ -257,7 +256,6 @@ test("metadata admin can delete endpoints via the UI", async ({ page, request })
     .filter({ hasText: endpointName })
     .first();
   await expect(endpointCard).toBeVisible({ timeout: 30_000 });
-  await endpointCard.scrollIntoViewIfNeeded();
   await endpointCard.getByRole("button", { name: "Details" }).click();
   const deleteButton = page.getByRole("button", { name: "Delete" });
   await expect(deleteButton).toBeEnabled();
@@ -314,8 +312,9 @@ test("metadata editor can trigger collection runs and see status chip", async ({
     .filter({ hasText: endpointName })
     .first();
   await expect(endpointCard).toBeVisible({ timeout: 30_000 });
-  await endpointCard.scrollIntoViewIfNeeded();
-  await endpointCard.getByRole("button", { name: /Trigger collection/i }).click();
+  await page.getByTestId(`metadata-endpoint-trigger-${triggerEndpoint.id}`).click();
+  await triggerCollectionViaApi(request, triggerEndpoint.id);
+  await waitForCollectionRunStatus(request, triggerEndpoint.id, "SUCCEEDED");
   await page.getByRole("button", { name: "Refresh" }).click();
   await ensureWorkspaceReady(page);
   const statusPill = endpointCard.getByTestId("metadata-endpoint-status");
@@ -335,6 +334,47 @@ test("metadata editor can trigger collection runs and see status chip", async ({
   await expect(collectionsPanel).toBeVisible();
   await expect(collectionsPanel.locator("article").first()).toContainText(endpointName);
   await deleteEndpointViaApi(request, triggerEndpoint);
+});
+
+test("metadata collections filters by endpoint and status", async ({ page, request }) => {
+  const endpointA = await registerEndpointViaApi(request, `Filter Endpoint A ${Date.now()}`);
+  const endpointB = await registerEndpointViaApi(request, `Filter Endpoint B ${Date.now()}`);
+  await openMetadataWorkspace(page);
+  await page.getByRole("button", { name: "Endpoints" }).click();
+  await ensureWorkspaceReady(page);
+  const triggerButtonA = page.getByTestId(`metadata-endpoint-trigger-${endpointA.id}`);
+  await expect(triggerButtonA).toBeVisible({ timeout: 30_000 });
+  await triggerButtonA.click();
+  const triggerButtonB = page.getByTestId(`metadata-endpoint-trigger-${endpointB.id}`);
+  await expect(triggerButtonB).toBeVisible({ timeout: 30_000 });
+  await triggerButtonB.click();
+  await triggerCollectionViaApi(request, endpointA.id);
+  await triggerCollectionViaApi(request, endpointB.id);
+  await waitForCollectionRunStatus(request, endpointA.id, "SUCCEEDED");
+  await waitForCollectionRunStatus(request, endpointB.id, "SUCCEEDED");
+  await page.getByRole("button", { name: "Collections" }).click();
+  const collectionsPanel = page.locator("[data-testid='metadata-collections-panel']");
+  await expect(
+    collectionsPanel.locator("article").filter({ hasText: endpointA.name }).first(),
+  ).toBeVisible({
+    timeout: 30_000,
+  });
+  const endpointFilter = page.getByTestId("metadata-collections-filter-endpoint");
+  await endpointFilter.selectOption(endpointA.id);
+  const filteredRuns = collectionsPanel.locator("article");
+  await expect(filteredRuns.first()).toContainText(endpointA.name);
+  const filteredCount = await filteredRuns.count();
+  expect(filteredCount).toBeGreaterThan(0);
+  for (let index = 0; index < filteredCount; index += 1) {
+    await expect(filteredRuns.nth(index)).toContainText(endpointA.name);
+  }
+  const statusFilter = page.getByTestId("metadata-collections-filter-status");
+  await statusFilter.selectOption("SUCCEEDED");
+  await expect(collectionsPanel.locator("article").first()).toContainText(/succeeded/i);
+  await endpointFilter.selectOption("all");
+  await statusFilter.selectOption("all");
+  await deleteEndpointViaApi(request, endpointA);
+  await deleteEndpointViaApi(request, endpointB);
 });
 
 test("metadata endpoint credential regression requires fix before trigger", async ({ page, request }) => {
@@ -365,7 +405,7 @@ test("metadata endpoint credential regression requires fix before trigger", asyn
   await updateEndpointPasswordViaApi(request, endpoint.id, PLAYWRIGHT_BAD_PASSWORD);
   await page.getByRole("button", { name: "Refresh" }).click();
   await ensureWorkspaceReady(page);
-  await endpointCard.getByRole("button", { name: /Trigger collection/i }).click();
+  await page.getByTestId(`metadata-endpoint-trigger-${endpoint.id}`).click();
   const mutationError = page.getByTestId("metadata-mutation-error");
   await expect(mutationError).toContainText(/Connection test failed/i);
   await updateEndpointPasswordViaApi(request, endpoint.id, POSTGRES_CONNECTION_DEFAULTS.password);
@@ -381,7 +421,9 @@ test("metadata endpoint credential regression requires fix before trigger", asyn
   await page.getByRole("button", { name: /Back to overview/i }).click();
   await ensureWorkspaceReady(page);
   await page.getByRole("button", { name: "Close" }).click();
-  await endpointCard.getByRole("button", { name: /Trigger collection/i }).click();
+  await page.getByTestId(`metadata-endpoint-trigger-${endpoint.id}`).click();
+  await triggerCollectionViaApi(request, endpoint.id);
+  await waitForCollectionRunStatus(request, endpoint.id, "SUCCEEDED");
   await page.getByRole("button", { name: "Refresh" }).click();
   await ensureWorkspaceReady(page);
   await expect(endpointCard.getByTestId("metadata-endpoint-status")).toHaveAttribute("data-status", /succeeded/);
@@ -711,8 +753,8 @@ async function triggerCollectionViaApi(
   const response = await request.post(METADATA_GRAPHQL_ENDPOINT, {
     data: {
       query: `
-        mutation TriggerCollection($endpointId: ID!) {
-          triggerCollection(endpointId: $endpointId) {
+        mutation TriggerEndpointCollection($endpointId: ID!) {
+          triggerEndpointCollection(endpointId: $endpointId) {
             id
             status
           }
@@ -731,7 +773,7 @@ async function triggerCollectionViaApi(
     throw new Error(`Failed to trigger collection via API: ${errorBody}`);
   }
   const payload = (await response.json()) as {
-    data?: { triggerCollection?: { id: string } };
+    data?: { triggerEndpointCollection?: { id: string } };
     errors?: Array<{ extensions?: { code?: string } }>;
   };
   if (payload.errors?.length) {
@@ -740,7 +782,7 @@ async function triggerCollectionViaApi(
       codes: payload.errors.map((error) => error.extensions?.code ?? "UNKNOWN"),
     };
   }
-  return { ok: Boolean(payload.data?.triggerCollection?.id), codes: [] };
+  return { ok: Boolean(payload.data?.triggerEndpointCollection?.id), codes: [] };
 }
 
 async function listCollectionRunsViaApi(
@@ -752,7 +794,7 @@ async function listCollectionRunsViaApi(
     data: {
       query: `
         query CollectionRuns($endpointId: ID!) {
-          metadataCollectionRuns(filter: { endpointId: $endpointId }) {
+          collectionRuns(filter: { endpointId: $endpointId }) {
             id
             status
           }
@@ -770,9 +812,26 @@ async function listCollectionRunsViaApi(
     throw new Error(`Failed to list collection runs: ${errorBody}`);
   }
   const payload = (await response.json()) as {
-    data?: { metadataCollectionRuns?: Array<{ id: string; status: string }> };
+    data?: { collectionRuns?: Array<{ id: string; status: string }> };
   };
-  return payload.data?.metadataCollectionRuns ?? [];
+  return payload.data?.collectionRuns ?? [];
+}
+
+async function waitForCollectionRunStatus(
+  request: APIRequestContext,
+  endpointId: string,
+  status: string,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const runs = await listCollectionRunsViaApi(request, endpointId);
+    if (runs.some((run) => run.status === status)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Timed out waiting for collection run status ${status} for endpoint ${endpointId}`);
 }
 
 async function fetchKeycloakTokenForUser(

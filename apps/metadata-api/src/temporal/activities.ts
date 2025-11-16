@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { getPrismaClient } from "../prismaClient.js";
 import { getMetadataStore, getGraphStore } from "../context.js";
+import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
 import type { GraphStore, TenantContext, MetadataRecord } from "@metadata/core";
 import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,12 @@ const REGISTRY_SCRIPT_PATH = path.resolve(
 );
 
 export type MetadataActivities = {
+  createCollectionRun(input: {
+    endpointId: string;
+    collectionId?: string | null;
+    requestedBy?: string | null;
+    reason?: string | null;
+  }): Promise<{ runId: string }>;
   markRunStarted(input: { runId: string; workflowId: string; temporalRunId: string }): Promise<void>;
   markRunCompleted(input: { runId: string }): Promise<void>;
   markRunSkipped(input: { runId: string; reason: string }): Promise<void>;
@@ -67,6 +74,29 @@ const CATALOG_DATASET_DOMAIN = "catalog.dataset";
 type PrismaClient = Awaited<ReturnType<typeof getPrismaClient>>;
 
 export const activities: MetadataActivities = {
+  async createCollectionRun({
+    endpointId,
+    collectionId,
+    requestedBy,
+    reason,
+  }: {
+    endpointId: string;
+    collectionId?: string | null;
+    requestedBy?: string | null;
+    reason?: string | null;
+  }) {
+    const prisma = await getPrismaClient();
+    const run = await prisma.metadataCollectionRun.create({
+      data: {
+        endpointId,
+        collectionId: collectionId ?? null,
+        status: "QUEUED",
+        requestedBy: requestedBy ?? reason ?? null,
+      },
+      select: { id: true },
+    });
+    return { runId: run.id };
+  },
   async markRunStarted({
     runId,
     workflowId,
@@ -120,12 +150,27 @@ export const activities: MetadataActivities = {
         if (run.endpoint.sourceId) {
           labelSet.add(`source:${run.endpoint.sourceId}`);
         }
+        const payload = normalizeRecordPayload(record.payload);
+        const datasetIdentity =
+          record.domain === CATALOG_DATASET_DOMAIN
+            ? deriveDatasetIdentity(payload, {
+                tenantId,
+                projectId,
+                fallbackSourceId: run.endpoint.sourceId ?? run.endpoint.id,
+                labels: Array.from(labelSet),
+              })
+            : null;
+        if (datasetIdentity) {
+          imprintDatasetIdentity(payload, datasetIdentity);
+        }
+        const providedRecordId =
+          typeof record.id === "string" && record.id.trim().length > 0 ? record.id.trim() : null;
         const savedRecord = await store.upsertRecord({
-          id: record.id ?? `${run.endpoint.id}-${randomUUID()}`,
+          id: datasetIdentity?.id ?? providedRecordId ?? `${run.endpoint.id}-${randomUUID()}`,
           projectId,
           domain: record.domain,
           labels: Array.from(labelSet),
-          payload: record.payload,
+          payload,
         });
         await syncRecordToGraph(savedRecord, graphStore, {
           tenantId,
@@ -367,6 +412,13 @@ async function loadRecords(records?: CatalogRecordInput[] | null, recordsPath?: 
   }
 }
 
+function normalizeRecordPayload(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
 async function deleteTempFile(recordsPath?: string | null) {
   if (!recordsPath) {
     return;
@@ -392,10 +444,17 @@ async function syncRecordToGraph(
     (dataset.displayName as string | undefined) ??
     (dataset.name as string | undefined) ??
     (record.id ?? "dataset").toString();
-  const canonicalPath = (dataset.id as string | undefined) ?? record.id ?? displayName;
+  const datasetIdentity =
+    deriveDatasetIdentity(payload, {
+      tenantId: context.tenantId,
+      projectId: record.projectId,
+      fallbackSourceId: context.actorId ?? null,
+      labels: record.labels,
+    }) ?? null;
+  const canonicalPath = datasetIdentity?.canonicalPath ?? (dataset.id as string | undefined) ?? record.id ?? displayName;
   await graphStore.upsertEntity(
     {
-      id: record.id,
+      id: datasetIdentity?.id ?? record.id,
       entityType: CATALOG_DATASET_DOMAIN,
       displayName,
       canonicalPath,

@@ -21,7 +21,7 @@ model MetadataProject {
 }
 
 model MetadataRecord {
-  id        String          @id @default(uuid())
+  id        String          @default(uuid())
   projectId String
   project   MetadataProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   domain    String
@@ -30,6 +30,7 @@ model MetadataRecord {
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
+  @@id([domain, id])
   @@index([projectId, domain])
 }
 
@@ -49,6 +50,7 @@ model MetadataEndpoint {
   detectedVersion String?
   versionHint String?
   capabilities String[] @default([])
+  collections MetadataCollection[]
   runs        MetadataCollectionRun[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
@@ -56,6 +58,22 @@ model MetadataEndpoint {
   deletionReason String?
 
   @@index([projectId])
+}
+
+model MetadataCollection {
+  id                 String               @id @default(uuid())
+  endpointId         String
+  endpoint           MetadataEndpoint     @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  scheduleCron       String?
+  scheduleTimezone   String               @default("UTC")
+  isEnabled          Boolean              @default(true)
+  temporalScheduleId String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  runs               MetadataCollectionRun[]
+
+  @@index([endpointId])
 }
 
 model MetadataDomain {
@@ -68,21 +86,24 @@ model MetadataDomain {
 }
 
 model MetadataCollectionRun {
-  id          String                     @id @default(uuid())
-  endpointId  String
-  endpoint    MetadataEndpoint           @relation(fields: [endpointId], references: [id], onDelete: Cascade)
-  status      MetadataCollectionStatus   @default(QUEUED)
-  requestedBy String?
-  requestedAt DateTime                   @default(now())
-  startedAt   DateTime?
-  completedAt DateTime?
-  workflowId  String?
+  id            String                     @id @default(uuid())
+  collectionId  String?
+  collection    MetadataCollection?        @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  endpointId    String
+  endpoint      MetadataEndpoint           @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  status        MetadataCollectionStatus   @default(QUEUED)
+  requestedBy   String?
+  requestedAt   DateTime                   @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  workflowId    String?
   temporalRunId String?
-  error       String?
-  filters     Json?
-  createdAt   DateTime                   @default(now())
-  updatedAt   DateTime                   @updatedAt
+  error         String?
+  filters       Json?
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
 
+  @@index([collectionId])
   @@index([endpointId])
 }
 

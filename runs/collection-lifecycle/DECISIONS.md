@@ -1,0 +1,1 @@
+- 2025-11-16: Metadata catalog datasets now use canonical IDs derived from `{tenantId, projectId, sourceId, [database], schema, table}` (stored via `deriveDatasetIdentity`). Graph entities reuse the same ID/canonicalPath to avoid endpoint collisions. Applies to new ingests; legacy records remain readable.

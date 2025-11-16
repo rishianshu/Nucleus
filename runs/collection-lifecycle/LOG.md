@@ -1,2 +1,16 @@
 2025-11-15T17:56:53Z {done: boot/resume setup, next: review spec & existing state, risks: scope large}
 2025-11-15T18:02:07Z {done: scoped schema/api gaps; confirmed console/designer code + start scripts missing, next: blocked pending guidance on where UI lives, risks: cannot implement AC2/AC5/AC6 or e2e tests without frontend}
+2025-11-15T19:32:32Z {done: added Prisma schema + migration for MetadataCollection + reran migrate/generate, next: rework Temporal + GraphQL APIs for collections + schedules, risks: large surface (workflow + schedule mgmt + UI/tests) may exceed run}
+2025-11-16T02:54:35Z {done: implemented collections schema/resolvers + Temporal schedule+workflow refactor + metadata UI wiring (queries, filters, trigger mutation) and ran metadata-api build (ui build blocked on missing react typings), next: finish GraphQL/Temporal tests + update Playwright coverage + investigate ui build prereqs, risks: temporal schedule semantics + ui build failures need follow-up}
+2025-11-16T03:14:26Z {done: wired metadata UI filters + added collections GraphQL coverage + new Playwright scenario, next: run/test suites (metadata-lifecycle + metadata-auth) and tighten Temporal schedule assertions, risks: temporal schedule behavior still unverified + UI build tsconfig issues}
+2025-11-16T03:37:07Z {done: stood up metadata UI stub + ran metadata-lifecycle/metadata-auth Playwright suites (both green), next: document results & prep final summary, risks: local background services must be restarted before future test runs}
+2025-11-16T05:14:49Z {done: booting new session, next: read PLAN/LOG to resume, risks: none}
+2025-11-16T05:31:27Z {done: investigated run data + added requestedBy fallback + verified metadata stored in platform DB, next: relay findings + usage steps to user, risks: ingestion still returns zero records so datasets remain empty}
+2025-11-16T10:34:02Z {done: boot/resume setup, next: review PLAN/LOG and current blockers, risks: none}
+2025-11-16T13:15:56Z {done: boot/resume setup, next: assess outstanding requirements vs acceptance + plan next actions, risks: none}
+2025-11-16T13:25:41Z {done: implemented canonical dataset identity + updated persistCatalogRecords/graph sync w/ tests, next: verify catalog filters + run metadata e2e when env ready, risks: datasets with missing schema/table still skip identity}
+2025-11-16T15:53:33Z {done: implemented metadata identity + UI/test fixes; metadata-auth split runs passing w/ manual env, next: prep summary + TODO updates, risks: pnpm check:metadata-auth now runs two commands}
+2025-11-16T17:10:02Z {done: restarted metadata api/ui dev servers + reran metadata-auth split suites, next: monitor servers for manual testing, risks: default pnpm check:metadata-auth still flaky unless split commands used}
+2025-11-16T17:10:22Z {done: confirmed metadata-lifecycle suite green with dev servers running, next: leave api/ui dev servers running for manual verification, risks: metadata-auth still needs split run procedure}
+2025-11-16T18:14:02Z {done: resumed session per START_PROMPT, next: review PLAN/TODO + outstanding tasks, risks: none}
+2025-11-16T18:32:34Z {done: verified acceptance + tests green; prepping closure, next: mark run success + update STATE/STORY, risks: none}

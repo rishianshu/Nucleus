@@ -40,10 +40,13 @@ export type MetadataCollectionRunSummary = {
   id: string;
   status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
   requestedAt: string;
+  requestedBy?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   error?: string | null;
+  filters?: Record<string, unknown> | null;
   endpoint?: { id: string; name: string; isDeleted?: boolean | null } | null;
+  collection?: { id: string; endpointId: string } | null;
 };
 
 export type MetadataEndpointSummary = {
@@ -64,6 +67,17 @@ export type MetadataEndpointSummary = {
   deletionReason?: string | null;
   isDeleted: boolean;
   runs?: MetadataCollectionRunSummary[] | null;
+};
+
+export type MetadataCollectionSummary = {
+  id: string;
+  endpointId: string;
+  scheduleCron?: string | null;
+  scheduleTimezone?: string | null;
+  isEnabled: boolean;
+  temporalScheduleId?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type MetadataEndpointTemplateOption = {

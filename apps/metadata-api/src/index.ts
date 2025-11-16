@@ -18,12 +18,19 @@ async function main() {
   const port = Number(process.env.METADATA_API_PORT ?? 4010);
   const { url } = await startStandaloneServer(server, {
     listen: { port },
-    context: async ({ req }) => ({
-      request: req,
-      userId: readHeader(req, "x-user-id"),
-      auth: await authenticateRequest(req.headers.authorization ?? null),
-      bypassWrites: readHeader(req, "x-metadata-test-write") === "1",
-    }),
+    context: async ({ req }) => {
+      const headerUserId = readHeader(req, "x-user-id");
+      const auth = await authenticateRequest(req.headers.authorization ?? null);
+      const derivedUserId =
+        headerUserId ??
+        (auth.subject && auth.subject !== "anonymous" ? auth.subject : null);
+      return {
+        request: req,
+        userId: derivedUserId,
+        auth,
+        bypassWrites: readHeader(req, "x-metadata-test-write") === "1",
+      };
+    },
   });
 
   // eslint-disable-next-line no-console

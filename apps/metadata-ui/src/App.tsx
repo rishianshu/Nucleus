@@ -1,7 +1,6 @@
 import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor";
 import { createGraphQLReportingRegistryClient } from "@reporting/registry";
-import { MetadataClient, type MetadataClientMode } from "@metadata/client";
 import { SmartEditor } from "./components/SmartEditor";
 import { PreviewPane, PreviewPayload } from "./components/PreviewPane";
 import { MetadataProvider, useMetadataScope } from "./metadata/MetadataContext";
@@ -362,7 +361,6 @@ type DashboardDefinition = {
 };
 
 const TENANT_HEADER = import.meta.env.VITE_METADATA_TENANT_ID ?? "dev";
-const METADATA_MODE = import.meta.env.VITE_METADATA_CLIENT_MODE as MetadataClientMode | undefined;
 const METADATA_ENDPOINT = import.meta.env.VITE_METADATA_GRAPHQL_ENDPOINT ?? "/metadata/graphql";
 
 const BOOTSTRAP_QUERY = `
@@ -416,6 +414,28 @@ const BOOTSTRAP_QUERY = `
       createdAt
       updatedAt
       lastMessageAt
+    }
+  }
+`;
+
+const CATALOG_DATASETS_QUERY = `
+  query DesignerCatalogDatasets {
+    catalogDatasets {
+      id
+      displayName
+      description
+      source
+      projectIds
+      labels
+      schema
+      entity
+      collectedAt
+      sourceEndpointId
+      fields {
+        name
+        type
+        description
+      }
     }
   }
 `;
@@ -824,24 +844,6 @@ export function App() {
       }),
     [auth.token],
   );
-  const { metadataClient, metadataClientError } = useMemo(() => {
-    try {
-      const headersProvider = () => (auth.token ? { Authorization: `Bearer ${auth.token}` } : undefined);
-      return {
-        metadataClient: new MetadataClient({
-          mode: METADATA_MODE,
-          graphqlEndpoint: METADATA_ENDPOINT,
-          headers: headersProvider,
-        }),
-        metadataClientError: null,
-      };
-    } catch (error) {
-      return {
-        metadataClient: null,
-        metadataClientError: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }, [auth.token]);
   const fetchGraphQLWithAuth = useCallback(
     async <T,>(query: string, variables?: Record<string, unknown>, signal?: AbortSignal) => {
       if (!auth.token) {
@@ -921,6 +923,19 @@ export function App() {
     },
     [setFocusedDatasetId, setSelectedDatasetIds],
   );
+  const loadCatalogDatasets = useCallback(async (): Promise<CatalogDataset[]> => {
+    if (!auth.token) {
+      return [];
+    }
+    const payload = await fetchMetadataGraphQL<{ catalogDatasets?: CatalogDataset[] }>(
+      METADATA_ENDPOINT,
+      CATALOG_DATASETS_QUERY,
+      undefined,
+      undefined,
+      { token: auth.token },
+    );
+    return payload.catalogDatasets ?? [];
+  }, [auth.token]);
   const handleEndpointDeleted = useCallback(
     async (endpointId: string) => {
       const normalized = endpointId?.trim();
@@ -932,11 +947,8 @@ export function App() {
         syncDatasetSelection(next);
         return next;
       });
-      if (!metadataClient) {
-        return;
-      }
       try {
-        const refreshed = await metadataClient.listDatasets();
+        const refreshed = await loadCatalogDatasets();
         setCatalogDatasets(() => {
           const next = refreshed.filter((dataset) => !datasetMatchesEndpoint(dataset, normalized));
           syncDatasetSelection(next);
@@ -949,7 +961,7 @@ export function App() {
         }
       }
     },
-    [metadataClient, syncDatasetSelection],
+    [loadCatalogDatasets, syncDatasetSelection],
   );
   useEffect(() => {
     if (import.meta.env.DEV && typeof window !== "undefined") {
@@ -966,6 +978,10 @@ export function App() {
   const manualEditorRef = useRef<HTMLDivElement | null>(null);
   const [refAssistantState, setRefAssistantState] = useState<RefAssistantState | null>(null);
   const [inlineSuggestionOverlays, setInlineSuggestionOverlays] = useState<InlineSuggestionOverlay[]>([]);
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.info("[metadata] auth token ready", Boolean(auth.token));
+  }, [auth.token]);
 
   useEffect(() => {
     completionsRef.current = metadataCompletions;
@@ -1334,17 +1350,6 @@ export function App() {
   const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState<string[]>([]);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
-  if (!metadataClient) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 p-8 text-center text-slate-100">
-        <p className="text-xl font-semibold">Metadata service unavailable</p>
-        <p className="max-w-2xl text-sm text-slate-300">
-          {metadataClientError ??
-            "Configure VITE_METADATA_GRAPHQL_ENDPOINT (and optionally VITE_METADATA_CLIENT_MODE=remote) so the designer can query datasets."}
-        </p>
-      </div>
-    );
-  }
   const resolveSuggestionLineNumber = useCallback((query: string, model: Monaco.editor.ITextModel): number | null => {
     if (!query.trim()) {
       return null;
@@ -1626,47 +1631,14 @@ export function App() {
   }, [commandPaletteOpen]);
 
   useEffect(() => {
-    if (!metadataClient || !auth.user || !auth.token) {
+    if (!auth.token) {
       return;
     }
     const controller = new AbortController();
     const bootstrap = async () => {
+      let bootstrapData: BootstrapResponse | null = null;
       try {
-        const data = await fetchGraphQLWithAuth<BootstrapResponse>(BOOTSTRAP_QUERY, undefined, controller.signal);
-        const datasets = await metadataClient.listDatasets();
-        if (controller.signal.aborted) {
-          return;
-        }
-        setHealth(data.health);
-        setDefinitions(data.reportDefinitions ?? []);
-        setCatalogDatasets(datasets);
-        setDashboards(data.reportDashboards ?? []);
-        setConversations(data.agentConversations ?? []);
-        const firstDefinition = data.reportDefinitions?.[0];
-        const latestVersion = firstDefinition?.versions?.[0] ?? null;
-        setSelectedDefinitionId(firstDefinition?.id ?? null);
-        setSelectedVersionId(latestVersion?.id ?? null);
-        const firstDashboard = data.reportDashboards?.[0];
-        const firstDashboardVersion = firstDashboard?.versions?.[0] ?? null;
-        setSelectedDashboardId(firstDashboard?.id ?? null);
-        setSelectedDashboardVersionId(firstDashboardVersion?.id ?? null);
-        if ((data.agentConversations?.length ?? 0) > 0) {
-          const firstConversation = data.agentConversations![0];
-          setActiveConversationId(firstConversation.id);
-          void loadConversation(firstConversation.id);
-        }
-        if (latestVersion) {
-          setVersionForm({
-            queryTemplate: latestVersion.queryTemplate ?? "",
-            defaultFilters: latestVersion.defaultFilters
-              ? JSON.stringify(latestVersion.defaultFilters, null, 2)
-              : "",
-            notes: latestVersion.notes ?? "",
-          });
-        } else {
-          setVersionForm(emptyVersionForm());
-          setIsDrafting(Boolean(firstDefinition));
-        }
+        bootstrapData = await fetchGraphQLWithAuth<BootstrapResponse>(BOOTSTRAP_QUERY, undefined, controller.signal);
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           const normalized = normalizeActionErrorMessage(error);
@@ -1674,16 +1646,68 @@ export function App() {
             setActionError(normalized);
           }
         }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
+      }
+
+      let datasets: CatalogDataset[] = [];
+      try {
+        datasets = await loadCatalogDatasets();
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn("[metadata] failed to load datasets during bootstrap", error);
         }
+      }
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      // eslint-disable-next-line no-console
+      console.info("[metadata] bootstrap datasets", datasets.length);
+      setHealth(bootstrapData?.health ?? null);
+      setDefinitions(bootstrapData?.reportDefinitions ?? []);
+      setDashboards(bootstrapData?.reportDashboards ?? []);
+      setConversations(bootstrapData?.agentConversations ?? []);
+      setCatalogDatasets(datasets);
+      syncDatasetSelection(datasets);
+
+      const firstDefinition = bootstrapData?.reportDefinitions?.[0];
+      const latestVersion = firstDefinition?.versions?.[0] ?? null;
+      setSelectedDefinitionId(firstDefinition?.id ?? null);
+      setSelectedVersionId(latestVersion?.id ?? null);
+
+      const firstDashboard = bootstrapData?.reportDashboards?.[0];
+      const firstDashboardVersion = firstDashboard?.versions?.[0] ?? null;
+      setSelectedDashboardId(firstDashboard?.id ?? null);
+      setSelectedDashboardVersionId(firstDashboardVersion?.id ?? null);
+
+      const firstConversation = bootstrapData?.agentConversations?.[0];
+      if (firstConversation) {
+        setActiveConversationId(firstConversation.id);
+        void loadConversation(firstConversation.id);
+      } else {
+        setActiveConversationId(null);
+      }
+
+      if (latestVersion) {
+        setVersionForm({
+          queryTemplate: latestVersion.queryTemplate ?? "",
+          defaultFilters: latestVersion.defaultFilters ? JSON.stringify(latestVersion.defaultFilters, null, 2) : "",
+          notes: latestVersion.notes ?? "",
+        });
+        setIsDrafting(false);
+      } else {
+        setVersionForm(emptyVersionForm());
+        setIsDrafting(Boolean(firstDefinition));
+      }
+      if (!controller.signal.aborted) {
+        setLoading(false);
       }
     };
 
     void bootstrap();
     return () => controller.abort();
-  }, [auth.token, auth.user, loadConversation, metadataClient]);
+  }, [auth.token, loadConversation, loadCatalogDatasets, syncDatasetSelection]);
 
   const createSuggestionForPrompt = useCallback(
     (prompt?: string): AgentSuggestion | undefined => {
@@ -1980,7 +2004,8 @@ export function App() {
     setActionError(null);
     try {
       const run = await registryClient.runReport({ reportVersionId: selectedVersionId });
-      setStatusMessage(`Preview run queued (run id ${run.metadata?.runId ?? "unknown"}).`);
+      const runId = run.metadata?.runId ?? run.id ?? "unknown";
+      setStatusMessage(`Preview run queued (run id ${runId}).`);
       void refreshRuns(selectedVersionId);
     } catch (error) {
       const normalized = normalizeActionErrorMessage(error);

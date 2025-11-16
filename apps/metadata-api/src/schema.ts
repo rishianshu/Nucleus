@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { GraphQLScalarType, GraphQLError } from "graphql";
 import { DateTimeResolver, JSONResolver } from "graphql-scalars";
+import { ScheduleOverlapPolicy, WorkflowIdReusePolicy } from "@temporalio/client";
 import type {
   MetadataStore,
   MetadataEndpointDescriptor,
@@ -23,6 +24,8 @@ const ENABLE_SAMPLE_FALLBACK = process.env.METADATA_SAMPLE_FALLBACK !== "0";
 const TEMPLATE_REFRESH_TIMEOUT_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_TIMEOUT_MS ?? "5000");
 const TEMPLATE_REFRESH_BACKOFF_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_BACKOFF_MS ?? "30000");
 const PLAYWRIGHT_INVALID_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
+const COLLECTION_SCHEDULE_PREFIX = "collection";
+const COLLECTION_SCHEDULE_PAUSE_REASON = "collection disabled";
 
 export const typeDefs = `#graphql
   scalar DateTime
@@ -188,6 +191,8 @@ export const typeDefs = `#graphql
 
   type MetadataCollectionRun {
     id: ID!
+    collectionId: ID
+    collection: MetadataCollection
     endpointId: ID!
     endpoint: MetadataEndpoint!
     status: MetadataCollectionStatus!
@@ -201,9 +206,38 @@ export const typeDefs = `#graphql
     filters: JSON
   }
 
+  type MetadataCollection {
+    id: ID!
+    endpointId: ID!
+    endpoint: MetadataEndpoint!
+    scheduleCron: String
+    scheduleTimezone: String
+    isEnabled: Boolean!
+    temporalScheduleId: String
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    runs(first: Int = 25, after: ID): [MetadataCollectionRun!]!
+  }
+
   input MetadataCollectionRunFilter {
     endpointId: ID
+    collectionId: ID
     status: MetadataCollectionStatus
+    from: DateTime
+    to: DateTime
+  }
+
+  input CollectionCreateInput {
+    endpointId: ID!
+    scheduleCron: String
+    scheduleTimezone: String = "UTC"
+    isEnabled: Boolean = true
+  }
+
+  input CollectionUpdateInput {
+    scheduleCron: String
+    scheduleTimezone: String
+    isEnabled: Boolean
   }
 
   input MetadataCollectionRequestInput {
@@ -351,6 +385,9 @@ export const typeDefs = `#graphql
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID): [CatalogDataset!]!
     metadataDataset(id: ID!): CatalogDataset
     metadataCollectionRuns(filter: MetadataCollectionRunFilter, limit: Int): [MetadataCollectionRun!]!
+    collections(endpointId: ID, isEnabled: Boolean, first: Int = 50, after: ID): [MetadataCollection!]!
+    collection(id: ID!): MetadataCollection
+    collectionRuns(filter: MetadataCollectionRunFilter, first: Int = 50, after: ID): [MetadataCollectionRun!]!
     metadataEndpointTemplates(family: MetadataEndpointFamily): [MetadataEndpointTemplate!]!
     endpoints(projectSlug: String, capability: String, search: String, first: Int = 50, after: ID): [MetadataEndpoint!]!
     endpoint(id: ID!): MetadataEndpoint
@@ -370,7 +407,11 @@ export const typeDefs = `#graphql
     registerEndpoint(input: EndpointInput!): MetadataEndpoint!
     updateEndpoint(id: ID!, patch: EndpointPatch!): MetadataEndpoint!
     deleteEndpoint(id: ID!): Boolean!
-    triggerCollection(endpointId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
+    createCollection(input: CollectionCreateInput!): MetadataCollection!
+    updateCollection(id: ID!, input: CollectionUpdateInput!): MetadataCollection!
+    deleteCollection(id: ID!): Boolean!
+    triggerCollection(collectionId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
+    triggerEndpointCollection(endpointId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
   }
 `;
 
@@ -464,7 +505,14 @@ export function createResolvers(store: MetadataStore) {
           extensions: { code: "E_ENDPOINT_NOT_FOUND" },
         });
       }
-      await triggerCollectionForEndpoint(ctx, store, endpointId, { reason: "register", descriptor: saved });
+      const prisma = await getPrismaClient();
+      const defaultCollection = await ensureDefaultCollectionForEndpoint(prisma, endpointId);
+      await syncCollectionSchedule(prisma, defaultCollection);
+      await triggerCollectionForEndpoint(ctx, store, endpointId, {
+        reason: "register",
+        descriptor: saved,
+        collection: defaultCollection,
+      });
       emitMetadataMetric("metadata.endpoint.register.success", {
         endpointId: saved.id,
         templateId,
@@ -531,6 +579,95 @@ export function createResolvers(store: MetadataStore) {
       console.warn("[metadata.endpointTemplates] refresh failed; using cached descriptors if available", error);
       return useCachedOrFallback();
     }
+  };
+  const listCollectionRunsForProject = async (
+    ctx: ResolverContext,
+    args: { filter?: MetadataCollectionRunFilter | null; limit?: number | null; after?: string | null },
+  ) => {
+    enforceReadAccess(ctx);
+    const prisma = await getPrismaClient();
+    const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+    const take = Math.min(Math.max(args.limit ?? 50, 1), 200);
+    const pagination = args.after
+      ? {
+          cursor: { id: args.after },
+          skip: 1,
+        }
+      : {};
+    const requestedAtFilter =
+      args.filter?.from || args.filter?.to
+        ? {
+            ...(args.filter?.from ? { gte: new Date(args.filter.from) } : {}),
+            ...(args.filter?.to ? { lte: new Date(args.filter.to) } : {}),
+          }
+        : undefined;
+    const runs = await prisma.metadataCollectionRun.findMany({
+      where: {
+        endpointId: args.filter?.endpointId ?? undefined,
+        collectionId: args.filter?.collectionId ?? undefined,
+        status: args.filter?.status ?? undefined,
+        requestedAt: requestedAtFilter,
+        endpoint: projectRowId
+          ? {
+              projectId: projectRowId,
+            }
+          : undefined,
+      },
+      orderBy: { requestedAt: "desc" },
+      take,
+      ...pagination,
+      include: { endpoint: true, collection: { include: { endpoint: true } } },
+    });
+    const enrichedRuns = runs
+      .filter(
+        (run: any): run is typeof run & { endpoint: MetadataEndpointDescriptor } =>
+          Boolean(run.endpoint),
+      )
+      .map((run: typeof runs[number]) => ({
+        ...run,
+        endpoint: normalizeEndpointForGraphQL(run.endpoint as MetadataEndpointDescriptor)!,
+        collection: run.collection ? mapCollectionToGraphQL(run.collection as PrismaCollectionWithEndpoint) : null,
+      }));
+    return enrichedRuns;
+  };
+  const resolveCollectionForEndpoint = async (
+    prisma: PrismaClientInstance,
+    projectRowId: string | null,
+    endpointId: string,
+  ): Promise<PrismaCollectionWithEndpoint> => {
+    const matches = await prisma.metadataCollection.findMany({
+      where: { endpointId },
+      include: { endpoint: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (matches.length === 0) {
+      const fallback = await ensureDefaultCollectionForEndpoint(prisma, endpointId);
+      await syncCollectionSchedule(prisma, fallback);
+      return assertCollectionVisible(fallback, projectRowId);
+    }
+    if (matches.length > 1) {
+      throw new GraphQLError("Multiple collections configured for this endpoint. Specify a collectionId.", {
+        extensions: { code: "E_COLLECTION_AMBIGUOUS" },
+      });
+    }
+    const collection = await assertCollectionVisible(matches[0] as PrismaCollectionWithEndpoint, projectRowId);
+    return collection;
+  };
+  const triggerEndpointCollectionMutation = async (
+    _parent: unknown,
+    args: { endpointId: string; filters?: Record<string, unknown> | null; schemaOverride?: string[] | null },
+    ctx: ResolverContext,
+  ) => {
+    enforceWriteAccess(ctx);
+    const prisma = await getPrismaClient();
+    const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+    const collection = await resolveCollectionForEndpoint(prisma, projectRowId, args.endpointId);
+    const filters =
+      args.filters ?? (args.schemaOverride && args.schemaOverride.length ? buildRunFilters(args.schemaOverride) : undefined);
+    return triggerCollectionForEndpoint(ctx, store, args.endpointId, {
+      filters,
+      collection,
+    });
   };
   return {
     DateTime: DateTimeResolver,
@@ -620,32 +757,57 @@ export function createResolvers(store: MetadataStore) {
         args: { filter?: MetadataCollectionRunFilter | null; limit?: number | null },
         ctx: ResolverContext,
       ) => {
+        return listCollectionRunsForProject(ctx, { filter: args.filter, limit: args.limit });
+      },
+      collections: async (
+        _parent: unknown,
+        args: { endpointId?: string | null; isEnabled?: boolean | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
         enforceReadAccess(ctx);
         const prisma = await getPrismaClient();
         const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
-        const runs = await prisma.metadataCollectionRun.findMany({
+        const take = Math.min(Math.max(args.first ?? 50, 1), 200);
+        const pagination = args.after
+          ? {
+              cursor: { id: args.after },
+              skip: 1,
+            }
+          : {};
+        const rows = await prisma.metadataCollection.findMany({
           where: {
-            endpointId: args.filter?.endpointId ?? undefined,
-            status: args.filter?.status ?? undefined,
+            endpointId: args.endpointId ?? undefined,
+            isEnabled: args.isEnabled ?? undefined,
             endpoint: projectRowId
               ? {
                   projectId: projectRowId,
                 }
               : undefined,
           },
-          orderBy: { requestedAt: "desc" },
-          take: args.limit ?? 50,
+          orderBy: { createdAt: "desc" },
+          take,
+          ...pagination,
           include: { endpoint: true },
         });
-        type RunWithEndpoint = (typeof runs)[number] & { endpoint: MetadataEndpointDescriptor };
-        const hydratedRuns: RunWithEndpoint[] = runs.filter(
-          (run: (typeof runs)[number]): run is RunWithEndpoint => Boolean(run.endpoint),
+        const visibleCollections = rows.filter(
+          (row: any): row is PrismaCollectionWithEndpoint => Boolean(row?.endpoint),
         );
-        const mappedRuns = hydratedRuns.map((run) => ({
-          ...run,
-          endpoint: normalizeEndpointForGraphQL(run.endpoint)!,
-        }));
-        return mappedRuns;
+        return visibleCollections.map((row: PrismaCollectionWithEndpoint) => mapCollectionToGraphQL(row));
+      },
+      collection: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const record = await fetchCollectionWithEndpoint(prisma, args.id);
+        const collection = await assertCollectionVisible(record, projectRowId);
+        return mapCollectionToGraphQL(collection);
+      },
+      collectionRuns: async (
+        _parent: unknown,
+        args: { filter?: MetadataCollectionRunFilter | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        return listCollectionRunsForProject(ctx, { filter: args.filter, limit: args.first, after: args.after });
       },
       metadataEndpointTemplates: async (_parent: unknown, args: { family?: "JDBC" | "HTTP" | "STREAM" }) => {
         return fetchEndpointTemplates(args.family);
@@ -778,16 +940,95 @@ export function createResolvers(store: MetadataStore) {
         }
         return normalizeEndpointForGraphQL(descriptor)!;
       },
-      triggerMetadataCollection: async (
+      triggerMetadataCollection: async (_parent: unknown, args: { input: MetadataCollectionRequestInput }, ctx: ResolverContext) => {
+        return triggerEndpointCollectionMutation(_parent, { endpointId: args.input.endpointId, schemaOverride: args.input.schemas }, ctx);
+      },
+      createCollection: async (_parent: unknown, args: { input: CollectionCreateInput }, ctx: ResolverContext) => {
+        enforceWriteAccess(ctx);
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const endpoint = await prisma.metadataEndpoint.findUnique({ where: { id: args.input.endpointId } });
+        if (!endpoint) {
+          throw new GraphQLError("Endpoint not found", { extensions: { code: "E_ENDPOINT_NOT_FOUND" } });
+        }
+        if (projectRowId && endpoint.projectId && endpoint.projectId !== projectRowId) {
+          throw new GraphQLError("Endpoint not found", { extensions: { code: "E_ENDPOINT_NOT_FOUND" } });
+        }
+        const existing = await prisma.metadataCollection.findFirst({ where: { endpointId: endpoint.id } });
+        if (existing) {
+          throw new GraphQLError("Collection already exists for this endpoint.", {
+            extensions: { code: "E_COLLECTION_EXISTS" },
+          });
+        }
+        const data = {
+          endpointId: endpoint.id,
+          scheduleCron: sanitizeScheduleCron(args.input.scheduleCron),
+          scheduleTimezone: sanitizeScheduleTimezone(args.input.scheduleTimezone),
+          isEnabled: args.input.isEnabled ?? true,
+        };
+        const created = (await prisma.metadataCollection.create({
+          data,
+          include: { endpoint: true },
+        })) as PrismaCollectionWithEndpoint;
+        await syncCollectionSchedule(prisma, created);
+        return mapCollectionToGraphQL(created);
+      },
+      updateCollection: async (_parent: unknown, args: { id: string; input: CollectionUpdateInput }, ctx: ResolverContext) => {
+        enforceWriteAccess(ctx);
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const record = await fetchCollectionWithEndpoint(prisma, args.id);
+        const collection = await assertCollectionVisible(record, projectRowId);
+        const updates: Record<string, unknown> = {};
+        if (args.input.scheduleCron !== undefined) {
+          updates.scheduleCron = sanitizeScheduleCron(args.input.scheduleCron);
+        }
+        if (args.input.scheduleTimezone !== undefined) {
+          updates.scheduleTimezone = sanitizeScheduleTimezone(args.input.scheduleTimezone);
+        }
+        if (args.input.isEnabled !== undefined) {
+          updates.isEnabled = Boolean(args.input.isEnabled);
+        }
+        if (Object.keys(updates).length === 0) {
+          return mapCollectionToGraphQL(collection);
+        }
+        const updated = (await prisma.metadataCollection.update({
+          where: { id: collection.id },
+          data: updates,
+          include: { endpoint: true },
+        })) as PrismaCollectionWithEndpoint;
+        await syncCollectionSchedule(prisma, updated);
+        return mapCollectionToGraphQL(updated);
+      },
+      deleteCollection: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceWriteAccess(ctx);
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const record = await fetchCollectionWithEndpoint(prisma, args.id);
+        const collection = await assertCollectionVisible(record, projectRowId);
+        await ensureCollectionIdle(prisma, collection.id);
+        await removeCollectionSchedule(collection);
+        await prisma.metadataCollection.delete({ where: { id: collection.id } });
+        return true;
+      },
+      triggerCollection: async (
         _parent: unknown,
-        args: { input: MetadataCollectionRequestInput },
+        args: { collectionId: string; filters?: Record<string, unknown> | null; schemaOverride?: string[] | null },
         ctx: ResolverContext,
       ) => {
         enforceWriteAccess(ctx);
-        return triggerCollectionForEndpoint(ctx, store, args.input.endpointId, {
-          filters: buildRunFilters(args.input.schemas),
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const record = await fetchCollectionWithEndpoint(prisma, args.collectionId);
+        const collection = await assertCollectionVisible(record, projectRowId);
+        const filters =
+          args.filters ?? (args.schemaOverride && args.schemaOverride.length ? buildRunFilters(args.schemaOverride) : undefined);
+        return triggerCollectionForEndpoint(ctx, store, collection.endpointId, {
+          filters,
+          collection,
         });
       },
+      triggerEndpointCollection: triggerEndpointCollectionMutation,
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
         const templateId = parseTemplateId(args.input.config);
@@ -977,16 +1218,6 @@ export function createResolvers(store: MetadataStore) {
         }
         return true;
       },
-      triggerCollection: async (
-        _parent: unknown,
-        args: { endpointId: string; filters?: Record<string, unknown> | null; schemaOverride?: string[] | null },
-        ctx: ResolverContext,
-      ) => {
-        enforceWriteAccess(ctx);
-        return triggerCollectionForEndpoint(ctx, store, args.endpointId, {
-          filters: args.filters ?? (args.schemaOverride?.length ? buildRunFilters(args.schemaOverride) : undefined),
-        });
-      },
     },
     MetadataEndpoint: {
       url: (parent: { url?: string | null }) => maskEndpointUrl(parent.url),
@@ -1050,6 +1281,47 @@ export function createResolvers(store: MetadataStore) {
           return null;
         }
         return normalizeEndpointForGraphQL(endpoint as unknown as MetadataEndpointDescriptor);
+      },
+      collection: async (parent: any, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        if (!parent.collectionId) {
+          return null;
+        }
+        const prisma = await getPrismaClient();
+        const authProjectId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        if (parent.collection) {
+          if (
+            authProjectId &&
+            parent.collection.endpoint &&
+            parent.collection.endpoint.projectId &&
+            parent.collection.endpoint.projectId !== authProjectId
+          ) {
+            return null;
+          }
+          return mapCollectionToGraphQL(parent.collection as PrismaCollectionWithEndpoint);
+        }
+        const record = await fetchCollectionWithEndpoint(prisma, parent.collectionId);
+        if (!record) {
+          return null;
+        }
+        if (authProjectId && record.endpoint?.projectId && record.endpoint.projectId !== authProjectId) {
+          return null;
+        }
+        return mapCollectionToGraphQL(record);
+      },
+    },
+    MetadataCollection: {
+      endpoint: (parent: any) => parent.endpoint,
+      runs: async (
+        parent: { id: string },
+        args: { first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        return listCollectionRunsForProject(ctx, {
+          filter: { collectionId: parent.id },
+          limit: args.first,
+          after: args.after ?? undefined,
+        });
       },
     },
     CatalogDataset: {
@@ -1466,7 +1738,23 @@ type MetadataCollectionRequestInput = {
 
 type MetadataCollectionRunFilter = {
   endpointId?: string | null;
+  collectionId?: string | null;
   status?: MetadataCollectionStatus | null;
+  from?: string | null;
+  to?: string | null;
+};
+
+type CollectionCreateInput = {
+  endpointId: string;
+  scheduleCron?: string | null;
+  scheduleTimezone?: string | null;
+  isEnabled?: boolean | null;
+};
+
+type CollectionUpdateInput = {
+  scheduleCron?: string | null;
+  scheduleTimezone?: string | null;
+  isEnabled?: boolean | null;
 };
 
 type MetadataCollectionStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
@@ -1636,6 +1924,7 @@ async function triggerCollectionForEndpoint(
     schemaOverride?: string[] | null;
     reason?: "register" | "manual";
     descriptor?: MetadataEndpointDescriptor | null;
+    collection?: PrismaCollectionWithEndpoint | null;
   },
 ) {
   const prisma = await getPrismaClient();
@@ -1670,7 +1959,7 @@ async function triggerCollectionForEndpoint(
     }
   }
   if (!endpoint) {
-    throw new GraphQLError("Endpoint not found", { extensions: { code: "E_NOT_FOUND" } });
+    throw new GraphQLError("Endpoint not found", { extensions: { code: "E_ENDPOINT_NOT_FOUND" } });
   }
   const endpointParameters = parseTemplateParameters(endpoint.config as Record<string, unknown>);
   if (endpoint.deletedAt) {
@@ -1691,17 +1980,29 @@ async function triggerCollectionForEndpoint(
       extensions: { code: "E_CAPABILITY_MISSING" },
     });
   }
+  const collectionRecord =
+    options?.collection ??
+    ((await prisma.metadataCollection.findFirst({
+      where: { endpointId: endpoint.id },
+      include: { endpoint: true },
+      orderBy: { createdAt: "asc" },
+    })) as PrismaCollectionWithEndpoint | null);
+  if (!collectionRecord) {
+    throw new GraphQLError("Collection not found for this endpoint.", {
+      extensions: { code: "E_COLLECTION_NOT_FOUND" },
+    });
+  }
+  await ensureCollectionIsEnabled(collectionRecord);
+  await ensureCollectionIdle(prisma, collectionRecord.id);
   const filters =
     options?.filters ??
     (options?.schemaOverride && options.schemaOverride.length ? buildRunFilters(options.schemaOverride) : undefined);
-  const run = await prisma.metadataCollectionRun.create({
-    data: {
-      endpointId: endpoint.id,
-      status: "QUEUED",
-      requestedBy: ctx.userId ?? undefined,
-      filters,
-    },
-    include: { endpoint: true },
+  const requestedBy = resolveRequestedBy(ctx);
+  const run = await createCollectionRunRecord(prisma, {
+    endpointId: endpoint.id,
+    collectionId: collectionRecord.id,
+    requestedBy,
+    filters,
   });
   if (shouldBypassCollection(ctx)) {
     return finalizeCollectionRun(prisma, run.id, "SUCCEEDED");
@@ -1709,10 +2010,10 @@ async function triggerCollectionForEndpoint(
   const { client, taskQueue } = await getTemporalClient();
   const workflowIdPrefix = options?.reason === "register" ? "metadata-collection-initial" : "metadata-collection";
   const workflowId = `${workflowIdPrefix}-${run.id}`;
-  const handle = await client.workflow.start(WORKFLOW_NAMES.metadataCollection, {
+  const handle = await client.workflow.start(WORKFLOW_NAMES.collectionRun, {
     taskQueue,
     workflowId,
-    args: [{ runId: run.id }],
+    args: [{ runId: run.id, endpointId: endpoint.id, collectionId: collectionRecord.id }],
   });
   await prisma.metadataCollectionRun.update({
     where: { id: run.id },
@@ -1721,7 +2022,7 @@ async function triggerCollectionForEndpoint(
       temporalRunId: handle.firstExecutionRunId,
     },
   });
-  return prisma.metadataCollectionRun.findUnique({ where: { id: run.id }, include: { endpoint: true } });
+  return prisma.metadataCollectionRun.findUnique({ where: { id: run.id }, include: { endpoint: true, collection: true } });
 }
 
 function shouldBypassCollection(context: ResolverContext): boolean {
@@ -1741,7 +2042,7 @@ async function finalizeCollectionRun(
       error: error ?? null,
       completedAt: new Date(),
     },
-    include: { endpoint: true },
+    include: { endpoint: true, collection: true },
   });
 }
 
@@ -1948,4 +2249,219 @@ function buildRunFilters(schemas?: string[] | null): Record<string, unknown> | u
   }
   const normalized = schemas.map((schema) => schema.trim()).filter(Boolean);
   return normalized.length ? { schemas: normalized } : undefined;
+}
+
+function resolveRequestedBy(context: ResolverContext | null | undefined): string | null {
+  if (!context) {
+    return null;
+  }
+  const headerUser = context.userId?.trim();
+  if (headerUser) {
+    return headerUser;
+  }
+  const subject = context.auth?.subject?.trim();
+  if (subject && subject !== "anonymous") {
+    return subject;
+  }
+  return null;
+}
+
+type PrismaClientInstance = Awaited<ReturnType<typeof getPrismaClient>>;
+type PrismaCollectionRecord = Awaited<ReturnType<PrismaClientInstance["metadataCollection"]["findUnique"]>>;
+type PrismaCollectionWithEndpoint = PrismaCollectionRecord & { endpoint: any };
+
+async function fetchCollectionWithEndpoint(
+  prisma: PrismaClientInstance,
+  id: string,
+): Promise<PrismaCollectionWithEndpoint | null> {
+  return prisma.metadataCollection.findUnique({
+    where: { id },
+    include: { endpoint: true },
+  }) as Promise<PrismaCollectionWithEndpoint | null>;
+}
+
+async function ensureDefaultCollectionForEndpoint(
+  prisma: PrismaClientInstance,
+  endpointId: string,
+): Promise<PrismaCollectionWithEndpoint> {
+  const existing = await prisma.metadataCollection.findFirst({
+    where: { endpointId },
+    include: { endpoint: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (existing) {
+    return existing as PrismaCollectionWithEndpoint;
+  }
+  const created = await prisma.metadataCollection.create({
+    data: {
+      endpointId,
+      scheduleCron: null,
+      scheduleTimezone: "UTC",
+      isEnabled: true,
+    },
+    include: { endpoint: true },
+  });
+  return created as PrismaCollectionWithEndpoint;
+}
+
+async function assertCollectionVisible(
+  collection: PrismaCollectionWithEndpoint | null,
+  projectRowId: string | null,
+): Promise<PrismaCollectionWithEndpoint> {
+  if (!collection || !collection.endpoint) {
+    throw new GraphQLError("Collection not found", { extensions: { code: "E_COLLECTION_NOT_FOUND" } });
+  }
+  if (projectRowId && collection.endpoint.projectId && collection.endpoint.projectId !== projectRowId) {
+    throw new GraphQLError("Collection not found", { extensions: { code: "E_COLLECTION_NOT_FOUND" } });
+  }
+  return collection;
+}
+
+async function ensureCollectionIsEnabled(collection: PrismaCollectionWithEndpoint) {
+  if (!collection.isEnabled) {
+    throw new GraphQLError("Collection is disabled.", { extensions: { code: "E_COLLECTION_DISABLED" } });
+  }
+}
+
+async function ensureCollectionIdle(prisma: PrismaClientInstance, collectionId: string) {
+  const activeRun = await prisma.metadataCollectionRun.findFirst({
+    where: { collectionId, status: "RUNNING" },
+  });
+  if (activeRun) {
+    throw new GraphQLError("Collection already has an active run.", {
+      extensions: { code: "E_COLLECTION_IN_PROGRESS", runId: activeRun.id },
+    });
+  }
+}
+
+async function createCollectionRunRecord(
+  prisma: PrismaClientInstance,
+  params: {
+    endpointId: string;
+    collectionId?: string | null;
+    requestedBy?: string | null;
+    filters?: Record<string, unknown> | null;
+  },
+) {
+  return prisma.metadataCollectionRun.create({
+    data: {
+      endpointId: params.endpointId,
+      collectionId: params.collectionId ?? null,
+      status: "QUEUED",
+      requestedBy: params.requestedBy ?? null,
+      filters: params.filters ?? undefined,
+    },
+    include: { endpoint: true, collection: true },
+  });
+}
+
+function buildCollectionScheduleId(collectionId: string): string {
+  return `${COLLECTION_SCHEDULE_PREFIX}::${collectionId}`;
+}
+
+async function syncCollectionSchedule(
+  prisma: PrismaClientInstance,
+  collection: PrismaCollectionWithEndpoint,
+): Promise<void> {
+  const cron = sanitizeScheduleCron(collection.scheduleCron);
+  if (!cron) {
+    await removeCollectionSchedule(collection);
+    if (collection.temporalScheduleId) {
+      await prisma.metadataCollection.update({
+        where: { id: collection.id },
+        data: { temporalScheduleId: null },
+      });
+    }
+    return;
+  }
+  const timezone = sanitizeScheduleTimezone(collection.scheduleTimezone);
+  const { client, taskQueue } = await getTemporalClient();
+  const scheduleId = buildCollectionScheduleId(collection.id);
+  const spec = {
+    cronExpressions: [cron],
+    timezone,
+  };
+  const action = {
+    type: "startWorkflow" as const,
+    workflowType: WORKFLOW_NAMES.collectionRun,
+    taskQueue,
+    workflowId: `collection-run-${collection.id}`,
+    workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+    args: [{ collectionId: collection.id, endpointId: collection.endpointId }],
+  };
+  const policies = {
+    overlap: ScheduleOverlapPolicy.SKIP,
+    catchupWindow: 60_000,
+    pauseOnFailure: false,
+  };
+  const handle = client.schedule.getHandle(scheduleId);
+  let exists = true;
+  try {
+    await handle.describe();
+  } catch (error) {
+    exists = false;
+    if (!(error instanceof Error) || !/not\s+found/i.test(error.message)) {
+      throw error;
+    }
+  }
+  if (!exists) {
+    await client.schedule.create({ scheduleId, spec, action, policies });
+  } else {
+    await handle.update(() => ({ spec, action, policies, state: { paused: !collection.isEnabled } }));
+  }
+  if (collection.isEnabled) {
+    await handle.unpause().catch((error: unknown) => {
+      if (error instanceof Error && /not\s+paused/i.test(error.message)) {
+        return;
+      }
+      throw error;
+    });
+  } else {
+    await handle.pause(COLLECTION_SCHEDULE_PAUSE_REASON);
+  }
+  if (collection.temporalScheduleId !== scheduleId) {
+    await prisma.metadataCollection.update({
+      where: { id: collection.id },
+      data: { temporalScheduleId: scheduleId },
+    });
+  }
+}
+
+async function removeCollectionSchedule(collection: { temporalScheduleId?: string | null }) {
+  if (!collection.temporalScheduleId) {
+    return;
+  }
+  const { client } = await getTemporalClient();
+  const handle = client.schedule.getHandle(collection.temporalScheduleId);
+  try {
+    await handle.delete();
+  } catch (error) {
+    if (error instanceof Error && /not\s+found/i.test(error.message)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+function sanitizeScheduleCron(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function sanitizeScheduleTimezone(value?: string | null): string {
+  if (!value) {
+    return "UTC";
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : "UTC";
+}
+
+function mapCollectionToGraphQL(collection: PrismaCollectionWithEndpoint) {
+  return {
+    ...collection,
+    endpoint: normalizeEndpointForGraphQL(collection.endpoint as unknown as MetadataEndpointDescriptor)!,
+  };
 }

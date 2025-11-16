@@ -2,7 +2,7 @@ import { proxyActivities, workflowInfo, log } from "@temporalio/workflow";
 import type { CatalogRecordInput, CollectionJobRequest, MetadataActivities } from "./activities.js";
 
 export const WORKFLOW_NAMES = {
-  metadataCollection: "metadataCollectionWorkflow",
+  collectionRun: "collectionRunWorkflow",
   listEndpointTemplates: "listEndpointTemplatesWorkflow",
   buildEndpointConfig: "buildEndpointConfigWorkflow",
   testEndpointConnection: "testEndpointConnectionWorkflow",
@@ -10,6 +10,7 @@ export const WORKFLOW_NAMES = {
 } as const;
 
 const {
+  createCollectionRun,
   markRunStarted,
   markRunCompleted,
   markRunSkipped,
@@ -48,23 +49,41 @@ const pythonActivities = proxyActivities<PythonMetadataActivities>({
   scheduleToCloseTimeout: "2 hours",
 });
 
-export async function metadataCollectionWorkflow(input: { runId: string }) {
+type CollectionRunWorkflowInput = {
+  runId?: string;
+  endpointId?: string | null;
+  collectionId?: string | null;
+};
+
+export async function collectionRunWorkflow(input: CollectionRunWorkflowInput) {
   const info = workflowInfo();
+  let runId = input.runId;
+  if (!runId) {
+    if (!input.endpointId) {
+      throw new Error("collectionRunWorkflow requires endpointId when runId is not provided");
+    }
+    const created = await createCollectionRun({
+      endpointId: input.endpointId,
+      collectionId: input.collectionId ?? null,
+      reason: "schedule",
+    });
+    runId = created.runId;
+  }
   await markRunStarted({
-    runId: input.runId,
+    runId,
     workflowId: info.workflowId,
     temporalRunId: info.runId,
   });
 
   try {
-    const plan = await prepareCollectionJob({ runId: input.runId });
+    const plan = await prepareCollectionJob({ runId });
     if (plan.kind === "skip") {
       log.info("metadata-collection-skip", {
-        runId: input.runId,
+        runId,
         reason: plan.reason,
         capability: plan.capability ?? null,
       });
-      await markRunSkipped({ runId: input.runId, reason: plan.reason });
+      await markRunSkipped({ runId, reason: plan.reason });
       return;
     }
     const result = await pythonActivities.collectCatalogSnapshots(plan.job);
@@ -72,14 +91,14 @@ export async function metadataCollectionWorkflow(input: { runId: string }) {
       log.info("metadata-collection-log", entry);
     });
     await persistCatalogRecords({
-      runId: input.runId,
+      runId,
       records: result?.records,
       recordsPath: result?.recordsPath,
     });
-    await markRunCompleted({ runId: input.runId });
+    await markRunCompleted({ runId });
   } catch (error) {
     await markRunFailed({
-      runId: input.runId,
+      runId,
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;

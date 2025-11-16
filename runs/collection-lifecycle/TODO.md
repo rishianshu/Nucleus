@@ -1,0 +1,1 @@
+- [x] Re-run metadata e2e suites (`pnpm check:metadata-lifecycle`, `pnpm check:metadata-auth`) once supporting services (Keycloak, reporting API) are up to confirm new dataset identity + filters. *(2025-11-16 — metadata-lifecycle green, metadata-auth runs split per new script)*

@@ -583,7 +583,7 @@ export class PrismaMetadataStore implements MetadataStore {
   }
 
   async getRecord<T = Record<string, unknown>>(domain: string, id: string): Promise<MetadataRecord<T> | null> {
-    const record = await this.prisma.metadataRecord.findUnique({ where: { id } });
+    const record = await this.prisma.metadataRecord.findUnique({ where: buildRecordKey(domain, id) });
     if (!record || record.domain !== domain) {
       return null;
     }
@@ -594,7 +594,7 @@ export class PrismaMetadataStore implements MetadataStore {
     const ensuredProjectId = await this.ensureProject(input.projectId);
     if (input.id) {
       const upserted = await this.prisma.metadataRecord.upsert({
-        where: { id: input.id },
+        where: buildRecordKey(input.domain, input.id),
         update: {
           projectId: ensuredProjectId,
           domain: input.domain,
@@ -623,11 +623,11 @@ export class PrismaMetadataStore implements MetadataStore {
   }
 
   async deleteRecord(domain: string, id: string): Promise<void> {
-    const record = await this.prisma.metadataRecord.findUnique({ where: { id } });
+    const record = await this.prisma.metadataRecord.findUnique({ where: buildRecordKey(domain, id) });
     if (!record || record.domain !== domain) {
       return;
     }
-    await this.prisma.metadataRecord.delete({ where: { id } });
+    await this.prisma.metadataRecord.delete({ where: buildRecordKey(domain, id) });
   }
 
   async listDomains(): Promise<MetadataDomainSummary[]> {
@@ -818,6 +818,10 @@ export class PrismaMetadataStore implements MetadataStore {
     }
     return normalized;
   }
+}
+
+function buildRecordKey(domain: string, id: string): Record<string, unknown> {
+  return { domain_id: { domain, id } };
 }
 
 function mapPrismaRecord<T>(record: any): MetadataRecord<T> {

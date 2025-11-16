@@ -11,6 +11,10 @@ export type MetadataDataset = {
   source?: string | null;
   projectIds?: string[];
   labels?: string[];
+  schema?: string | null;
+  entity?: string | null;
+  collectedAt?: string | null;
+  sourceEndpointId?: string | null;
   fields: MetadataDatasetField[];
 };
 
@@ -192,6 +196,10 @@ export class MetadataClient {
           source
           labels
           projectIds
+          schema
+          entity
+          collectedAt
+          sourceEndpointId
           fields { name type description }
         }
       }
@@ -225,6 +233,10 @@ function normalizeDataset(raw: any): MetadataDataset {
     source: raw.source ?? raw.path ?? null,
     projectIds: Array.isArray(raw.projectIds) ? raw.projectIds.map(String) : undefined,
     labels: Array.isArray(raw.labels) ? raw.labels.map(String) : undefined,
+    schema: raw.schema ?? null,
+    entity: raw.entity ?? null,
+    collectedAt: raw.collectedAt ?? null,
+    sourceEndpointId: raw.sourceEndpointId ?? null,
     fields: Array.isArray(raw.fields)
       ? raw.fields.map((field: any) => ({
           name: String(field.name ?? ""),

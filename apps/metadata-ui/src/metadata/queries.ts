@@ -1,5 +1,5 @@
 export const METADATA_OVERVIEW_QUERY = `
-  query DesignerMetadataOverview($projectSlug: String) {
+  query DesignerMetadataOverview($projectSlug: String, $collectionsFirst: Int = 200) {
     endpoints(projectSlug: $projectSlug) {
       id
       sourceId
@@ -17,23 +17,47 @@ export const METADATA_OVERVIEW_QUERY = `
       deletedAt
       deletionReason
       isDeleted
+      runs(limit: 5) {
+        id
+        status
+        requestedAt
+        completedAt
+        error
+      }
+    }
+    collections(first: $collectionsFirst) {
+      id
+      endpointId
+      scheduleCron
+      scheduleTimezone
+      isEnabled
+      temporalScheduleId
+      createdAt
+      updatedAt
     }
   }
 `;
 
-export const METADATA_COLLECTION_RUNS_QUERY = `
-  query DesignerMetadataCollectionRuns($runsLimit: Int) {
-    metadataCollectionRuns(limit: $runsLimit) {
+export const COLLECTION_RUNS_QUERY = `
+  query DesignerCollectionRuns($filter: MetadataCollectionRunFilter, $first: Int) {
+    collectionRuns(filter: $filter, first: $first) {
       id
+      collectionId
       status
       requestedAt
+      requestedBy
       startedAt
       completedAt
       error
+      filters
       endpoint {
         id
         name
         isDeleted
+      }
+      collection {
+        id
+        endpointId
       }
     }
   }
@@ -121,11 +145,12 @@ export const UPDATE_METADATA_ENDPOINT_MUTATION = `
   }
 `;
 
-export const TRIGGER_METADATA_COLLECTION_MUTATION = `
-  mutation DesignerTriggerMetadataCollection($endpointId: ID!, $filters: JSON, $schemaOverride: [String!]) {
-    triggerCollection(endpointId: $endpointId, filters: $filters, schemaOverride: $schemaOverride) {
+export const TRIGGER_ENDPOINT_COLLECTION_MUTATION = `
+  mutation DesignerTriggerEndpointCollection($endpointId: ID!, $filters: JSON, $schemaOverride: [String!]) {
+    triggerEndpointCollection(endpointId: $endpointId, filters: $filters, schemaOverride: $schemaOverride) {
       id
       status
+      collectionId
     }
   }
 `;

@@ -13,7 +13,7 @@ import { formatDateTime, formatPreviewValue, formatRelativeTime } from "../lib/f
 import { fetchMetadataGraphQL } from "./api";
 import {
   ENDPOINT_DATASETS_QUERY,
-  METADATA_COLLECTION_RUNS_QUERY,
+  COLLECTION_RUNS_QUERY,
   METADATA_ENDPOINT_TEMPLATES_QUERY,
   METADATA_OVERVIEW_QUERY,
   PREVIEW_METADATA_DATASET_MUTATION,
@@ -21,13 +21,14 @@ import {
   UPDATE_METADATA_ENDPOINT_MUTATION,
   DELETE_METADATA_ENDPOINT_MUTATION,
   TEST_METADATA_ENDPOINT_MUTATION,
-  TRIGGER_METADATA_COLLECTION_MUTATION,
+  TRIGGER_ENDPOINT_COLLECTION_MUTATION,
 } from "./queries";
 import type {
   CatalogDataset,
   DatasetPreviewResult,
   EndpointDatasetRecord,
   MetadataCollectionRunSummary,
+  MetadataCollectionSummary,
   MetadataEndpointSummary,
   MetadataEndpointTemplate,
   MetadataEndpointTemplateField,
@@ -156,6 +157,14 @@ const statusStyles: Record<
   },
 };
 
+const COLLECTION_STATUS_VALUES: MetadataCollectionRunSummary["status"][] = [
+  "QUEUED",
+  "RUNNING",
+  "SUCCEEDED",
+  "FAILED",
+  "SKIPPED",
+];
+
 export function MetadataWorkspace({
   metadataEndpoint,
   catalogDatasets,
@@ -167,6 +176,7 @@ export function MetadataWorkspace({
   onEndpointDeleted,
 }: MetadataWorkspaceProps) {
   const [metadataEndpoints, setMetadataEndpoints] = useState<MetadataEndpointSummary[]>([]);
+  const [metadataCollections, setMetadataCollections] = useState<MetadataCollectionSummary[]>([]);
   const [metadataRuns, setMetadataRuns] = useState<MetadataCollectionRunSummary[]>([]);
   const [metadataTemplates, setMetadataTemplates] = useState<MetadataEndpointTemplate[]>([]);
   const [metadataTemplatesLoading, setMetadataTemplatesLoading] = useState(false);
@@ -208,6 +218,8 @@ export function MetadataWorkspace({
   const [metadataRunsRequestKey, setMetadataRunsRequestKey] = useState(0);
   const [metadataRunsLoadedKey, setMetadataRunsLoadedKey] = useState<number | null>(null);
   const [metadataRunsLoaded, setMetadataRunsLoaded] = useState(false);
+  const [metadataCollectionsEndpointFilter, setMetadataCollectionsEndpointFilter] = useState<string>("all");
+  const [metadataCollectionsStatusFilter, setMetadataCollectionsStatusFilter] = useState<string>("all");
   const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
   const [endpointDatasetRecords, setEndpointDatasetRecords] = useState<Record<string, EndpointDatasetRecord[]>>({});
   const [endpointDatasetErrors, setEndpointDatasetErrors] = useState<Record<string, string>>({});
@@ -235,6 +247,14 @@ export function MetadataWorkspace({
     });
     return map;
   }, [metadataEndpoints]);
+
+  const metadataCollectionsByEndpoint = useMemo(() => {
+    const map = new Map<string, MetadataCollectionSummary>();
+    metadataCollections.forEach((collection) => {
+      map.set(collection.endpointId, collection);
+    });
+    return map;
+  }, [metadataCollections]);
 
 
   const metadataCatalogFilteredDatasets = useMemo(() => {
@@ -635,15 +655,24 @@ export function MetadataWorkspace({
     setMetadataRunsError(null);
     try {
       const payload = await fetchMetadataGraphQL<{
-        metadataCollectionRuns: MetadataCollectionRunSummary[];
+        collectionRuns: MetadataCollectionRunSummary[];
       }>(
         metadataEndpoint,
-        METADATA_COLLECTION_RUNS_QUERY,
-        { runsLimit: 30 },
+        COLLECTION_RUNS_QUERY,
+        {
+          filter:
+            metadataCollectionsEndpointFilter !== "all" || metadataCollectionsStatusFilter !== "all"
+              ? {
+                  endpointId: metadataCollectionsEndpointFilter !== "all" ? metadataCollectionsEndpointFilter : undefined,
+                  status: metadataCollectionsStatusFilter !== "all" ? metadataCollectionsStatusFilter : undefined,
+                }
+              : undefined,
+          first: 30,
+        },
         undefined,
         { token: authToken ?? undefined },
       );
-      setMetadataRuns(payload.metadataCollectionRuns ?? []);
+      setMetadataRuns(payload.collectionRuns ?? []);
       setMetadataRunsLoaded(true);
       setMetadataRunsLoadedKey(metadataRunsRequestKey);
     } catch (error) {
@@ -654,6 +683,8 @@ export function MetadataWorkspace({
   }, [
     authToken,
     metadataEndpoint,
+    metadataCollectionsEndpointFilter,
+    metadataCollectionsStatusFilter,
     metadataRunsLoaded,
     metadataRunsLoadedKey,
     metadataRunsLoading,
@@ -665,6 +696,18 @@ export function MetadataWorkspace({
       void loadMetadataRuns();
     }
   }, [metadataSection, metadataView, loadMetadataRuns]);
+
+  useEffect(() => {
+    if (metadataView === "overview" && metadataSection === "collections") {
+      refreshMetadataRuns();
+    }
+  }, [
+    metadataCollectionsEndpointFilter,
+    metadataCollectionsStatusFilter,
+    metadataSection,
+    metadataView,
+    refreshMetadataRuns,
+  ]);
 
   const handleWorkspaceRefresh = useCallback(() => {
     refreshMetadataWorkspace();
@@ -898,6 +941,13 @@ export function MetadataWorkspace({
         );
         return;
       }
+      const targetCollection = metadataCollectionsByEndpoint.get(endpointId);
+      if (targetCollection && !targetCollection.isEnabled) {
+        setMetadataMutationError(
+          `Cannot trigger collection because the collection for ${targetEndpoint?.name ?? "this endpoint"} is disabled.`,
+        );
+        return;
+      }
       setMetadataMutationError(null);
       try {
         const override = metadataRunOverrides[endpointId];
@@ -909,7 +959,7 @@ export function MetadataWorkspace({
           : undefined;
         await fetchMetadataGraphQL(
           metadataEndpoint,
-          TRIGGER_METADATA_COLLECTION_MUTATION,
+          TRIGGER_ENDPOINT_COLLECTION_MUTATION,
           {
             endpointId,
             schemaOverride,
@@ -922,7 +972,14 @@ export function MetadataWorkspace({
         setMetadataMutationError(error instanceof Error ? error.message : String(error));
       }
     },
-    [authToken, metadataEndpoint, metadataEndpoints, metadataRunOverrides, refreshMetadataWorkspace],
+    [
+      authToken,
+      metadataCollectionsByEndpoint,
+      metadataEndpoint,
+      metadataEndpoints,
+      metadataRunOverrides,
+      refreshMetadataWorkspace,
+    ],
   );
 
   const handleDeleteMetadataEndpoint = useCallback(
@@ -1129,6 +1186,7 @@ export function MetadataWorkspace({
       try {
         const data = await fetchMetadataGraphQL<{
           endpoints: MetadataEndpointSummary[];
+          collections: MetadataCollectionSummary[];
         }>(
           metadataEndpoint,
           METADATA_OVERVIEW_QUERY,
@@ -1143,6 +1201,7 @@ export function MetadataWorkspace({
         }
         const incomingEndpoints = (data.endpoints ?? []).filter((endpoint) => !endpoint.isDeleted);
         setMetadataEndpoints(incomingEndpoints);
+        setMetadataCollections(data.collections ?? []);
       } catch (error) {
         if (!controller.signal.aborted) {
           setMetadataError(error instanceof Error ? error.message : String(error));
@@ -1156,7 +1215,7 @@ export function MetadataWorkspace({
 
     void loadMetadataOverview();
     return () => controller.abort();
-  }, [authToken, metadataEndpoint, metadataRefreshToken]);
+  }, [authToken, metadataEndpoint, metadataRefreshToken, projectSlug]);
 
   useEffect(() => {
     if (!metadataCatalogSelectedDataset || !authToken) {
@@ -1886,6 +1945,7 @@ export function MetadataWorkspace({
           </p>
         ) : null}
         {metadataEndpoints.map((endpoint) => {
+          const collection = metadataCollectionsByEndpoint.get(endpoint.id);
           const latestRun = metadataLatestRunByEndpoint.get(endpoint.id);
           const declaredCapabilities = endpoint.capabilities ?? [];
           const hasDeclaredCapabilities = declaredCapabilities.length > 0;
@@ -1897,9 +1957,13 @@ export function MetadataWorkspace({
             hasDeclaredCapabilities && !supportsMetadataCapability
               ? "Metadata collections disabled: this endpoint is missing the \"metadata\" capability."
               : null;
+          const collectionBlockedReason =
+            collection && !collection.isEnabled
+              ? "Collection disabled: Enable this collection from the Collections tab to resume runs."
+              : null;
           const triggerBlockedReason = !canModifyEndpoints
             ? "Viewer access cannot trigger collections."
-            : capabilityBlockedReason;
+            : capabilityBlockedReason ?? collectionBlockedReason;
           const canTriggerCollection = !triggerBlockedReason;
           const previewBlockedReason = hasDeclaredCapabilities && !supportsPreviewCapability
             ? "Dataset previews disabled: this endpoint is missing the \"preview\" capability."
@@ -1938,6 +2002,12 @@ export function MetadataWorkspace({
               {endpoint.domain ? (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Domain · {endpoint.domain}</p>
               ) : null}
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Collection schedule ·{" "}
+                {collection?.scheduleCron
+                  ? `${collection.scheduleCron} (${collection.scheduleTimezone ?? "UTC"})`
+                  : "Manual only"}
+              </p>
               {endpoint.labels?.length ? (
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-slate-500">
                   {endpoint.labels.map((label) => (
@@ -1961,6 +2031,11 @@ export function MetadataWorkspace({
                   {capabilityBlockedReason}
                 </div>
               ) : null}
+              {collectionBlockedReason && !capabilityBlockedReason ? (
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                  {collectionBlockedReason}
+                </div>
+              ) : null}
               {previewBlockedReason ? (
                 <div className="mt-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100">
                   {previewBlockedReason}
@@ -1982,6 +2057,7 @@ export function MetadataWorkspace({
                 <button
                   type="button"
                   onClick={() => handleTriggerMetadataRun(endpoint.id)}
+                  data-testid={`metadata-endpoint-trigger-${endpoint.id}`}
                   className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-60 ${
                     canTriggerCollection
                       ? "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
@@ -2003,9 +2079,50 @@ export function MetadataWorkspace({
   };
 
   const renderCollectionsSection = () => {
+    const endpointFilterOptions = [{ id: "all", name: "All endpoints" }, ...metadataEndpoints.map((endpoint) => ({ id: endpoint.id, name: endpoint.name }))];
+    const hasActiveRunFilter =
+      metadataCollectionsEndpointFilter !== "all" || metadataCollectionsStatusFilter !== "all";
+    const filterControls = (
+      <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-wrap gap-4">
+          <label className="flex flex-1 min-w-[180px] flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+            Endpoint filter
+            <select
+              data-testid="metadata-collections-filter-endpoint"
+              value={metadataCollectionsEndpointFilter}
+              onChange={(event) => setMetadataCollectionsEndpointFilter(event.target.value)}
+              className="mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              {endpointFilterOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-1 min-w-[180px] flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+            Status filter
+            <select
+              data-testid="metadata-collections-filter-status"
+              value={metadataCollectionsStatusFilter}
+              onChange={(event) => setMetadataCollectionsStatusFilter(event.target.value)}
+              className="mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="all">All statuses</option>
+              {COLLECTION_STATUS_VALUES.map((status) => (
+                <option key={status} value={status}>
+                  {status.toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+    );
     if (metadataRunsLoading && !metadataRunsLoaded) {
       return (
         <div className="space-y-4" data-testid="metadata-collections-panel">
+          {filterControls}
           <p className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
             <LuHistory className="h-4 w-4 animate-spin" />
             Loading collection runs…
@@ -2016,6 +2133,7 @@ export function MetadataWorkspace({
     if (metadataRunsError) {
       return (
         <div className="space-y-4" data-testid="metadata-collections-panel">
+          {filterControls}
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-950/40 dark:text-rose-200">
             <p>{metadataRunsError}</p>
             <button
@@ -2031,6 +2149,7 @@ export function MetadataWorkspace({
     }
     return (
       <div className="space-y-4" data-testid="metadata-collections-panel">
+        {filterControls}
         {metadataRunsLoading && metadataRunsLoaded ? (
           <p className="text-xs text-slate-500">Refreshing run history…</p>
         ) : null}
@@ -2039,7 +2158,9 @@ export function MetadataWorkspace({
             className="rounded-2xl border border-dashed border-slate-300 px-4 py-4 text-sm text-slate-500 dark:border-slate-700"
             data-testid="metadata-collections-empty"
           >
-            No collection runs recorded yet. Trigger a run from the endpoint cards.
+            {hasActiveRunFilter
+              ? "No collection runs match the selected filters."
+              : "No collection runs recorded yet. Trigger a run from the endpoint cards."}
           </p>
         ) : (
           sortedMetadataRuns.map((run) => (
@@ -2057,10 +2178,37 @@ export function MetadataWorkspace({
                 <span>Completed: {run.completedAt ? formatDateTime(run.completedAt) : "—"}</span>
                 <span>Run ID: {run.id}</span>
               </div>
+              <div className="mt-2 grid gap-1 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-3">
+                <span>Collection: {run.collection?.id ?? "—"}</span>
+                <span>Endpoint ID: {run.endpoint?.id ?? "—"}</span>
+                <span>Requested by: {run.requestedBy ?? "unknown"}</span>
+              </div>
+              {Array.isArray((run.filters as { schemas?: string[] } | undefined)?.schemas) &&
+              ((run.filters as { schemas?: string[] }).schemas?.length ?? 0) > 0 ? (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Schemas: {(run.filters as { schemas?: string[] }).schemas!.join(", ")}
+                </p>
+              ) : null}
               {run.error ? (
                 <p className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200">
                   {run.error}
                 </p>
+              ) : null}
+              {run.endpoint?.id ? (
+                <div className="mt-3">
+                  <button
+                    data-testid="metadata-collections-view-endpoint"
+                    type="button"
+                    onClick={() => {
+                      setMetadataView("overview");
+                      setMetadataSection("endpoints");
+                      setMetadataEndpointDetailId(run.endpoint?.id ?? null);
+                    }}
+                    className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                  >
+                    View endpoint
+                  </button>
+                </div>
               ) : null}
             </article>
           ))
