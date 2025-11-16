@@ -1,0 +1,30 @@
+http:
+  middlewares:
+    secureHeaders:
+      headers:
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: no-referrer
+        permissionsPolicy: "vibrate 'none'"
+    basicAuthTemporal:
+      basicAuth:
+        users:
+          - "admin:$apr1$vY5rmvfe$VPF//4R1T1GbKBPJg3qUa1" # password: Temporal!23
+  routers:
+    temporal:
+      rule: "Host(`temporal.jira-plus-plus.in`)"
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      service: temporal
+      middlewares:
+        - basicAuthTemporal
+  services:
+    temporal:
+      loadBalancer:
+        servers:
+          - url: "http://temporal-ui:8080"

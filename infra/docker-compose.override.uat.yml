@@ -1,0 +1,33 @@
+services:
+  api:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.jira-plus-plus.in`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=4000"
+  web:
+    build:
+      args:
+        VITE_GRAPHQL_ENDPOINT: "https://api.jira-plus-plus.in/graphql"
+        VITE_API_BASE_URL: "https://api.jira-plus-plus.in"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`app.jira-plus-plus.in`)"
+      - "traefik.http.routers.web-root.rule=Host(`jira-plus-plus.in`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web-root.entrypoints=websecure"
+      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.web-root.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.web-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.web-http.rule=Host(`app.jira-plus-plus.in`,`jira-plus-plus.in`)"
+      - "traefik.http.routers.web-http.entrypoints=web"
+      - "traefik.http.routers.web-http.middlewares=web-redirect"
+  temporal-ui:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.temporal.rule=Host(`temporal.jira-plus-plus.in`)"
+      - "traefik.http.routers.temporal.entrypoints=websecure"
+      - "traefik.http.routers.temporal.tls.certresolver=letsencrypt"
+      - "traefik.http.services.temporal.loadbalancer.server.port=8080"

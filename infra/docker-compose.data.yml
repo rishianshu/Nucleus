@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+
+  minio:
+    image: minio/minio
+    container_name: jira_minio
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: adminadmin
+    ports:
+      - "9000:9000"
+
+  nats:
+    image: nats:2
+    container_name: jira_nats
+    ports:
+      - "4222:4222"
+
+  local-llm:
+    image: ollama/ollama:latest
+    container_name: jira_local_llm
+    command: ["serve"]
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ollama_models:
