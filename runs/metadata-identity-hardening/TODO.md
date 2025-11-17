@@ -1,0 +1,3 @@
+- [x] Make metadata-auth "collections filters" spec deterministic (stabilize locators / ensure data-testid usage) per AC2/AC5.
+- [x] Rerun `pnpm check:metadata-auth` with metadata API @4010 and metadata UI @5176 once fix is in.
+- [x] Update LOG/STATE/DECISIONS/STORY and capture acceptance evidence after suite passes.

@@ -354,23 +354,28 @@ test("metadata collections filters by endpoint and status", async ({ page, reque
   await waitForCollectionRunStatus(request, endpointB.id, "SUCCEEDED");
   await page.getByRole("button", { name: "Collections" }).click();
   const collectionsPanel = page.locator("[data-testid='metadata-collections-panel']");
-  await expect(
-    collectionsPanel.locator("article").filter({ hasText: endpointA.name }).first(),
-  ).toBeVisible({
+  const collectionCards = page.getByTestId("metadata-collection-card");
+  await expect(collectionCards.filter({ hasText: endpointA.name }).first()).toBeVisible({
     timeout: 30_000,
   });
   const endpointFilter = page.getByTestId("metadata-collections-filter-endpoint");
   await endpointFilter.selectOption(endpointA.id);
-  const filteredRuns = collectionsPanel.locator("article");
+  const filteredRuns = page.getByTestId("metadata-collection-card");
   await expect(filteredRuns.first()).toContainText(endpointA.name);
   const filteredCount = await filteredRuns.count();
   expect(filteredCount).toBeGreaterThan(0);
   for (let index = 0; index < filteredCount; index += 1) {
-    await expect(filteredRuns.nth(index)).toContainText(endpointA.name);
+    await expect(filteredRuns.nth(index)).toHaveAttribute("data-endpoint-id", endpointA.id);
   }
   const statusFilter = page.getByTestId("metadata-collections-filter-status");
   await statusFilter.selectOption("SUCCEEDED");
-  await expect(collectionsPanel.locator("article").first()).toContainText(/succeeded/i);
+  const succeededRuns = page.getByTestId("metadata-collection-card");
+  await expect(succeededRuns.first()).toHaveAttribute("data-status", /SUCCEEDED/);
+  const succeededCount = await succeededRuns.count();
+  expect(succeededCount).toBeGreaterThan(0);
+  for (let index = 0; index < succeededCount; index += 1) {
+    await expect(succeededRuns.nth(index)).toHaveAttribute("data-status", /SUCCEEDED/);
+  }
   await endpointFilter.selectOption("all");
   await statusFilter.selectOption("all");
   await deleteEndpointViaApi(request, endpointA);

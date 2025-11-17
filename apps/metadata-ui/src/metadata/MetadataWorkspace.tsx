@@ -2167,6 +2167,10 @@ export function MetadataWorkspace({
             <article
               key={run.id}
               className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
+              data-testid="metadata-collection-card"
+              data-endpoint-id={run.endpoint?.id ?? "unknown"}
+              data-status={(run.status ?? "UNKNOWN").toUpperCase()}
+              data-run-id={run.id}
             >
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400">
                 <span>{run.status}</span>

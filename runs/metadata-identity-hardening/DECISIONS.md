@@ -1,0 +1,1 @@
+- 2025-11-17: Collection run cards now expose deterministic attributes (`data-testid`, `data-endpoint-id`, `data-status`) so Playwright can assert filters without relying on scrolling/text heuristics, aligning with the requested approach to favor explicit test ids.
