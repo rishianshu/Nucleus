@@ -11,18 +11,19 @@ test.beforeAll(async ({ request }) => {
 test.describe("Metadata catalog & endpoint lifecycle", () => {
   test("catalog datasets are available (seeded)", async ({ request }) => {
     const token = await fetchKeycloakToken(request);
-    const data = await graphql<{ catalogDatasets: Array<{ id: string }> }>(
+    const data = await graphql<{ catalogDatasetConnection: { nodes: Array<{ id: string }>; totalCount: number } }>(
       request,
       token,
       `
         query CatalogSmoke {
-          catalogDatasets {
-            id
+          catalogDatasetConnection(first: 5) {
+            nodes { id }
+            totalCount
           }
         }
       `,
     );
-    expect(data.catalogDatasets.length, "catalog datasets present").toBeGreaterThan(0);
+    expect(data.catalogDatasetConnection.nodes.length, "catalog datasets present").toBeGreaterThan(0);
   });
 
   test("register, update, and soft-delete an endpoint", async ({ request }) => {

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext, type Route } from "@playwright/test";
-import { loginViaKeycloak, ensureRealmUser, keycloakBase } from "./helpers/webAuth";
+import { loginViaKeycloak, ensureRealmUser, keycloakBase, metadataBase } from "./helpers/webAuth";
 
 const POSTGRES_CONNECTION_DEFAULTS = {
   host: process.env.METADATA_PG_HOST ?? "localhost",
@@ -45,11 +45,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("metadata console requires Keycloak login and loads workspace nav", async ({ page }) => {
-  await loginViaKeycloak(page);
-  const metadataTab = page.getByRole("button", { name: "Metadata" });
-  await expect(metadataTab).toBeVisible({ timeout: 20_000 });
-  await metadataTab.click();
-  await ensureWorkspaceReady(page);
+  await openMetadataWorkspace(page);
   await expect(page.getByTestId("metadata-register-open").first()).toBeVisible();
   await expect(page.locator("text=/Authentication required/i")).toHaveCount(0);
 });
@@ -75,6 +71,7 @@ test("metadata workspace sections render datasets, endpoints, and collections", 
     const viewDetailButton = page.getByRole("button", { name: "View detail" }).first();
     await viewDetailButton.click();
     await expect(page.getByTestId("metadata-dataset-detail-drawer")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Dataset detail ready." }).first()).toBeVisible();
     await page.locator("[data-testid='metadata-dataset-detail-drawer'] button", { hasText: "Close" }).first().click().catch(async () => {
       // dataset detail closes via backdrop; fall back to pressing Escape
       await page.keyboard.press("Escape");
@@ -103,9 +100,64 @@ test("metadata workspace sections render datasets, endpoints, and collections", 
   await page.getByRole("button", { name: "Collections" }).click();
   const collectionsPanel = page.locator("[data-testid='metadata-collections-panel']");
   await expect(collectionsPanel).toBeVisible({ timeout: 20_000 });
+  const collectionsViewEndpoint = page.getByTestId("metadata-collections-view-endpoint").first();
+  if (await collectionsViewEndpoint.isVisible().catch(() => false)) {
+    await collectionsViewEndpoint.click();
+    await expect(page.getByRole("status").filter({ hasText: "Endpoint detail focused." })).toBeVisible();
+  }
 
   await page.locator("[data-testid='metadata-register-open']").first().click();
   await expect(page.locator("[data-testid='metadata-register-form']")).toBeVisible();
+});
+
+test("catalog endpoint filter respects endpoint IDs", async ({ page, request }) => {
+  const endpointA = await registerEndpointViaApi(request, `Catalog Endpoint A ${Date.now()}`);
+  const endpointB = await registerEndpointViaApi(request, `Catalog Endpoint B ${Date.now()}`);
+  const datasetNameA = await ensureEndpointDatasetViaApi(request, endpointA, { displayName: `${endpointA.name} Dataset` });
+  const datasetNameB = await ensureEndpointDatasetViaApi(request, endpointB, { displayName: `${endpointB.name} Dataset` });
+  try {
+    await openMetadataWorkspace(page);
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await ensureWorkspaceReady(page);
+    await waitForCatalogDataset(page, datasetNameA);
+    await waitForCatalogDataset(page, datasetNameB);
+    const endpointFilter = page.getByTestId("metadata-catalog-filter-endpoint");
+    await endpointFilter.selectOption(endpointA.id);
+    await waitForCatalogDataset(page, datasetNameA);
+    await expect(page.locator("[data-testid='metadata-catalog-card']").filter({ hasText: datasetNameB })).toHaveCount(0);
+    await endpointFilter.selectOption(endpointB.id);
+    await waitForCatalogDataset(page, datasetNameB);
+    await expect(page.locator("[data-testid='metadata-catalog-card']").filter({ hasText: datasetNameA })).toHaveCount(0);
+    await endpointFilter.selectOption("all");
+    await waitForCatalogDataset(page, datasetNameA);
+    await waitForCatalogDataset(page, datasetNameB);
+  } finally {
+    await deleteEndpointViaApi(request, endpointA);
+    await deleteEndpointViaApi(request, endpointB);
+  }
+});
+
+test("catalog search and label filters update results and reset pagination", async ({ page, request }) => {
+  const endpoint = await registerEndpointViaApi(request, `Catalog Filter Endpoint ${Date.now()}`);
+  const datasetName = await ensureEndpointDatasetViaApi(request, endpoint, { displayName: `${endpoint.name} Dataset` });
+  try {
+    await openMetadataWorkspace(page);
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await ensureWorkspaceReady(page);
+    await waitForCatalogDataset(page, datasetName);
+    const searchField = page.getByLabel(/Search name, label, or source/i);
+    await searchField.fill(" definitely-no-match ");
+    await expect(page.getByTestId("metadata-catalog-empty")).toBeVisible();
+    await searchField.fill(endpoint.name.split(" ").slice(-1)[0]);
+    await waitForCatalogDataset(page, datasetName);
+    const labelFilter = page.getByTestId("metadata-catalog-filter-label");
+    await labelFilter.selectOption("playwright");
+    await waitForCatalogDataset(page, datasetName);
+    await labelFilter.selectOption("all");
+    await waitForCatalogDataset(page, datasetName);
+  } finally {
+    await deleteEndpointViaApi(request, endpoint);
+  }
 });
 
 test("postgres template connection test succeeds", async ({ page }) => {
@@ -244,11 +296,7 @@ test("metadata admin can delete endpoints via the UI", async ({ page, request })
   await openMetadataWorkspace(page, adminCredentials);
   await page.getByRole("button", { name: "Catalog" }).click();
   await ensureWorkspaceReady(page);
-  const catalogCard = page
-    .locator("[data-testid='metadata-catalog-card']")
-    .filter({ hasText: datasetDisplayName })
-    .first();
-  await expect(catalogCard).toBeVisible({ timeout: 30_000 });
+  const catalogCard = await waitForCatalogDataset(page, datasetDisplayName);
   await page.getByRole("button", { name: "Endpoints" }).click();
   await ensureWorkspaceReady(page);
   const endpointCard = page
@@ -285,11 +333,7 @@ test("metadata dataset preview requires preview capability", async ({ page, requ
   const previewEndpoint = await registerEndpointViaApi(request, endpointName, { capabilities: ["metadata"] });
   const datasetDisplayName = await ensureEndpointDatasetViaApi(request, previewEndpoint);
   await openMetadataWorkspace(page);
-  const catalogCard = page
-    .locator("[data-testid='metadata-catalog-card']")
-    .filter({ hasText: datasetDisplayName })
-    .first();
-  await expect(catalogCard).toBeVisible({ timeout: 30_000 });
+  const catalogCard = await waitForCatalogDataset(page, datasetDisplayName);
   await catalogCard.click();
   const previewButton = page.getByTestId("metadata-preview-button");
   await expect(previewButton).toBeDisabled();
@@ -447,7 +491,10 @@ test("metadata workspace surfaces ADR-0001 UI states", async ({ page }) => {
   const metadataGraphql = PRIMARY_METADATA_GRAPHQL_ROUTE;
   let intercepted = false;
   const errorResponder = async (route: Route) => {
-    if (!intercepted) {
+    const payload = route.request().postDataJSON();
+    const query = typeof payload?.query === "string" ? payload.query : "";
+    const isCatalogQuery = query.includes("catalogDatasetConnection");
+    if (!intercepted && isCatalogQuery) {
       intercepted = true;
       await route.fulfill({
         status: 500,
@@ -481,8 +528,34 @@ async function ensureWorkspaceReady(page: Page) {
 
 async function openMetadataWorkspace(page: Page, credentials?: { username?: string; password?: string }) {
   await loginViaKeycloak(page, credentials);
-  await page.getByRole("button", { name: "Metadata" }).click();
+  const metadataTab = page.getByRole("button", { name: "Metadata" });
+  const tabVisible = await metadataTab.isVisible({ timeout: 2000 }).catch(() => false);
+  if (tabVisible) {
+    await metadataTab.click();
+  } else {
+    await page.goto(`${metadataBase}/`, { waitUntil: "domcontentloaded" });
+  }
   await ensureWorkspaceReady(page);
+}
+
+async function waitForCatalogDataset(page: Page, displayName: string, timeout = 30_000) {
+  const locator = page
+    .locator("[data-testid='metadata-catalog-card']")
+    .filter({ hasText: displayName })
+    .first();
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const visible = await locator.isVisible({ timeout: 500 }).catch(() => false);
+    if (visible) {
+      await expect(locator).toBeVisible();
+      return locator;
+    }
+    const refreshButton = page.getByRole("button", { name: "Refresh" }).first();
+    await refreshButton.click().catch(() => {});
+    await page.waitForTimeout(500);
+  }
+  await expect(locator).toBeVisible({ timeout: 2000 });
+  return locator;
 }
 
 async function fillPostgresConnectionForm(page: Page, overrides: Partial<typeof POSTGRES_CONNECTION_DEFAULTS> = {}) {
@@ -729,8 +802,9 @@ async function fetchCatalogDatasetsViaApi(request: APIRequestContext, endpointId
     data: {
       query: `
         query CatalogDatasets($endpointId: ID!, $labels: [String!]) {
-          catalogDatasets(endpointId: $endpointId, labels: $labels) {
-            id
+          catalogDatasetConnection(first: 50, endpointId: $endpointId, labels: $labels) {
+            nodes { id }
+            totalCount
           }
         }
       `,
@@ -745,8 +819,10 @@ async function fetchCatalogDatasetsViaApi(request: APIRequestContext, endpointId
     const errorBody = await response.text();
     throw new Error(`Failed to fetch catalog datasets: ${errorBody}`);
   }
-  const payload = (await response.json()) as { data?: { catalogDatasets?: Array<{ id: string }> } };
-  return payload.data?.catalogDatasets?.map((dataset) => dataset.id) ?? [];
+  const payload = (await response.json()) as {
+    data?: { catalogDatasetConnection?: { nodes?: Array<{ id: string }> } };
+  };
+  return payload.data?.catalogDatasetConnection?.nodes?.map((dataset) => dataset.id) ?? [];
 }
 
 async function triggerCollectionViaApi(

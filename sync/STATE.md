@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-metadata-identity-hardening (ready_for_review @ 2025-11-17T05:38Z)
+catalog-view-and-ux-v1 (success @ 2025-11-18T14:38Z)
 
 ## Last Run
-- slug: metadata-identity-hardening
-- status: success (Playwright + helper/unit + lifecycle suites green after UI/test updates)
-- duration: ~1.5h (bootstrap + audit/tests + Playwright investigation)
-- tests: `pnpm check:metadata-lifecycle` green; `pnpm tsx --test src/metadata/datasetIdentity.test.ts` green; `pnpm check:metadata-auth` green (metadata collections filter stabilized)
-- commits: pending (canonical identity implementation + UI data-test ids already landed earlier slug)
-- decisions: 0 (new)
-- next_step: Await review/merge; follow-up slug will tackle any additional UX/ARIA refinements once spec ready.
+- slug: catalog-view-and-ux-v1
+- status: success
+- duration: ~4h (UI pagination + e2e stabilization)
+- tests: metadata-api catalog connection/filter tests, metadata-ui vitest, metadata-auth Playwright (chromium)
+- commits: pending
+- decisions: 0 new
+- next_step: Monitor catalog UX in shared environments; follow-up only if regressions appear.
 
 ## Global Queue
 TODAY:
@@ -21,5 +21,6 @@ LATER:
 - 
 
 ## Events (last 24h)
+- 2025-11-18T14:38Z run success (catalog-view-and-ux-v1, metadata-auth Playwright green)
 - 2025-11-16T17:45Z run blocked (metadata-identity-hardening, metadata-auth needs reporting `/api/graphql`)
 - 2025-11-16T17:25Z run success (collection-lifecycle, canonical dataset identity + collection UI/tests complete)

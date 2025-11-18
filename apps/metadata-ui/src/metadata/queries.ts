@@ -38,6 +38,111 @@ export const METADATA_OVERVIEW_QUERY = `
   }
 `;
 
+export const METADATA_ENDPOINTS_PAGED_QUERY = `
+  query MetadataEndpointsPaged($projectSlug: String, $search: String, $first: Int!, $after: ID) {
+    endpoints(projectSlug: $projectSlug, search: $search, first: $first, after: $after) {
+      id
+      sourceId
+      name
+      description
+      verb
+      url
+      authPolicy
+      domain
+      labels
+      config
+      detectedVersion
+      versionHint
+      capabilities
+      deletedAt
+      deletionReason
+      isDeleted
+      runs(limit: 5) {
+        id
+        status
+        requestedAt
+        completedAt
+        error
+      }
+    }
+  }
+`;
+
+export const CATALOG_DATASETS_CONNECTION_QUERY = `
+  query MetadataCatalogDatasets($first: Int!, $after: ID, $endpointId: ID, $search: String, $labels: [String!], $unlabeledOnly: Boolean) {
+    catalogDatasetConnection(first: $first, after: $after, endpointId: $endpointId, search: $search, labels: $labels, unlabeledOnly: $unlabeledOnly) {
+      nodes {
+        id
+        displayName
+        description
+        labels
+        schema
+        entity
+        collectedAt
+        sourceEndpointId
+        lastCollectionRun {
+          id
+          status
+          requestedAt
+          completedAt
+        }
+        sourceEndpoint {
+          id
+          name
+          capabilities
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+      totalCount
+    }
+  }
+`;
+
+export const METADATA_CATALOG_DATASET_QUERY = `
+  query MetadataDatasetDetail($id: ID!) {
+    metadataDataset(id: $id) {
+      id
+      displayName
+      description
+      labels
+      schema
+      entity
+      collectedAt
+      sourceEndpointId
+      fields {
+        name
+        type
+        description
+      }
+      sampleRows
+      statistics
+      profile {
+        recordCount
+        sampleSize
+        lastProfiledAt
+        raw
+      }
+      lastCollectionRun {
+        id
+        status
+        requestedAt
+        completedAt
+        error
+      }
+      sourceEndpoint {
+        id
+        name
+        capabilities
+      }
+    }
+  }
+`;
+
 export const COLLECTION_RUNS_QUERY = `
   query DesignerCollectionRuns($filter: MetadataCollectionRunFilter, $first: Int) {
     collectionRuns(filter: $filter, first: $first) {

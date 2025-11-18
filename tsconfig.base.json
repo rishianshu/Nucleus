@@ -11,8 +11,7 @@
     "baseUrl": ".",
     "paths": {
       "@metadata/core": ["packages/metadata-core/src"],
-      "@metadata/client": ["packages/metadata-client/src"],
-      "@reporting/registry": ["packages/reporting-registry"]
+      "@metadata/client": ["packages/metadata-client/src"]
     }
   }
 }

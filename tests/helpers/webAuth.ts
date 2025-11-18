@@ -26,6 +26,32 @@ export async function loginViaKeycloak(page: Page, credentials?: KeycloakCredent
   page.on("console", (msg) => {
     // eslint-disable-next-line no-console
     console.log(`[metadata:${msg.type()}] ${msg.text()}`);
+    if (msg.type() === "error" && msg.args().length > 0) {
+      const args = msg.args();
+      void Promise.all(args.map((arg) => arg.jsonValue().catch(() => undefined))).then((values) => {
+        const rendered = values
+          .map((value) => {
+            if (value === null || value === undefined) {
+              return String(value);
+            }
+            if (typeof value === "object") {
+              try {
+                return JSON.stringify(value);
+              } catch {
+                return "[object]";
+              }
+            }
+            return String(value);
+          })
+          .join(" ");
+        // eslint-disable-next-line no-console
+        console.error(`[metadata:error-detail] ${rendered}`);
+      });
+    }
+  });
+  page.on("pageerror", (error) => {
+    // eslint-disable-next-line no-console
+    console.error(`[metadata:pageerror] ${error.stack ?? error.message ?? String(error)}`);
   });
 
   if (credentials) {

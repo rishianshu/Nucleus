@@ -26,6 +26,7 @@ model MetadataRecord {
   project   MetadataProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   domain    String
   labels    String[]        @default([])
+  searchText String         @default("")
   payload   Json
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt

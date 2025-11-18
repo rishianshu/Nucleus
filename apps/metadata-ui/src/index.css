@@ -31,22 +31,3 @@ body {
 .scrollbar-thin::-webkit-scrollbar-thumb {
   @apply rounded-full bg-slate-400/60 dark:bg-slate-700/60;
 }
-
-.monaco-editor .agent-inline-annotation {
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.02));
-  border-radius: 12px;
-}
-
-.monaco-editor .agent-inline-annotation-gutter {
-  border-left: 3px solid rgba(16, 185, 129, 0.75);
-  margin-left: 4px;
-}
-
-.monaco-editor .agent-inline-annotation-gutter::after {
-  content: "★";
-  color: rgba(5, 150, 105, 0.9);
-  font-size: 10px;
-  margin-left: 4px;
-  position: relative;
-  top: -1px;
-}

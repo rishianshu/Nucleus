@@ -66,18 +66,18 @@ export function ensureCatalogSeed(request: APIRequestContext): Promise<void> {
 
 async function seedCatalogDataset(request: APIRequestContext): Promise<void> {
   const token = await fetchKeycloakToken(request);
-  const existing = await graphql<{ catalogDatasets: Array<{ id: string }> }>(
+  const existing = await graphql<{ catalogDatasetConnection: { totalCount: number } }>(
     request,
     token,
     `
       query CatalogSeedCheck {
-        catalogDatasets {
-          id
+        catalogDatasetConnection(first: 1) {
+          totalCount
         }
       }
     `,
   );
-  if (existing.catalogDatasets.length > 0) {
+  if ((existing.catalogDatasetConnection.totalCount ?? 0) > 0) {
     return;
   }
 

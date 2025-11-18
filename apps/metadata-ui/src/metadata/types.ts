@@ -19,6 +19,13 @@ export type CatalogDataset = BaseMetadataDataset & {
   profile?: CatalogDatasetProfile | null;
   sampleRows?: Array<Record<string, unknown>>;
   statistics?: Record<string, unknown> | null;
+  sourceEndpoint?: { id: string; name: string; capabilities?: string[] | null } | null;
+  lastCollectionRun?: {
+    id: string;
+    status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
+    requestedAt?: string | null;
+    completedAt?: string | null;
+  } | null;
 };
 
 export type DatasetPreviewResult = {
@@ -121,6 +128,17 @@ export type MetadataEndpointTemplateField = {
   dependsOn?: string | null;
   dependsValue?: string | null;
   visibleWhen?: MetadataEndpointFieldVisibilityRule[] | null;
+};
+
+export type CatalogDatasetConnection = {
+  nodes: CatalogDataset[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string | null;
+    endCursor?: string | null;
+  };
+  totalCount: number;
 };
 
 export type MetadataEndpointTemplateCapability = {

@@ -166,6 +166,26 @@ export const typeDefs = `#graphql
     sampleRows: [JSON!]
     statistics: JSON
     fields: [CatalogDatasetField!]!
+    lastCollectionRun: MetadataCollectionRun
+  }
+
+  type PageInfo {
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
+    startCursor: ID
+    endCursor: ID
+  }
+
+  type CatalogDatasetEdge {
+    cursor: ID!
+    node: CatalogDataset!
+  }
+
+  type CatalogDatasetConnection {
+    nodes: [CatalogDataset!]!
+    edges: [CatalogDatasetEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
   }
 
   type Diagnostic {
@@ -382,7 +402,8 @@ export const typeDefs = `#graphql
     metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
-    catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID): [CatalogDataset!]!
+    catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
+    catalogDatasetConnection(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean, first: Int = 25, after: ID): CatalogDatasetConnection!
     metadataDataset(id: ID!): CatalogDataset
     metadataCollectionRuns(filter: MetadataCollectionRunFilter, limit: Int): [MetadataCollectionRun!]!
     collections(endpointId: ID, isEnabled: Boolean, first: Int = 50, after: ID): [MetadataCollection!]!
@@ -716,7 +737,7 @@ export function createResolvers(store: MetadataStore) {
       },
       catalogDatasets: async (
         _parent: unknown,
-        args: { projectId?: string; labels?: string[]; search?: string; endpointId?: string | null },
+        args: { projectId?: string; labels?: string[]; search?: string; endpointId?: string | null; unlabeledOnly?: boolean | null },
         ctx: ResolverContext,
       ) => {
         enforceReadAccess(ctx);
@@ -732,6 +753,9 @@ export function createResolvers(store: MetadataStore) {
         if (args.endpointId) {
           datasets = datasets.filter((dataset) => resolveDatasetEndpointId(dataset) === args.endpointId);
         }
+        if (args.unlabeledOnly) {
+          datasets = datasets.filter((dataset) => !dataset.labels || dataset.labels.length === 0);
+        }
         if (datasets.length > 0) {
           datasets = await filterDatasetsByActiveEndpoints(datasets, store, projectId);
         }
@@ -743,6 +767,31 @@ export function createResolvers(store: MetadataStore) {
           return buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId);
         }
         return datasets;
+      },
+      catalogDatasetConnection: async (
+        _parent: unknown,
+        args: {
+          projectId?: string | null;
+          labels?: string[] | null;
+          search?: string | null;
+          endpointId?: string | null;
+          unlabeledOnly?: boolean | null;
+          first?: number | null;
+          after?: string | null;
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const prisma = await getPrismaClient();
+        return buildCatalogDatasetConnection(store, prisma, ctx, {
+          projectId: args.projectId ?? ctx.auth.projectId,
+          labels: args.labels ?? undefined,
+          search: args.search ?? undefined,
+          endpointId: args.endpointId ?? null,
+          unlabeledOnly: Boolean(args.unlabeledOnly),
+          first: args.first ?? undefined,
+          after: args.after ?? undefined,
+        });
       },
       metadataDataset: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -1337,9 +1386,34 @@ export function createResolvers(store: MetadataStore) {
         }
         return endpoint;
       },
+      lastCollectionRun: async (parent: CatalogDataset, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        if (!parent.sourceEndpointId) {
+          return null;
+        }
+        const prisma = await getPrismaClient();
+        const authProjectId = (await resolveProjectRecordId(prisma, ctx.auth.projectId)) ?? ctx.auth.projectId;
+        const run = await prisma.metadataCollectionRun.findFirst({
+          where: {
+            endpointId: parent.sourceEndpointId,
+            endpoint: authProjectId ? { projectId: authProjectId } : undefined,
+          },
+          orderBy: { requestedAt: "desc" },
+        });
+        return run ?? null;
+      },
     },
   };
 }
+
+export const __testCatalogFilters = {
+  buildCatalogLabelFilter,
+  buildEndpointFilter,
+};
+
+export const __testCatalogConnection = {
+  buildCatalogDatasetConnection,
+};
 
 function normalizeTestConnection(connection: Record<string, unknown> | null | undefined): Record<string, string> {
   if (!connection || typeof connection !== "object") {
@@ -1660,6 +1734,25 @@ type CatalogDatasetProfile = {
   raw?: Record<string, unknown> | null;
 };
 
+type PageInfo = {
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  startCursor: string | null;
+  endCursor: string | null;
+};
+
+type CatalogDatasetEdge = {
+  cursor: string;
+  node: CatalogDataset;
+};
+
+type CatalogDatasetConnection = {
+  nodes: CatalogDataset[];
+  edges: CatalogDatasetEdge[];
+  pageInfo: PageInfo;
+  totalCount: number;
+};
+
 type ResolverContext = {
   auth: AuthContext;
   userId: string | null;
@@ -1758,6 +1851,142 @@ type CollectionUpdateInput = {
 };
 
 type MetadataCollectionStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
+
+type CatalogDatasetConnectionInput = {
+  projectId?: string | null;
+  labels?: string[] | undefined;
+  search?: string | undefined;
+  endpointId?: string | null;
+  unlabeledOnly?: boolean;
+  first?: number | undefined;
+  after?: string | undefined;
+};
+
+async function buildCatalogDatasetConnection(
+  store: MetadataStore,
+  prisma: Awaited<ReturnType<typeof getPrismaClient>>,
+  ctx: ResolverContext,
+  input: CatalogDatasetConnectionInput,
+): Promise<CatalogDatasetConnection> {
+  const projectId = input.projectId ?? ctx.auth.projectId;
+  const resolvedProjectId = await resolveProjectRecordId(prisma, projectId);
+  const limit = clampConnectionLimit(input.first);
+  const labelFilter = buildCatalogLabelFilter(input.labels);
+  const endpointFilter = buildEndpointFilter(input.endpointId);
+  const searchTerm = input.search?.trim();
+  const where: Record<string, unknown> = {
+    domain: CATALOG_DATASET_DOMAIN,
+    ...(resolvedProjectId || projectId ? { projectId: resolvedProjectId ?? projectId ?? undefined } : {}),
+    ...(searchTerm
+      ? {
+          searchText: {
+            contains: searchTerm,
+            mode: "insensitive",
+          },
+        }
+      : {}),
+  };
+  if (input.unlabeledOnly) {
+    where.labels = { isEmpty: true };
+  } else if (labelFilter) {
+    where.labels = labelFilter;
+  }
+  if (endpointFilter) {
+    const existingAnd = Array.isArray((where as any).AND) ? ((where as any).AND as Array<Record<string, unknown>>) : [];
+    (where as any).AND = [...existingAnd, endpointFilter];
+  }
+  const pagination = input.after
+    ? {
+        cursor: { domain_id: { domain: CATALOG_DATASET_DOMAIN, id: input.after } },
+        skip: 1,
+      }
+    : {};
+  const records = await prisma.metadataRecord.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: limit + 1,
+    include: {
+      project: true,
+    },
+    ...pagination,
+  });
+  const mapped = records
+    .map(mapCatalogRecordToDataset)
+    .filter((dataset): dataset is CatalogDataset => Boolean(dataset));
+  const sliced = mapped.slice(0, limit);
+  const normalized =
+    sliced.length > 0 ? await filterDatasetsByActiveEndpoints(sliced, store, projectId ?? ctx.auth.projectId) : [];
+  const hasNextPage = mapped.length > limit;
+  const totalCount = await prisma.metadataRecord.count({ where });
+  const isScopedQuery =
+    Boolean(searchTerm && searchTerm.length > 0) ||
+    Boolean(input.endpointId && input.endpointId.trim().length > 0) ||
+    Boolean(input.labels && input.labels.length > 0) ||
+    Boolean(input.unlabeledOnly);
+  if (normalized.length === 0 && totalCount === 0 && ENABLE_SAMPLE_FALLBACK && !isScopedQuery && !input.after) {
+    const samples = buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId);
+    const sampleSlice = samples.slice(0, limit);
+    return {
+      nodes: sampleSlice,
+      edges: sampleSlice.map((node) => ({ cursor: node.id, node })),
+      totalCount: samples.length,
+      pageInfo: {
+        hasNextPage: samples.length > limit,
+        hasPreviousPage: Boolean(input.after),
+        startCursor: sampleSlice[0]?.id ?? null,
+        endCursor: sampleSlice[sampleSlice.length - 1]?.id ?? null,
+      },
+    };
+  }
+  return {
+    nodes: normalized,
+    edges: normalized.map((node) => ({ cursor: node.id, node })),
+    totalCount,
+    pageInfo: {
+      hasNextPage,
+      hasPreviousPage: Boolean(input.after),
+      startCursor: normalized[0]?.id ?? null,
+      endCursor: normalized[normalized.length - 1]?.id ?? null,
+    },
+  };
+}
+
+function buildCatalogLabelFilter(labels?: string[]): Record<string, unknown> | undefined {
+  const filter: Record<string, unknown> = {};
+  const sanitizedLabels = labels?.map((label) => label.trim()).filter((label) => label.length > 0) ?? [];
+  const deduped = Array.from(new Set(sanitizedLabels));
+  if (deduped.length > 0) {
+    filter.hasEvery = deduped;
+  }
+  return Object.keys(filter).length > 0 ? filter : undefined;
+}
+
+function buildEndpointFilter(endpointId?: string | null): Record<string, unknown> | undefined {
+  if (!endpointId) {
+    return undefined;
+  }
+  const trimmed = endpointId.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const labelValue = `endpoint:${trimmed}`;
+  return {
+    OR: [
+      { labels: { has: labelValue } },
+      { payload: { path: ["metadata_endpoint_id"], equals: trimmed } },
+      { payload: { path: ["metadata_config", "endpointId"], equals: trimmed } },
+      { payload: { path: ["dataset", "sourceEndpointId"], equals: trimmed } },
+      { payload: { path: ["_metadata", "source_endpoint_id"], equals: trimmed } },
+    ],
+  };
+}
+
+function clampConnectionLimit(value?: number, fallback = 25, maximum = 200): number {
+  if (!value || Number.isNaN(value)) {
+    return fallback;
+  }
+  return Math.min(Math.max(value, 1), maximum);
+}
 
 function mapCatalogRecordToDataset(record: MetadataRecord<unknown>): CatalogDataset | null {
   const payload = normalizePayload(record.payload) ?? {};
@@ -2203,7 +2432,7 @@ function extractDatasetEntity(payload: Record<string, any>, record: MetadataReco
 
 function extractCollectedAt(payload: Record<string, any>, record: MetadataRecord<unknown>): string | null {
   const ts = payload.collected_at ?? payload.produced_at ?? payload.producedAt ?? record.updatedAt;
-  return ts ? String(ts) : null;
+  return normalizeDateTimeValue(ts);
 }
 
 function extractSourceEndpointId(payload: Record<string, any>): string | null {
@@ -2228,9 +2457,31 @@ function buildDatasetProfile(stats?: Record<string, unknown>): CatalogDatasetPro
   return {
     recordCount: recordCount == null ? null : Number(recordCount),
     sampleSize: sampleSize == null ? null : Number(sampleSize),
-    lastProfiledAt: lastProfiledAt ? String(lastProfiledAt) : null,
+    lastProfiledAt: normalizeDateTimeValue(lastProfiledAt),
     raw: stats,
   };
+}
+
+function normalizeDateTimeValue(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    const date = new Date(trimmed);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+  return null;
 }
 
 function extractSampleRows(payload: Record<string, any>): unknown[] {

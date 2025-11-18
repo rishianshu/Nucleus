@@ -1,0 +1,5 @@
+- [x] Implement paginated dataset GraphQL (connection query + resolver + Prisma pagination) without breaking legacy list consumers.
+- [x] Ensure dataset detail query exposes endpoint link, columns, last collection metadata, capability flags required for preview/profile placeholders.
+- [x] Build ADR hooks (`usePagedQuery`, `useAsyncAction`) and wire trigger collection/navigation UI through them.
+- [x] Refactor catalog list UI to use paginated hook (search debounce, endpoint ID filters, paging controls/states) and add dataset detail route/component with preview/profile placeholders.
+- [x] Update tests: GraphQL integration + Playwright coverage for pagination, filters, dataset detail, preview messages, and navigation action feedback (CI env still pending).

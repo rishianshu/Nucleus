@@ -562,24 +562,24 @@ export class PrismaMetadataStore implements MetadataStore {
 
   async listRecords<T = Record<string, unknown>>(domain: string, filter?: RecordFilter): Promise<MetadataRecord<T>[]> {
     const resolvedProjectId = await this.resolveProjectId(filter?.projectId ?? null);
+    const search = filter?.search?.trim();
     const where: Record<string, unknown> = {
       domain,
       projectId: resolvedProjectId ?? filter?.projectId,
       labels: filter?.labels?.length ? { hasEvery: filter.labels } : undefined,
+      searchText: search
+        ? {
+            contains: search,
+            mode: "insensitive",
+          }
+        : undefined,
     };
     const records = await this.prisma.metadataRecord.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: filter?.search ? undefined : filter?.limit,
+      take: filter?.limit,
     });
-    const filtered = filter?.search
-      ? records.filter((record) => {
-          const haystack = JSON.stringify(record.payload ?? {}).toLowerCase();
-          return haystack.includes(filter.search!.toLowerCase());
-        })
-      : records;
-    const limited = filter?.limit ? filtered.slice(0, filter.limit) : filtered;
-    return limited.map((record) => mapPrismaRecord<T>(record));
+    return records.map((record) => mapPrismaRecord<T>(record));
   }
 
   async getRecord<T = Record<string, unknown>>(domain: string, id: string): Promise<MetadataRecord<T> | null> {
@@ -592,6 +592,7 @@ export class PrismaMetadataStore implements MetadataStore {
 
   async upsertRecord<T = Record<string, unknown>>(input: MetadataRecordInput<T>): Promise<MetadataRecord<T>> {
     const ensuredProjectId = await this.ensureProject(input.projectId);
+    const searchText = buildRecordSearchText(input.payload);
     if (input.id) {
       const upserted = await this.prisma.metadataRecord.upsert({
         where: buildRecordKey(input.domain, input.id),
@@ -600,6 +601,7 @@ export class PrismaMetadataStore implements MetadataStore {
           domain: input.domain,
           labels: input.labels ?? [],
           payload: input.payload,
+          searchText,
         },
         create: {
           id: input.id,
@@ -607,6 +609,7 @@ export class PrismaMetadataStore implements MetadataStore {
           domain: input.domain,
           labels: input.labels ?? [],
           payload: input.payload,
+          searchText,
         },
       });
       return mapPrismaRecord<T>(upserted);
@@ -617,6 +620,7 @@ export class PrismaMetadataStore implements MetadataStore {
         domain: input.domain,
         labels: input.labels ?? [],
         payload: input.payload,
+        searchText,
       },
     });
     return mapPrismaRecord<T>(created);
@@ -822,6 +826,20 @@ export class PrismaMetadataStore implements MetadataStore {
 
 function buildRecordKey(domain: string, id: string): Record<string, unknown> {
   return { domain_id: { domain, id } };
+}
+
+function buildRecordSearchText(payload: unknown): string {
+  if (payload === null || payload === undefined) {
+    return "";
+  }
+  if (typeof payload === "string") {
+    return payload;
+  }
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return "";
+  }
 }
 
 function mapPrismaRecord<T>(record: any): MetadataRecord<T> {

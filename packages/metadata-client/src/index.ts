@@ -188,19 +188,25 @@ export class MetadataClient {
       throw new Error("Remote metadata mode requires fetch implementation and graphqlEndpoint");
     }
     const query = `
-      query CatalogDatasets {
-        catalogDatasets {
-          id
-          displayName
-          description
-          source
-          labels
-          projectIds
-          schema
-          entity
-          collectedAt
-          sourceEndpointId
-          fields { name type description }
+      query CatalogDatasets($first: Int!, $after: ID) {
+        catalogDatasetConnection(first: $first, after: $after) {
+          nodes {
+            id
+            displayName
+            description
+            source
+            labels
+            projectIds
+            schema
+            entity
+            collectedAt
+            sourceEndpointId
+            fields { name type description }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
     `;
@@ -208,20 +214,40 @@ export class MetadataClient {
       "Content-Type": "application/json",
       ...(this.headersProvider?.() ?? {}),
     };
-    const response = await this.fetchImpl(this.graphqlEndpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ query }),
-    });
-    if (!response.ok) {
-      throw new Error(`Metadata GraphQL error (${response.status})`);
+    const pageSize = 100;
+    const datasets: MetadataDataset[] = [];
+    let after: string | null = null;
+    let hasNextPage = true;
+    while (hasNextPage) {
+      const response = await this.fetchImpl(this.graphqlEndpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query, variables: { first: pageSize, after } }),
+      });
+      if (!response.ok) {
+        throw new Error(`Metadata GraphQL error (${response.status})`);
+      }
+      const payload = (await response.json()) as {
+        data?: {
+          catalogDatasetConnection?: {
+            nodes?: MetadataDataset[];
+            pageInfo?: { hasNextPage: boolean; endCursor: string | null };
+          };
+        };
+        errors?: unknown;
+      };
+      if (payload.errors) {
+        throw new Error(`Metadata GraphQL returned errors: ${JSON.stringify(payload.errors)}`);
+      }
+      const connection = payload.data?.catalogDatasetConnection;
+      connection?.nodes?.forEach((dataset) => datasets.push(normalizeDataset(dataset)));
+      hasNextPage = Boolean(connection?.pageInfo?.hasNextPage);
+      after = connection?.pageInfo?.endCursor ?? null;
+      if (!hasNextPage) {
+        break;
+      }
     }
-    const payload = (await response.json()) as { data?: { catalogDatasets?: MetadataDataset[] }; errors?: unknown };
-    if (payload.errors) {
-      throw new Error(`Metadata GraphQL returned errors: ${JSON.stringify(payload.errors)}`);
-    }
-    const datasets = payload.data?.catalogDatasets ?? [];
-    return datasets.map((dataset) => normalizeDataset(dataset));
+    return datasets;
   }
 }
 
