@@ -1,0 +1,6 @@
+- [x] Refactor app shell + metadata workspace layout to keep sidebar/icon rail fixed with scrollable content pane.
+- [x] Implement searchable endpoint combo + backend hook so catalog filter can find any endpoint.
+- [x] Keep dataset search + endpoint filter in sync and ensure preview lookup knows about endpoints from datasets/detail.
+- [x] Improve preview messaging/button states for unsupported/unlinked/not-run/error cases.
+- [x] Enhance collection trigger logic to mark failed runs when endpoints are unreachable and show failure in endpoint cards.
+- [x] Extend unit/Playwright tests to cover the fixes and run the full suite.

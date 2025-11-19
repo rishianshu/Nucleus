@@ -10,6 +10,7 @@ export type CatalogDatasetProfile = {
 };
 
 export type CatalogDataset = BaseMetadataDataset & {
+  upstreamId?: string | null;
   projectIds?: string[] | null;
   labels?: string[] | null;
   schema?: string | null;

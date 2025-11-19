@@ -8,8 +8,14 @@
   color-scheme: light dark;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
-  @apply min-h-screen bg-slate-100 text-slate-900 font-sans antialiased transition-colors duration-300 ease-out;
+  @apply min-h-screen bg-slate-100 text-slate-900 font-sans antialiased transition-colors duration-300 ease-out overflow-hidden;
 }
 
 .dark body {

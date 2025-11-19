@@ -62,6 +62,28 @@ type MetadataWorkspaceProps = {
 type MetadataSection = "catalog" | "endpoints" | "collections";
 type MetadataView = "overview" | "endpoint-register";
 type TemplateFamily = "JDBC" | "HTTP" | "STREAM";
+type DatasetPreviewAvailability = "ready" | "sampled" | "not_run" | "unsupported" | "unlinked" | "error";
+type PreviewStatusTone = "info" | "neutral" | "warn";
+type EndpointLookupEntry = {
+  id?: string | null;
+  sourceId?: string | null;
+  name?: string | null;
+  capabilities?: string[] | null;
+  url?: string | null;
+};
+type DatasetPreviewSummary = {
+  owner: EndpointLookupEntry | null;
+  endpointCapabilities: string[];
+  previewRows: Array<Record<string, unknown>>;
+  previewError?: string;
+  previewing: boolean;
+  previewBlockReason: string | null;
+  previewAvailability: DatasetPreviewAvailability;
+  previewStatusMessage: string | null;
+  previewStatusTone: PreviewStatusTone;
+  canPreview: boolean;
+  sampledAt: string | null;
+};
 
 type MetadataNavEntry = { id: MetadataSection; type: "section"; label: string; description: string; icon: IconType };
 
@@ -225,6 +247,10 @@ export function MetadataWorkspace({
   const [metadataView, setMetadataView] = useState<MetadataView>("overview");
   const [metadataCatalogSearch, setMetadataCatalogSearch] = useState("");
   const [metadataCatalogEndpointFilter, setMetadataCatalogEndpointFilter] = useState<string>("all");
+  const [metadataEndpointPickerQuery, setMetadataEndpointPickerQuery] = useState("");
+  const [metadataEndpointPickerOpen, setMetadataEndpointPickerOpen] = useState(false);
+  const endpointPickerRef = useRef<HTMLDivElement | null>(null);
+  const debouncedEndpointPickerSearch = useDebouncedValue(metadataEndpointPickerQuery, 300);
   const [metadataCatalogLabelFilter, setMetadataCatalogLabelFilter] = useState<string>("all");
   const [metadataCatalogSelection, setMetadataCatalogSelection] = useState<string | null>(null);
   const [metadataMutationError, setMetadataMutationError] = useState<string | null>(null);
@@ -309,6 +335,27 @@ export function MetadataWorkspace({
     pageSize: 25,
     selectConnection: selectEndpointsConnection,
   });
+  const metadataEndpointComboVariables = useMemo(() => {
+    const trimmedSearch = debouncedEndpointPickerSearch.trim();
+    return {
+      projectSlug: projectSlug ?? undefined,
+      search: trimmedSearch.length ? trimmedSearch : undefined,
+    };
+  }, [projectSlug, debouncedEndpointPickerSearch]);
+  const {
+    items: metadataEndpointPickerOptions,
+    loading: metadataEndpointPickerLoading,
+    pageInfo: metadataEndpointPickerPageInfo,
+    fetchNext: fetchMoreMetadataEndpointOptions,
+    refresh: refreshMetadataEndpointOptions,
+  } = usePagedQuery<MetadataEndpointSummary>({
+    metadataEndpoint,
+    token: authToken ?? undefined,
+    query: METADATA_ENDPOINTS_PAGED_QUERY,
+    variables: metadataEndpointComboVariables,
+    pageSize: 25,
+    selectConnection: selectEndpointsConnection,
+  });
   const endpointFilterValue =
     metadataCatalogEndpointFilter === "all" || metadataCatalogEndpointFilter === "unlinked"
       ? null
@@ -346,24 +393,95 @@ export function MetadataWorkspace({
       setMetadataError((prev) => prev ?? catalogDatasetsError);
     }
   }, [catalogDatasetsError]);
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const handleClickOutside = (event: MouseEvent) => {
+      if (endpointPickerRef.current && !endpointPickerRef.current.contains(event.target as Node)) {
+        setMetadataEndpointPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+  useEffect(() => {
+    if (metadataSection !== "catalog") {
+      setMetadataEndpointPickerOpen(false);
+    }
+  }, [metadataSection]);
   const canModifyEndpoints = resolvedRole === "ADMIN" || resolvedRole === "MANAGER";
   const canDeleteEndpoints = resolvedRole === "ADMIN";
   const metadataEditingEndpoint = useMemo(
     () => (metadataEditingEndpointId ? metadataEndpoints.find((endpoint) => endpoint.id === metadataEditingEndpointId) ?? null : null),
     [metadataEditingEndpointId, metadataEndpoints],
   );
+  const metadataCatalogFilteredDatasets = catalogDatasets;
+  const metadataCatalogSelectedDataset = useMemo(() => {
+    if (metadataCatalogSelection) {
+      const match = catalogDatasets.find((dataset) => dataset.id === metadataCatalogSelection);
+      if (match) {
+        return match;
+      }
+    }
+    return metadataCatalogFilteredDatasets[0] ?? catalogDatasets[0] ?? null;
+  }, [catalogDatasets, metadataCatalogFilteredDatasets, metadataCatalogSelection]);
+  const metadataDatasetDetail = useMemo(() => {
+    if (!metadataDatasetDetailId) {
+      return null;
+    }
+    const selectedDataset =
+      metadataCatalogSelectedDataset && metadataCatalogSelectedDataset.id === metadataDatasetDetailId
+        ? metadataCatalogSelectedDataset
+        : null;
+    return (
+      datasetDetailCache[metadataDatasetDetailId] ??
+      catalogDatasets.find((dataset) => dataset.id === metadataDatasetDetailId) ??
+      selectedDataset ??
+      null
+    );
+  }, [catalogDatasets, datasetDetailCache, metadataCatalogSelectedDataset, metadataDatasetDetailId]);
 
   const metadataEndpointLookup = useMemo(() => {
-    const map = new Map<string, MetadataEndpointSummary>();
-    metadataEndpoints.forEach((endpoint) => {
-      map.set(endpoint.id, endpoint);
-      if (endpoint.sourceId) {
-        map.set(endpoint.sourceId, endpoint);
+    const map = new Map<string, EndpointLookupEntry>();
+    const addEndpoint = (entry?: EndpointLookupEntry | null) => {
+      if (!entry || !entry.id) {
+        return;
+      }
+      const normalized: EndpointLookupEntry = {
+        id: entry.id,
+        sourceId: entry.sourceId ?? undefined,
+        name: entry.name ?? undefined,
+        capabilities: entry.capabilities ?? undefined,
+        url: entry.url ?? undefined,
+      };
+      map.set(normalized.id, normalized);
+      if (normalized.sourceId) {
+        map.set(normalized.sourceId, normalized);
+      }
+    };
+    metadataEndpoints.forEach(addEndpoint);
+    metadataEndpointPickerOptions.forEach(addEndpoint);
+    catalogDatasets.forEach((dataset) => {
+      if (dataset.sourceEndpointId && dataset.sourceEndpoint) {
+        addEndpoint({
+          id: dataset.sourceEndpointId,
+          sourceId: dataset.sourceEndpointId,
+          name: dataset.sourceEndpoint.name,
+          capabilities: dataset.sourceEndpoint.capabilities ?? undefined,
+        });
       }
     });
+    if (metadataDatasetDetail?.sourceEndpointId && metadataDatasetDetail.sourceEndpoint) {
+      addEndpoint({
+        id: metadataDatasetDetail.sourceEndpointId,
+        sourceId: metadataDatasetDetail.sourceEndpointId,
+        name: metadataDatasetDetail.sourceEndpoint.name,
+        capabilities: metadataDatasetDetail.sourceEndpoint.capabilities ?? undefined,
+      });
+    }
     return map;
-  }, [metadataEndpoints]);
-  const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
+  }, [catalogDatasets, metadataDatasetDetail, metadataEndpointPickerOptions, metadataEndpoints]);
   const [pendingTemplateSelection, setPendingTemplateSelection] = useState<{ templateId: string | null; familyOverride: TemplateFamily | null } | null>(null);
   const [pendingEndpointEdit, setPendingEndpointEdit] = useState<MetadataEndpointSummary | null>(null);
   const [metadataRunsLoading, setMetadataRunsLoading] = useState(false);
@@ -402,10 +520,6 @@ export function MetadataWorkspace({
       setMetadataCatalogSelection(datasetDetailRouteId);
     }
   }, [datasetDetailRouteId, catalogDatasets]);
-  const toggleDatasetSelection = useCallback((datasetId: string) => {
-    setSelectedDatasetIds((prev) => (prev.includes(datasetId) ? prev.filter((id) => id !== datasetId) : [...prev, datasetId]));
-  }, []);
-
   const loadDatasetDetail = useCallback(
     async (datasetId: string, options?: { force?: boolean }) => {
       if (!datasetId) {
@@ -560,34 +674,68 @@ export function MetadataWorkspace({
   );
 
   const getDatasetPreviewState = useCallback(
-    (dataset: CatalogDataset | null) => {
+    (dataset: CatalogDataset | null): DatasetPreviewSummary => {
       if (!dataset) {
         return {
           owner: null,
-          endpointCapabilities: [] as string[],
-          previewRows: [] as Array<Record<string, unknown>>,
-          previewError: undefined as string | undefined,
+          endpointCapabilities: [],
+          previewRows: [],
+          previewError: undefined,
           previewing: false,
-          previewBlockReason: null as string | null,
+          previewBlockReason: null,
+          previewAvailability: "unlinked",
+          previewStatusMessage: null,
+          previewStatusTone: "info",
           canPreview: false,
-          sampledAt: null as string | null,
+          sampledAt: null,
         };
       }
-      const owner = dataset.sourceEndpointId ? metadataEndpointLookup.get(dataset.sourceEndpointId) ?? null : null;
+      let owner: EndpointLookupEntry | null = null;
+      if (dataset.sourceEndpointId) {
+        owner = metadataEndpointLookup.get(dataset.sourceEndpointId) ?? null;
+      }
+      if (!owner && dataset.sourceEndpoint?.id) {
+        owner = {
+          id: dataset.sourceEndpoint.id,
+          sourceId: dataset.sourceEndpoint.id,
+          name: dataset.sourceEndpoint.name,
+          capabilities: dataset.sourceEndpoint.capabilities ?? undefined,
+        };
+      }
       const endpointCapabilities = owner?.capabilities ?? [];
       const declaresCapabilities = endpointCapabilities.length > 0;
       const supportsPreview = !declaresCapabilities || endpointCapabilities.includes("preview");
-      const hasLinkedEndpoint = Boolean(dataset.sourceEndpointId && owner?.url);
-      const previewBlockReason =
-        owner && declaresCapabilities && !supportsPreview
-          ? `Dataset previews disabled: ${owner.name} is missing the "preview" capability.`
-          : !hasLinkedEndpoint
-            ? "Link this dataset to a registered endpoint before running previews."
-            : null;
+      const hasLinkedEndpoint = Boolean(dataset.sourceEndpointId && owner);
       const previewEntry = metadataCatalogPreviewRows[dataset.id];
-      const previewRows = previewEntry?.rows ?? [];
+      const previewRows = (previewEntry?.rows ?? []) as Array<Record<string, unknown>>;
       const previewError = metadataCatalogPreviewErrors[dataset.id];
       const previewing = metadataCatalogPreviewingId === dataset.id;
+      const hasLiveSample = previewRows.length > 0;
+      let previewAvailability: DatasetPreviewAvailability = hasLiveSample ? "sampled" : "ready";
+      let previewStatusMessage: string | null = null;
+      let previewStatusTone: PreviewStatusTone = "info";
+      let previewBlockReason: string | null = null;
+      if (!hasLinkedEndpoint) {
+        previewAvailability = "unlinked";
+        previewStatusMessage = "Link this dataset to a registered endpoint before running previews.";
+        previewStatusTone = "warn";
+        previewBlockReason = previewStatusMessage;
+      } else if (!supportsPreview) {
+        previewAvailability = "unsupported";
+        const ownerName = owner?.name ?? "this endpoint";
+        previewStatusMessage = `Preview not supported for ${ownerName}.`;
+        previewStatusTone = "warn";
+        previewBlockReason = previewStatusMessage;
+      } else if (previewError) {
+        previewAvailability = "error";
+        previewStatusMessage = "Preview failed. Review the error below and try again.";
+        previewStatusTone = "warn";
+      } else if (!hasLiveSample && !previewing) {
+        previewAvailability = "not_run";
+        previewStatusMessage = "No preview sampled yet. Run a preview to inspect live data.";
+        previewStatusTone = "neutral";
+      }
+      const canPreview = !["unlinked", "unsupported"].includes(previewAvailability);
       return {
         owner,
         endpointCapabilities,
@@ -595,24 +743,15 @@ export function MetadataWorkspace({
         previewError,
         previewing,
         previewBlockReason,
-        canPreview: !previewBlockReason,
+        previewAvailability,
+        previewStatusMessage,
+        previewStatusTone,
+        canPreview,
         sampledAt: previewEntry?.sampledAt ?? null,
       };
     },
     [metadataCatalogPreviewErrors, metadataCatalogPreviewRows, metadataCatalogPreviewingId, metadataEndpointLookup],
   );
-
-  const metadataCatalogFilteredDatasets = catalogDatasets;
-
-  const metadataCatalogSelectedDataset = useMemo(() => {
-    if (metadataCatalogSelection) {
-      const match = catalogDatasets.find((dataset) => dataset.id === metadataCatalogSelection);
-      if (match) {
-        return match;
-      }
-    }
-    return metadataCatalogFilteredDatasets[0] ?? catalogDatasets[0] ?? null;
-  }, [catalogDatasets, metadataCatalogFilteredDatasets, metadataCatalogSelection]);
 
   const metadataCollectionsByEndpoint = useMemo(() => {
     const map = new Map<string, MetadataCollectionSummary>();
@@ -631,10 +770,6 @@ export function MetadataWorkspace({
     }
   }, [catalogDatasets, datasetDetailRouteId, metadataCatalogFilteredDatasets, metadataCatalogSelectedDataset]);
 
-  useEffect(() => {
-    setSelectedDatasetIds((prev) => prev.filter((id) => catalogDatasets.some((dataset) => dataset.id === id)));
-  }, [catalogDatasets]);
-
   const metadataCatalogLabelOptions = useMemo(() => {
     const labels = new Set<string>();
     catalogDatasets.forEach((dataset) => dataset.labels?.forEach((label) => labels.add(label)));
@@ -645,24 +780,10 @@ export function MetadataWorkspace({
     () => (metadataEndpointDetailId ? metadataEndpoints.find((endpoint) => endpoint.id === metadataEndpointDetailId) ?? null : null),
     [metadataEndpointDetailId, metadataEndpoints],
   );
-
-  const metadataDatasetDetail = useMemo(() => {
-    if (!metadataDatasetDetailId) {
-      return null;
-    }
-    const selectedDataset =
-      metadataCatalogSelectedDataset && metadataCatalogSelectedDataset.id === metadataDatasetDetailId
-        ? metadataCatalogSelectedDataset
-        : null;
-    return (
-      datasetDetailCache[metadataDatasetDetailId] ??
-      catalogDatasets.find((dataset) => dataset.id === metadataDatasetDetailId) ??
-      selectedDataset ??
-      null
-    );
-  }, [catalogDatasets, datasetDetailCache, metadataCatalogSelectedDataset, metadataDatasetDetailId]);
   const metadataDatasetDetailFields = metadataDatasetDetail?.fields ?? [];
   const detailDataset = metadataDatasetDetail ?? metadataCatalogSelectedDataset ?? null;
+  const metadataDatasetDetailDisplayId = metadataDatasetDetail?.upstreamId ?? metadataDatasetDetail?.id ?? null;
+  const detailDatasetDisplayId = detailDataset?.upstreamId ?? detailDataset?.id ?? null;
   const catalogPreviewState = useMemo(
     () => getDatasetPreviewState(metadataCatalogSelectedDataset ?? null),
     [getDatasetPreviewState, metadataCatalogSelectedDataset],
@@ -676,9 +797,11 @@ export function MetadataWorkspace({
   const detailPreviewColumns = previewTableColumns(detailPreviewRows);
   const detailPreviewError = detailPreviewState.previewError;
   const detailPreviewing = detailPreviewState.previewing;
-  const detailPreviewBlockReason = detailPreviewState.previewBlockReason;
+  const detailPreviewStatusMessage = detailPreviewState.previewStatusMessage;
+  const detailPreviewStatusTone = detailPreviewState.previewStatusTone;
+  const detailSampledAt = detailPreviewState.sampledAt;
   const detailCanPreview = Boolean(detailDataset) && detailPreviewState.canPreview;
-  const detailHasLinkedEndpoint = Boolean(detailDataset?.sourceEndpointId && detailOwner?.url);
+  const detailHasLinkedEndpoint = Boolean(detailDataset?.sourceEndpointId && detailOwner);
   const detailProfileBlockReason =
     (detailOwner && detailDeclaresCapabilities && !detailEndpointCapabilities.includes("profile")
       ? `Dataset profiles disabled: ${detailOwner.name} is missing the "profile" capability.`
@@ -996,6 +1119,17 @@ export function MetadataWorkspace({
     setMetadataRunsLoaded(false);
     setMetadataRunsLoadedKey(null);
     setMetadataRunsRequestKey((prev) => prev + 1);
+  }, []);
+  const handleSelectEndpointFilter = useCallback((value: string, options?: { label?: string }) => {
+    if (value === "all") {
+      setMetadataEndpointPickerQuery("");
+    } else if (value === "unlinked") {
+      setMetadataEndpointPickerQuery("Unlinked datasets");
+    } else if (options?.label) {
+      setMetadataEndpointPickerQuery(options.label);
+    }
+    setMetadataCatalogEndpointFilter(value);
+    setMetadataEndpointPickerOpen(false);
   }, []);
 
   const loadMetadataRuns = useCallback(async () => {
@@ -1318,7 +1452,9 @@ export function MetadataWorkspace({
             .map((schema) => schema.trim())
             .filter(Boolean)
         : undefined;
-      await fetchMetadataGraphQL(
+      const payload = await fetchMetadataGraphQL<{
+        triggerEndpointCollection: { id: string; status: MetadataCollectionRunSummary["status"]; error?: string | null };
+      }>(
         metadataEndpoint,
         TRIGGER_ENDPOINT_COLLECTION_MUTATION,
         {
@@ -1329,10 +1465,22 @@ export function MetadataWorkspace({
         { token: authToken ?? undefined },
       );
       refreshMetadataWorkspace();
-      return targetEndpoint;
+      return { endpoint: targetEndpoint, run: payload.triggerEndpointCollection };
     },
     {
-      onSuccess: (endpoint) => {
+      onSuccess: (result) => {
+        if (!result) {
+          return;
+        }
+        const { endpoint, run } = result;
+        if (run?.status === "FAILED") {
+          toastQueue.pushToast({
+            intent: "error",
+            title: endpoint ? `Collection failed for ${endpoint.name}` : "Collection failed",
+            description: run.error ?? "Endpoint unreachable in this environment.",
+          });
+          return;
+        }
         toastQueue.pushToast({
           intent: "success",
           title: endpoint ? `Triggered ${endpoint.name}` : "Collection triggered",
@@ -1399,7 +1547,13 @@ export function MetadataWorkspace({
           setMetadataEndpointDetailId(null);
         }
         setMetadataRuns((prev) => prev.filter((run) => run.endpoint?.id !== endpoint.id));
-        setMetadataCatalogEndpointFilter((prev) => (prev === endpoint.id ? "all" : prev));
+        setMetadataCatalogEndpointFilter((prev) => {
+          if (prev === endpoint.id) {
+            setMetadataEndpointPickerQuery("");
+            return "all";
+          }
+          return prev;
+        });
         await refreshCatalogDatasets();
         await refreshMetadataEndpoints();
       } catch (error) {
@@ -1630,13 +1784,27 @@ export function MetadataWorkspace({
       /* errors handled via datasetDetailError */
     });
   }, [datasetDetailCache, loadDatasetDetail, metadataDatasetDetailId]);
+  useEffect(() => {
+    const selectedId = metadataCatalogSelectedDataset?.id;
+    if (!selectedId) {
+      return;
+    }
+    if (datasetDetailCache[selectedId]) {
+      return;
+    }
+    if (inflightDatasetDetailIdRef.current === selectedId) {
+      return;
+    }
+    void loadDatasetDetail(selectedId).catch(() => {
+      /* non-fatal; catalog view will show fallback state */
+    });
+  }, [datasetDetailCache, loadDatasetDetail, metadataCatalogSelectedDataset?.id]);
 
   const renderCatalogSection = () => {
-    const endpointFilterOptions = [
-      { value: "all", label: "All endpoints" },
-      { value: "unlinked", label: "Unlinked datasets" },
-      ...metadataEndpoints.map((endpoint) => ({ value: endpoint.id, label: endpoint.name })),
-    ];
+    const catalogDataset =
+      metadataCatalogSelectedDataset && metadataCatalogSelectedDataset.id
+        ? datasetDetailCache[metadataCatalogSelectedDataset.id] ?? metadataCatalogSelectedDataset
+        : metadataCatalogSelectedDataset;
     const labelFilterOptions = [
       { value: "all", label: "All labels" },
       { value: "unlabeled", label: "Unlabeled" },
@@ -1651,10 +1819,12 @@ export function MetadataWorkspace({
     }
     if (metadataCatalogEndpointFilter !== "all") {
       const endpointLabel =
-        endpointFilterOptions.find((option) => option.value === metadataCatalogEndpointFilter)?.label ?? metadataCatalogEndpointFilter;
+        metadataCatalogEndpointFilter === "unlinked"
+          ? "Unlinked datasets"
+          : metadataEndpointLookup.get(metadataCatalogEndpointFilter)?.name ?? metadataCatalogEndpointFilter;
       activeFilterChips.push({
         label: `Endpoint · ${endpointLabel}`,
-        onClear: () => setMetadataCatalogEndpointFilter("all"),
+        onClear: () => handleSelectEndpointFilter("all"),
       });
     }
     if (metadataCatalogLabelFilter !== "all") {
@@ -1665,24 +1835,16 @@ export function MetadataWorkspace({
         onClear: () => setMetadataCatalogLabelFilter("all"),
       });
     }
-    const catalogDataset = metadataCatalogSelectedDataset;
+    const catalogDatasetDisplayId = catalogDataset?.upstreamId ?? catalogDataset?.id ?? null;
     const catalogDatasetFields = catalogDataset?.fields ?? [];
     const selectedDatasetEndpoint = catalogPreviewState.owner;
     const endpointCapabilities = catalogPreviewState.endpointCapabilities;
     const declaresEndpointCapabilities = endpointCapabilities.length > 0;
-    const endpointSupportsPreview = catalogPreviewState.canPreview;
     const endpointSupportsProfile = !declaresEndpointCapabilities || endpointCapabilities.includes("profile");
-    const previewCapabilityReason =
-      selectedDatasetEndpoint && declaresEndpointCapabilities && !endpointSupportsPreview
-        ? `Dataset previews disabled: ${selectedDatasetEndpoint.name} is missing the "preview" capability.`
-        : null;
-    const hasLinkedEndpoint = Boolean(catalogDataset?.sourceEndpointId && selectedDatasetEndpoint?.url);
-    const previewBlockReason =
-      previewCapabilityReason ??
-      (!hasLinkedEndpoint && catalogDataset
-        ? "Link this dataset to a registered endpoint before running previews."
-        : null);
-    const canPreviewDataset = Boolean(catalogDataset) && !previewBlockReason;
+    const previewStatusMessage = catalogPreviewState.previewStatusMessage;
+    const previewStatusTone = catalogPreviewState.previewStatusTone;
+    const hasLinkedEndpoint = Boolean(catalogDataset?.sourceEndpointId && selectedDatasetEndpoint);
+    const canPreviewDataset = Boolean(catalogDataset) && catalogPreviewState.canPreview;
     const previewRows: Array<Record<string, unknown>> =
       catalogPreviewState.previewRows.length > 0
         ? catalogPreviewState.previewRows
@@ -1707,75 +1869,171 @@ export function MetadataWorkspace({
           <div className="mt-4 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
               <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Filter</p>
-              <div className="relative mt-2">
-                <LuSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <label htmlFor="metadata-catalog-search" className="sr-only">
-                  Search name, label, or source
-                </label>
-                <input
-                  id="metadata-catalog-search"
-                  value={metadataCatalogSearch}
-                  onChange={(event) => setMetadataCatalogSearch(event.target.value)}
-                  placeholder="Search name, label, or source"
-                  className="w-full rounded-2xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </div>
-              {activeFilterChips.length ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {activeFilterChips.map((chip) => (
-                    <button
-                      key={chip.label}
-                      type="button"
-                      onClick={chip.onClear}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
-                    >
-                      {chip.label}
-                      <span aria-hidden="true">×</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMetadataCatalogSearch("");
-                      setMetadataCatalogEndpointFilter("all");
-                      setMetadataCatalogLabelFilter("all");
-                    }}
-                    className="rounded-full border border-transparent px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:text-slate-900 dark:text-slate-300"
-                  >
-                    Clear all
-                  </button>
+              <div className="mt-3 space-y-3">
+                <div className="relative">
+                  <LuSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <label htmlFor="metadata-catalog-search" className="sr-only">
+                    Search name, label, or source
+                  </label>
+                  <input
+                    id="metadata-catalog-search"
+                    value={metadataCatalogSearch}
+                    onChange={(event) => setMetadataCatalogSearch(event.target.value)}
+                    placeholder="Search name, label, or source"
+                    className="w-full rounded-2xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  />
                 </div>
-              ) : null}
-            </div>
-            <div className="space-y-3 rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Endpoint</label>
-              <select
-                data-testid="metadata-catalog-filter-endpoint"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                value={metadataCatalogEndpointFilter}
-                onChange={(event) => setMetadataCatalogEndpointFilter(event.target.value)}
-              >
-                {endpointFilterOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-3 rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Label</label>
-              <select
-                data-testid="metadata-catalog-filter-label"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                value={metadataCatalogLabelFilter}
-                onChange={(event) => setMetadataCatalogLabelFilter(event.target.value)}
-              >
-                {labelFilterOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                {activeFilterChips.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {activeFilterChips.map((chip) => (
+                      <button
+                        key={chip.label}
+                        type="button"
+                        onClick={chip.onClear}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                      >
+                        {chip.label}
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMetadataCatalogSearch("");
+                        handleSelectEndpointFilter("all");
+                        setMetadataCatalogLabelFilter("all");
+                      }}
+                      className="rounded-full border border-transparent px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:text-slate-900 dark:text-slate-300"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                ) : null}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="relative" ref={endpointPickerRef}>
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Endpoint</label>
+                    <div className="relative mt-1">
+                      <input
+                        data-testid="metadata-catalog-filter-endpoint"
+                        type="text"
+                        role="combobox"
+                        aria-expanded={metadataEndpointPickerOpen}
+                        aria-haspopup="listbox"
+                        aria-controls="metadata-endpoint-picker-list"
+                        value={metadataEndpointPickerQuery}
+                        onFocus={() => setMetadataEndpointPickerOpen(true)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setMetadataEndpointPickerOpen(false);
+                          }
+                          if (event.key === "ArrowDown" && !metadataEndpointPickerOpen) {
+                            setMetadataEndpointPickerOpen(true);
+                          }
+                        }}
+                        onChange={(event) => {
+                          setMetadataEndpointPickerQuery(event.target.value);
+                          setMetadataEndpointPickerOpen(true);
+                        }}
+                        placeholder="Search or select endpoint"
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      />
+                      {metadataCatalogEndpointFilter !== "all" ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectEndpointFilter("all")}
+                          data-testid="metadata-catalog-endpoint-clear"
+                          className="absolute inset-y-0 right-2 my-auto rounded-full border border-transparent px-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:text-slate-900 dark:text-slate-200"
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                      {metadataEndpointPickerOpen ? (
+                        <div
+                          id="metadata-endpoint-picker-list"
+                          className="absolute left-0 right-0 top-full z-40 mt-2 rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                        >
+                          <div className="flex flex-col gap-1 border-b border-slate-100 p-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => handleSelectEndpointFilter("all")}
+                              className="rounded-xl px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                            >
+                              All endpoints
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectEndpointFilter("unlinked")}
+                              className="rounded-xl px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                            >
+                              Unlinked datasets
+                            </button>
+                          </div>
+                          <div className="max-h-56 overflow-y-auto">
+                            {metadataEndpointPickerLoading ? (
+                              <p className="px-3 py-2 text-xs text-slate-500">Loading endpoints…</p>
+                            ) : metadataEndpointPickerOptions.length === 0 ? (
+                              <p className="px-3 py-2 text-xs text-slate-500">
+                                No endpoints match “{metadataEndpointPickerQuery.trim()}”.
+                              </p>
+                            ) : (
+                              metadataEndpointPickerOptions.map((endpoint) => (
+                                <button
+                                  key={endpoint.id}
+                                  type="button"
+                                  onClick={() => handleSelectEndpointFilter(endpoint.id, { label: endpoint.name })}
+                                  data-testid="metadata-endpoint-option"
+                                  data-endpoint-id={endpoint.id}
+                                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+                                >
+                                  <span className="font-medium">{endpoint.name}</span>
+                                  {endpoint.capabilities?.length ? (
+                                    <span className="text-[10px] uppercase tracking-[0.3em] text-slate-400">
+                                      {endpoint.capabilities.join(", ")}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                          {metadataEndpointPickerPageInfo.hasNextPage ? (
+                            <button
+                              type="button"
+                              onClick={() => fetchMoreMetadataEndpointOptions()}
+                              className="w-full border-t border-slate-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:border-slate-300 hover:text-slate-900 dark:border-slate-800 dark:text-slate-300"
+                            >
+                              Load more sources
+                            </button>
+                          ) : null}
+                          <div className="border-t border-slate-100 px-3 py-2 text-right dark:border-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => refreshMetadataEndpointOptions()}
+                              className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 hover:text-slate-900 dark:text-slate-300"
+                            >
+                              Refresh list
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500">Label</label>
+                    <select
+                      data-testid="metadata-catalog-filter-label"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      value={metadataCatalogLabelFilter}
+                      onChange={(event) => setMetadataCatalogLabelFilter(event.target.value)}
+                    >
+                      {labelFilterOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div className="scrollbar-thin mt-4 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
@@ -1845,26 +2103,17 @@ export function MetadataWorkspace({
             )}
           </div>
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {catalogDataset ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xl font-semibold text-slate-900 dark:text-white">{catalogDataset.displayName}</p>
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{catalogDataset.id}</p>
+                  {catalogDatasetDisplayId ? (
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{catalogDatasetDisplayId}</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleDatasetSelection(catalogDataset.id)}
-                    className={`rounded-full border px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] transition ${
-                      selectedDatasetIds.includes(catalogDataset.id)
-                        ? "border-rose-300 text-rose-600 hover:border-rose-400 hover:text-rose-700 dark:border-rose-400/60 dark:text-rose-200"
-                        : "border-emerald-300 text-emerald-600 hover:border-emerald-400 hover:text-emerald-700 dark:border-emerald-400/60 dark:text-emerald-200"
-                    }`}
-                  >
-                    {selectedDatasetIds.includes(catalogDataset.id) ? "Unscope" : "Scope dataset"}
-                  </button>
                   <button
                     type="button"
                     onClick={() => handleOpenDatasetDetail(catalogDataset.id)}
@@ -1949,11 +2198,21 @@ export function MetadataWorkspace({
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Preview</p>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   {catalogPreviewState.sampledAt ? (
-                    <span className="text-xs text-slate-500">Sampled {formatRelativeTime(catalogPreviewState.sampledAt)}</span>
-                  ) : previewBlockReason ? (
-                    <span className="text-xs text-rose-600 dark:text-rose-300">{previewBlockReason}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-300">
+                      Sampled {formatRelativeTime(catalogPreviewState.sampledAt)}
+                    </span>
+                  ) : previewStatusMessage ? (
+                    <span
+                      className={`text-xs ${
+                        previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
+                      }`}
+                    >
+                      {previewStatusMessage}
+                    </span>
                   ) : (
-                    <span className="text-xs text-slate-500">Preview pulls 20 live rows per request.</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-300">
+                      Preview pulls 20 live rows per request.
+                    </span>
                   )}
                 </div>
                 {selectedDatasetPreviewError ? (
@@ -1963,7 +2222,7 @@ export function MetadataWorkspace({
                 ) : null}
                 {previewRows.length ? (
                   <div
-                    className="mt-3 max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                    className="mt-3 w-full max-h-64 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
                     data-testid="metadata-preview-table"
                   >
                     <table className="min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-700">
@@ -1980,7 +2239,10 @@ export function MetadataWorkspace({
                         {previewRows.map((row, index) => (
                           <tr key={index} className="border-t border-slate-100 dark:border-slate-800">
                             {previewColumns.map((column) => (
-                              <td key={column} className="px-3 py-2 text-slate-700 dark:text-slate-200">
+                              <td
+                                key={column}
+                                className="px-3 py-2 text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap"
+                              >
                                 {formatPreviewValue((row as Record<string, unknown>)[column])}
                               </td>
                             ))}
@@ -1990,8 +2252,15 @@ export function MetadataWorkspace({
                     </table>
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-slate-500" data-testid="metadata-preview-empty">
-                    {isPreviewingActive ? "Collecting sample rows…" : "No preview sampled yet. Run a preview to inspect live data."}
+                  <p
+                    className={`mt-2 text-xs ${
+                      previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
+                    }`}
+                    data-testid="metadata-preview-empty"
+                  >
+                    {isPreviewingActive
+                      ? "Collecting sample rows…"
+                      : previewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data."}
                   </p>
                 )}
               </div>
@@ -2503,6 +2772,11 @@ export function MetadataWorkspace({
                   {latestRun.error ?? "Collection skipped due to missing capability."}
                 </p>
               ) : null}
+              {latestRun?.status === "FAILED" ? (
+                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300" data-testid="metadata-endpoint-error">
+                  {latestRun.error ?? "Collection failed. Check endpoint configuration."}
+                </p>
+              ) : null}
               <p className="mt-3 break-all text-xs font-mono text-slate-500 dark:text-slate-400">{endpoint.url}</p>
               {endpoint.domain ? (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Domain · {endpoint.domain}</p>
@@ -2787,7 +3061,9 @@ export function MetadataWorkspace({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Dataset detail</p>
             <p className="text-2xl font-semibold text-slate-900 dark:text-white">{detailDataset.displayName}</p>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{detailDataset.id}</p>
+            {detailDatasetDisplayId ? (
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{detailDatasetDisplayId}</p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -2845,18 +3121,28 @@ export function MetadataWorkspace({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Preview</p>
-              {detailPreviewBlockReason ? (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{detailPreviewBlockReason}</p>
+              {detailSampledAt ? (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+                  Sampled {formatRelativeTime(detailSampledAt)}
+                </p>
+              ) : detailPreviewStatusMessage ? (
+                <p
+                  className={`mt-2 text-xs ${
+                    detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
+                  }`}
+                >
+                  {detailPreviewStatusMessage}
+                </p>
               ) : (
-                <p className="mt-2 text-xs text-slate-500">Preview pulls 20 live rows per request.</p>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">Preview pulls 20 live rows per request.</p>
               )}
               {detailPreviewError ? (
                 <p className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200">
                   {detailPreviewError}
                 </p>
               ) : null}
-              {detailPreviewRows.length ? (
-                <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+                {detailPreviewRows.length ? (
+                  <div className="mt-3 w-full max-h-72 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700">
                   <table className="min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-700">
                     <thead className="bg-slate-50 text-left font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                       <tr>
@@ -2871,9 +3157,12 @@ export function MetadataWorkspace({
                       {detailPreviewRows.map((row, index) => (
                         <tr key={index} className="border-t border-slate-100 dark:border-slate-800">
                           {detailPreviewColumns.map((column) => (
-                            <td key={column} className="px-3 py-2 text-slate-700 dark:text-slate-200">
-                              {formatPreviewValue((row as Record<string, unknown>)[column])}
-                            </td>
+                              <td
+                                key={column}
+                                className="px-3 py-2 text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap"
+                              >
+                                {formatPreviewValue((row as Record<string, unknown>)[column])}
+                              </td>
                           ))}
                         </tr>
                       ))}
@@ -2881,8 +3170,14 @@ export function MetadataWorkspace({
                   </table>
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-slate-500">
-                  {detailPreviewing ? "Collecting sample rows…" : "No preview sampled yet. Run a preview to inspect live data."}
+                <p
+                  className={`mt-2 text-xs ${
+                    detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
+                  }`}
+                >
+                  {detailPreviewing
+                    ? "Collecting sample rows…"
+                    : detailPreviewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data."}
                 </p>
               )}
               <button
@@ -3029,13 +3324,13 @@ export function MetadataWorkspace({
   return (
     <>
       {toastPortal}
-      <section className="flex flex-1 bg-slate-50 dark:bg-slate-950">
+      <section className="flex h-full min-h-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
         <aside
-          className={`hidden border-r border-slate-200 bg-white/80 py-5 transition-[width] dark:border-slate-800 dark:bg-slate-900/40 lg:flex relative z-50 ${
+          className={`relative z-40 hidden h-full flex-none border-r border-slate-200 bg-white/80 py-5 transition-[width] dark:border-slate-800 dark:bg-slate-900/40 lg:flex lg:sticky lg:top-0 ${
             sectionNavCollapsed ? "w-14 px-1.5" : "w-56 px-3.5"
           }`}
         >
-          <div className="flex w-full flex-col gap-5">
+          <div className="flex h-full w-full flex-col gap-5">
             <div className="flex items-center justify-between px-1.5">
               {!sectionNavCollapsed && (
                 <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">Navigation</p>
@@ -3048,41 +3343,43 @@ export function MetadataWorkspace({
                 {sectionNavCollapsed ? "›" : "‹"}
               </button>
             </div>
-            <div className="space-y-1.5">
-              {metadataNavItems.map((entry) => {
-                const Icon = entry.icon;
-                const isActive = metadataView === "overview" && metadataSection === entry.id;
-                return (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    onClick={() => {
-                      setMetadataView("overview");
-                      setMetadataSection(entry.id);
-                      updateDatasetDetailId(null);
-                      setMetadataEndpointDetailId(null);
-                    }}
-                    className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm transition ${
-                      isActive
-                        ? "border-slate-900 bg-slate-900 text-white shadow-sm dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                        : "border-slate-200 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-700 dark:text-slate-200"
-                    }`}
-                    title={sectionNavCollapsed ? entry.label : undefined}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {!sectionNavCollapsed ? (
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{entry.label}</p>
-                        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">{entry.description}</p>
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="space-y-1.5 overflow-y-auto pr-1 scrollbar-thin">
+                {metadataNavItems.map((entry) => {
+                  const Icon = entry.icon;
+                  const isActive = metadataView === "overview" && metadataSection === entry.id;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => {
+                        setMetadataView("overview");
+                        setMetadataSection(entry.id);
+                        updateDatasetDetailId(null);
+                        setMetadataEndpointDetailId(null);
+                      }}
+                      className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm transition ${
+                        isActive
+                          ? "border-slate-900 bg-slate-900 text-white shadow-sm dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                          : "border-slate-200 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-700 dark:text-slate-200"
+                      }`}
+                      title={sectionNavCollapsed ? entry.label : undefined}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {!sectionNavCollapsed ? (
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{entry.label}</p>
+                          <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">{entry.description}</p>
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </aside>
-        <div className="flex flex-1 flex-col">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex flex-wrap items-center justify-between border-b border-slate-200 px-8 py-6 dark:border-slate-800">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">Metadata workspace</p>
@@ -3121,7 +3418,7 @@ export function MetadataWorkspace({
           )}
         </header>
         {metadataView === "overview" ? (
-          <div className="flex flex-wrap items-center gap-3 px-8 py-4 lg:hidden relative z-50">
+          <div className="relative z-50 flex flex-wrap items-center gap-3 px-8 py-4 lg:hidden">
             {metadataSectionTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -3176,7 +3473,9 @@ export function MetadataWorkspace({
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500">Dataset detail</p>
                 <p className="text-base font-semibold text-slate-900 dark:text-white">{metadataDatasetDetail.displayName}</p>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{metadataDatasetDetail.id}</p>
+                {metadataDatasetDetailDisplayId ? (
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{metadataDatasetDetailDisplayId}</p>
+                ) : null}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -3235,39 +3534,63 @@ export function MetadataWorkspace({
                   </p>
                 ) : null}
               </div>
-              {detailPreviewRows.length ? (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Recent preview</p>
-                  <div className="mt-2 max-h-48 overflow-auto rounded-2xl border border-slate-200 dark:border-slate-700">
-                    <table className="min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-800">
-                      <thead className="bg-slate-50 text-left font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-                        <tr>
-                          {detailPreviewColumns.map((column) => (
-                            <th key={column} className="px-3 py-2 uppercase tracking-[0.3em] text-[10px] text-slate-400">
-                              {column}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detailPreviewRows.map((row, index) => (
-                          <tr key={index} className="border-t border-slate-100 dark:border-slate-800">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Recent preview</p>
+                {detailPreviewRows.length ? (
+                  <>
+                    {detailSampledAt ? (
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">
+                        Sampled {formatRelativeTime(detailSampledAt)}
+                      </p>
+                    ) : detailPreviewStatusMessage ? (
+                      <p
+                        className={`mt-1 text-xs ${
+                          detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
+                        }`}
+                      >
+                        {detailPreviewStatusMessage}
+                      </p>
+                    ) : null}
+                    <div className="mt-2 max-h-48 overflow-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+                      <table className="min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-800">
+                        <thead className="bg-slate-50 text-left font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                          <tr>
                             {detailPreviewColumns.map((column) => (
-                              <td key={column} className="px-3 py-2 text-slate-700 dark:text-slate-200">
-                                {formatPreviewValue((row as Record<string, unknown>)[column])}
-                              </td>
+                              <th key={column} className="px-3 py-2 uppercase tracking-[0.3em] text-[10px] text-slate-400">
+                                {column}
+                              </th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-slate-500">
-                  {detailPreviewing ? "Collecting sample rows…" : "No preview sampled yet. Run a preview to inspect live data."}
-                </p>
-              )}
+                        </thead>
+                        <tbody>
+                          {detailPreviewRows.map((row, index) => (
+                            <tr key={index} className="border-t border-slate-100 dark:border-slate-800">
+                              {detailPreviewColumns.map((column) => (
+                              <td
+                                key={column}
+                                className="px-3 py-2 text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap"
+                              >
+                                {formatPreviewValue((row as Record<string, unknown>)[column])}
+                              </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <p
+                    className={`mt-2 text-xs ${
+                      detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
+                    }`}
+                  >
+                    {detailPreviewing
+                      ? "Collecting sample rows…"
+                      : detailPreviewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data."}
+                  </p>
+                )}
+              </div>
             </div>
           </section>
         </div>

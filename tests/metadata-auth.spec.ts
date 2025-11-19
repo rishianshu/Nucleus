@@ -1,4 +1,4 @@
-import { test, expect, type Page, type APIRequestContext, type Route } from "@playwright/test";
+import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { loginViaKeycloak, ensureRealmUser, keycloakBase, metadataBase } from "./helpers/webAuth";
 
 const POSTGRES_CONNECTION_DEFAULTS = {
@@ -17,6 +17,10 @@ const PLAYWRIGHT_BAD_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const METADATA_GRAPHQL_ENDPOINT = process.env.METADATA_GRAPHQL_ENDPOINT ?? "http://localhost:4010/graphql";
 const METADATA_GRAPHQL_ROUTE_PATTERNS = buildMetadataGraphqlRoutePatterns(METADATA_GRAPHQL_ENDPOINT);
 const PRIMARY_METADATA_GRAPHQL_ROUTE = METADATA_GRAPHQL_ROUTE_PATTERNS[0];
+
+test.beforeAll(async ({ request }) => {
+  await cleanupPlaywrightArtifacts(request);
+});
 
 test.beforeEach(async ({ page }) => {
   page.addInitScript(() => {
@@ -41,7 +45,10 @@ test.beforeEach(async ({ page }) => {
       console.warn("[metadata-auth] graphql failure", response.status(), response.url());
     }
   });
-  await interceptMetadataTestWrites(page);
+});
+
+test.afterAll(async ({ request }) => {
+  await cleanupPlaywrightArtifacts(request);
 });
 
 test("metadata console requires Keycloak login and loads workspace nav", async ({ page }) => {
@@ -122,13 +129,22 @@ test("catalog endpoint filter respects endpoint IDs", async ({ page, request }) 
     await waitForCatalogDataset(page, datasetNameA);
     await waitForCatalogDataset(page, datasetNameB);
     const endpointFilter = page.getByTestId("metadata-catalog-filter-endpoint");
-    await endpointFilter.selectOption(endpointA.id);
+    await endpointFilter.fill(endpointA.name);
+    await page
+      .locator(`[data-testid="metadata-endpoint-option"][data-endpoint-id="${endpointA.id}"]`)
+      .first()
+      .click();
     await waitForCatalogDataset(page, datasetNameA);
     await expect(page.locator("[data-testid='metadata-catalog-card']").filter({ hasText: datasetNameB })).toHaveCount(0);
-    await endpointFilter.selectOption(endpointB.id);
+    await page.getByTestId("metadata-catalog-endpoint-clear").click();
+    await endpointFilter.fill(endpointB.name);
+    await page
+      .locator(`[data-testid="metadata-endpoint-option"][data-endpoint-id="${endpointB.id}"]`)
+      .first()
+      .click();
     await waitForCatalogDataset(page, datasetNameB);
     await expect(page.locator("[data-testid='metadata-catalog-card']").filter({ hasText: datasetNameA })).toHaveCount(0);
-    await endpointFilter.selectOption("all");
+    await page.getByTestId("metadata-catalog-endpoint-clear").click();
     await waitForCatalogDataset(page, datasetNameA);
     await waitForCatalogDataset(page, datasetNameB);
   } finally {
@@ -338,9 +354,10 @@ test("metadata dataset preview requires preview capability", async ({ page, requ
   const previewButton = page.getByTestId("metadata-preview-button");
   await expect(previewButton).toBeDisabled();
   const previewDisabledMessage = page
-    .getByText(`Dataset previews disabled: ${endpointName} is missing the "preview" capability.`)
-    .or(page.getByText(/Dataset previews disabled: this endpoint is missing the "preview" capability./i))
-    .or(page.getByText(/Link this dataset to a registered endpoint before running previews\./i));
+    .getByText(`Preview not supported for ${endpointName}.`)
+    .or(page.getByText(/Preview not supported for this endpoint\./i))
+    .or(page.getByText(/Link this dataset to a registered endpoint before running previews\./i))
+    .first();
   await expect(previewDisabledMessage).toBeVisible();
   await deleteEndpointViaApi(request, previewEndpoint);
 });
@@ -378,6 +395,32 @@ test("metadata editor can trigger collection runs and see status chip", async ({
   await expect(collectionsPanel).toBeVisible();
   await expect(collectionsPanel.locator("article").first()).toContainText(endpointName);
   await deleteEndpointViaApi(request, triggerEndpoint);
+});
+
+test("placeholder endpoints surface failed collection runs", async ({ page, request }) => {
+  const endpointName = `Placeholder Endpoint ${Date.now()}`;
+  const placeholderEndpoint = await registerEndpointViaApi(request, endpointName, {
+    url: `https://placeholder.example.com/api/${Date.now()}`,
+    useTemplateConfig: false,
+  });
+  try {
+    await openMetadataWorkspace(page);
+    await page.getByRole("button", { name: "Endpoints" }).click();
+    await ensureWorkspaceReady(page);
+    const endpointCard = page
+      .locator("[data-testid='metadata-endpoint-card']")
+      .filter({ hasText: endpointName })
+      .first();
+    await expect(endpointCard).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId(`metadata-endpoint-trigger-${placeholderEndpoint.id}`).click();
+    await waitForCollectionRunStatus(request, placeholderEndpoint.id, "FAILED");
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await ensureWorkspaceReady(page);
+    await expect(endpointCard.getByTestId("metadata-endpoint-status")).toHaveAttribute("data-status", /failed/i);
+    await expect(endpointCard.getByTestId("metadata-endpoint-error")).toContainText(/placeholder host/i);
+  } finally {
+    await deleteEndpointViaApi(request, placeholderEndpoint);
+  }
 });
 
 test("metadata collections filters by endpoint and status", async ({ page, request }) => {
@@ -451,7 +494,7 @@ test("metadata endpoint credential regression requires fix before trigger", asyn
   if (await detailPanel.isVisible({ timeout: 2000 }).catch(() => false)) {
     await detailPanel.getByRole("button", { name: "Close" }).click();
   }
-  await updateEndpointPasswordViaApi(request, endpoint.id, PLAYWRIGHT_BAD_PASSWORD);
+  await updateEndpointPasswordViaApi(request, endpoint.id, PLAYWRIGHT_BAD_PASSWORD, { bypassWrites: true });
   await page.getByRole("button", { name: "Refresh" }).click();
   await ensureWorkspaceReady(page);
   await page.getByTestId(`metadata-endpoint-trigger-${endpoint.id}`).click();
@@ -582,13 +625,53 @@ type EndpointRef = RegisteredEndpoint | string;
 async function registerEndpointViaApi(
   request: APIRequestContext,
   endpointName: string,
-  options?: { capabilities?: string[]; labels?: string[] },
+  options?: {
+    capabilities?: string[];
+    labels?: string[];
+    url?: string;
+    connectionOverrides?: Partial<typeof POSTGRES_CONNECTION_DEFAULTS>;
+    bypassValidation?: boolean;
+    useTemplateConfig?: boolean;
+    config?: Record<string, unknown>;
+  },
 ): Promise<RegisteredEndpoint> {
   await ensureRealmUser({ username: DEFAULT_TEST_USERNAME, password: DEFAULT_TEST_PASSWORD, roles: ["writer"] });
   const writerToken = await fetchKeycloakTokenForUser(request, {
     username: DEFAULT_TEST_USERNAME,
     password: DEFAULT_TEST_PASSWORD,
   });
+  const shouldUseTemplate = options?.useTemplateConfig !== false;
+  const connection = {
+    ...POSTGRES_CONNECTION_DEFAULTS,
+    ...(options?.connectionOverrides ?? {}),
+  };
+  const schemas = String(connection.schemas ?? POSTGRES_CONNECTION_DEFAULTS.schemas)
+    .split(",")
+    .map((schema) => schema.trim())
+    .filter((schema) => schema.length > 0);
+  let resolvedConfig: Record<string, unknown> | null = null;
+  let resolvedUrl = options?.url ?? null;
+  if (shouldUseTemplate) {
+    resolvedConfig = {
+      templateId: "jdbc.postgres",
+      parameters: {
+        host: String(connection.host),
+        port: String(connection.port),
+        database: String(connection.database),
+        username: String(connection.username),
+        password: String(connection.password),
+      },
+      schemas,
+    };
+    resolvedUrl =
+      resolvedUrl ??
+      `postgresql://${encodeURIComponent(String(connection.username))}:${encodeURIComponent(String(connection.password))}@${
+        connection.host
+      }:${connection.port}/${connection.database}`;
+  } else {
+    resolvedConfig = options?.config ?? null;
+    resolvedUrl = resolvedUrl ?? `https://metadata-playwright.localhost/api/${Date.now()}`;
+  }
   const registerResponse = await request.post(METADATA_GRAPHQL_ENDPOINT, {
     data: {
       query: `
@@ -603,18 +686,19 @@ async function registerEndpointViaApi(
         input: {
           projectSlug: METADATA_DEFAULT_PROJECT,
           name: endpointName,
-          verb: "GET",
-          url: `https://metadata-playwright.example.com/api/${Date.now()}`,
+          verb: "POST",
+          url: resolvedUrl,
           description: "Playwright seeded endpoint",
           labels: options?.labels ?? ["playwright"],
           capabilities: options?.capabilities ?? ["metadata"],
+          config: resolvedConfig,
         },
       },
     },
     headers: {
       Authorization: `Bearer ${writerToken}`,
       "Content-Type": "application/json",
-      "X-Metadata-Test-Write": "1",
+      ...(options?.bypassValidation ? { "X-Metadata-Test-Write": "1" } : {}),
     },
   });
   if (!registerResponse.ok()) {
@@ -657,16 +741,19 @@ async function ensureEndpointDatasetViaApi(
           projectId: METADATA_DEFAULT_PROJECT,
           domain: METADATA_CATALOG_DOMAIN,
           labels: ["playwright", `endpoint:${endpoint.id}`],
-            payload: {
-              dataset: {
-                id: datasetId,
-                displayName,
-                description: "Seeded dataset for endpoint detail verification",
-                fields: [
-                  { name: "id", type: "STRING", description: "Synthetic primary key" },
-                  { name: "value", type: "NUMBER", description: "Synthetic metric" },
+          payload: {
+            dataset: {
+              id: datasetId,
+              displayName,
+              description: "Seeded dataset for endpoint detail verification",
+              fields: [
+                { name: "id", type: "STRING", description: "Synthetic primary key" },
+                { name: "value", type: "NUMBER", description: "Synthetic metric" },
               ],
             },
+            schema: "PUBLIC",
+            name: `seed_table_${datasetId}`,
+            labels: ["playwright", `endpoint:${endpoint.id}`],
             metadata_endpoint_id: endpoint.id,
             _metadata: {
               source_endpoint_id: endpoint.id,
@@ -680,7 +767,6 @@ async function ensureEndpointDatasetViaApi(
     headers: {
       Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
-      "X-Metadata-Test-Write": "1",
     },
   });
   if (!upsertResponse.ok()) {
@@ -688,21 +774,6 @@ async function ensureEndpointDatasetViaApi(
     throw new Error(`Failed to seed dataset for endpoint: ${errorBody}`);
   }
   return displayName;
-}
-
-async function interceptMetadataTestWrites(page: Page): Promise<() => Promise<void>> {
-  const targets = METADATA_GRAPHQL_ROUTE_PATTERNS;
-  const handler = async (route: Route) => {
-    const headers = {
-      ...route.request().headers(),
-      "x-metadata-test-write": "1",
-    };
-    await route.continue({ headers });
-  };
-  await Promise.all(targets.map((target) => page.route(target, handler)));
-  return async () => {
-    await Promise.all(targets.map((target) => page.unroute(target, handler)));
-  };
 }
 
 async function deleteEndpointViaApi(request: APIRequestContext, endpointRef: EndpointRef) {
@@ -720,7 +791,6 @@ async function deleteEndpointViaApi(request: APIRequestContext, endpointRef: End
     headers: {
       Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
-      "X-Metadata-Test-Write": "1",
     },
   });
   if (!deleteResponse.ok()) {
@@ -733,6 +803,7 @@ async function updateEndpointPasswordViaApi(
   request: APIRequestContext,
   endpointId: string,
   password: string,
+  options?: { bypassWrites?: boolean },
 ): Promise<void> {
   const adminToken = await ensureAdminToken(request);
   const existingConfig = await fetchEndpointConfigViaApi(request, adminToken, endpointId);
@@ -758,7 +829,7 @@ async function updateEndpointPasswordViaApi(
     headers: {
       Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
-      "X-Metadata-Test-Write": "1",
+      ...(options?.bypassWrites ? { "X-Metadata-Test-Write": "1" } : {}),
     },
   });
   if (!response.ok()) {
@@ -846,7 +917,6 @@ async function triggerCollectionViaApi(
     headers: {
       Authorization: `Bearer ${adminToken}`,
       "Content-Type": "application/json",
-      "X-Metadata-Test-Write": "1",
     },
   });
   if (!response.ok()) {
@@ -942,6 +1012,67 @@ async function fetchKeycloakTokenForUser(
 async function ensureAdminToken(request: APIRequestContext): Promise<string> {
   await ensureRealmUser({ ...ADMIN_CREDENTIALS, roles: ["admin"] });
   return fetchKeycloakTokenForUser(request, ADMIN_CREDENTIALS);
+}
+
+async function cleanupPlaywrightArtifacts(request: APIRequestContext): Promise<void> {
+  try {
+    const adminToken = await ensureAdminToken(request);
+    const response = await request.post(METADATA_GRAPHQL_ENDPOINT, {
+      data: {
+        query: `
+          query PlaywrightEndpoints($projectSlug: String) {
+            endpoints(projectSlug: $projectSlug, first: 200) {
+              id
+              name
+              labels
+            }
+          }
+        `,
+        variables: { projectSlug: METADATA_DEFAULT_PROJECT },
+      },
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!response.ok()) {
+      return;
+    }
+    const payload = (await response.json()) as {
+      data?: { endpoints?: Array<{ id: string; name: string; labels?: string[] | null }> };
+    };
+    const endpoints = payload.data?.endpoints ?? [];
+    await Promise.all(
+      endpoints
+        .filter((endpoint) => {
+          const labels = endpoint.labels ?? [];
+          if (labels.includes("playwright")) {
+            return true;
+          }
+          return /playwright/i.test(endpoint.name ?? "");
+        })
+        .map((endpoint) =>
+          request
+            .post(METADATA_GRAPHQL_ENDPOINT, {
+              data: {
+                query: `mutation CleanupDelete($id: ID!) { deleteEndpoint(id: $id) }`,
+                variables: { id: endpoint.id },
+              },
+              headers: {
+                Authorization: `Bearer ${adminToken}`,
+                "Content-Type": "application/json",
+              },
+            })
+            .then(async (resp) => {
+              if (!resp.ok()) {
+                console.warn("[metadata-auth] cleanup delete failed", await resp.text());
+              }
+            }),
+        ),
+    );
+  } catch (error) {
+    console.warn("[metadata-auth] cleanup skipped", error);
+  }
 }
 
 async function fetchEndpointByName(

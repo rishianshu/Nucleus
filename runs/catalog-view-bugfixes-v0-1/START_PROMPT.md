@@ -1,17 +1,17 @@
 You are AGENT_CODEX as defined in docs/meta/AGENT_CODEX.md.
 
-Feature slug: {{slug}}
+Feature slug: catalog-view-bugfixes-v0-1
 
 Follow AGENT_CODEX.md exactly:
 
 1. Boot:
    - Use this slug.
-   - Verify intents/{{slug}}/* exists.
-   - Ensure runs/{{slug}}/* exists or create missing run files.
+   - Verify intents/catalog-view-bugfixes-v0-1/* exists.
+   - Ensure runs/catalog-view-bugfixes-v0-1/* exists or create missing run files.
    - Append start/resume heartbeat to LOG.md.
    - Set sync/STATE.md Focus Feature status accordingly.
 
-2. Then follow runs/{{slug}}/RUNCARD.md for:
+2. Then follow runs/catalog-view-bugfixes-v0-1/RUNCARD.md for:
    - RESUME protocol
    - Loop
    - Guardrails
@@ -27,4 +27,4 @@ Follow AGENT_CODEX.md exactly:
 
 4. Do not ask me questions unless AGENT_CODEX.md or RUNCARD.md are missing or inconsistent.
 
-Begin now and keep coding straight through until the slug is finished or truly blocked.
+Begin now.

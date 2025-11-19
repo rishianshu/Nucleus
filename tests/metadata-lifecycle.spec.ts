@@ -48,6 +48,7 @@ test.describe("Metadata catalog & endpoint lifecycle", () => {
         }
       `,
       { input: registerInput },
+      { bypassWrites: true },
     );
 
     const endpointId = registerResult.registerEndpoint.id;
@@ -158,6 +159,7 @@ test.describe("Metadata catalog & endpoint lifecycle", () => {
           capabilities: ["metadata"],
         },
       },
+      { bypassWrites: true },
     );
     const endpointId = registerResult.registerEndpoint.id;
     const existingCollections = await graphql<{ collections: Array<{ id: string }> }>(
@@ -235,7 +237,6 @@ test.describe("Metadata catalog & endpoint lifecycle", () => {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
-        "X-Metadata-Test-Write": "1",
       },
     });
     const disabledPayload = (await disabledResponse.json()) as {
@@ -271,6 +272,7 @@ test.describe("Metadata catalog & endpoint lifecycle", () => {
         }
       `,
       { collectionId },
+      { bypassWrites: true },
     );
     expect(
       ["QUEUED", "RUNNING", "SUCCEEDED", "SKIPPED"].includes(triggerResult.triggerCollection.status),

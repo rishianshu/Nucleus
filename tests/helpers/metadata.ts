@@ -40,12 +40,13 @@ export async function graphql<T>(
   token: string,
   query: string,
   variables?: Record<string, unknown>,
+  options?: { bypassWrites?: boolean },
 ): Promise<T> {
   const response = await request.post(metadataGraphqlEndpoint, {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      "X-Metadata-Test-Write": "1",
+      ...(options?.bypassWrites ? { "X-Metadata-Test-Write": "1" } : {}),
     },
     data: { query, variables },
   });
@@ -76,6 +77,8 @@ async function seedCatalogDataset(request: APIRequestContext): Promise<void> {
         }
       }
     `,
+    undefined,
+    { bypassWrites: true },
   );
   if ((existing.catalogDatasetConnection.totalCount ?? 0) > 0) {
     return;
@@ -108,6 +111,7 @@ async function registerTestEndpoint(request: APIRequestContext, token: string): 
         config: null,
       },
     },
+    { bypassWrites: true },
   );
   return registerResult.registerEndpoint.id;
 }
@@ -155,5 +159,6 @@ async function upsertCatalogRecord(request: APIRequestContext, token: string, en
         },
       },
     },
+    { bypassWrites: true },
   );
 }

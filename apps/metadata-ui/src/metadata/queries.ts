@@ -73,6 +73,7 @@ export const CATALOG_DATASETS_CONNECTION_QUERY = `
     catalogDatasetConnection(first: $first, after: $after, endpointId: $endpointId, search: $search, labels: $labels, unlabeledOnly: $unlabeledOnly) {
       nodes {
         id
+        upstreamId
         displayName
         description
         labels
@@ -107,6 +108,7 @@ export const METADATA_CATALOG_DATASET_QUERY = `
   query MetadataDatasetDetail($id: ID!) {
     metadataDataset(id: $id) {
       id
+      upstreamId
       displayName
       description
       labels
@@ -256,6 +258,7 @@ export const TRIGGER_ENDPOINT_COLLECTION_MUTATION = `
       id
       status
       collectionId
+      error
     }
   }
 `;

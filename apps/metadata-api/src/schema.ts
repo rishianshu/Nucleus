@@ -152,6 +152,7 @@ export const typeDefs = `#graphql
 
   type CatalogDataset {
     id: ID!
+    upstreamId: String
     displayName: String!
     description: String
     source: String
@@ -1712,6 +1713,7 @@ type GraphQLMetadataRecordInput = {
 
 type CatalogDataset = {
   id: string;
+  upstreamId?: string | null;
   displayName: string;
   description?: string | null;
   source?: string | null;
@@ -1991,23 +1993,24 @@ function clampConnectionLimit(value?: number, fallback = 25, maximum = 200): num
 function mapCatalogRecordToDataset(record: MetadataRecord<unknown>): CatalogDataset | null {
   const payload = normalizePayload(record.payload) ?? {};
   const datasetPayload = normalizePayload(payload.dataset) ?? {};
-  const id = String(
+  const upstreamId =
     datasetPayload.id ??
-      payload.id ??
-      payload.name ??
-      record.id ??
-      payload.entity ??
-      payload.schema ??
-      record.domain,
-  );
-  if (!id) {
+    payload.id ??
+    payload.name ??
+    payload.entity ??
+    payload.schema ??
+    null;
+  const idCandidate = record.id ?? upstreamId ?? payload.name ?? payload.entity ?? payload.schema ?? record.domain;
+  if (!idCandidate) {
     return null;
   }
+  const id = String(idCandidate);
   const displayName = String(
     datasetPayload.displayName ??
       datasetPayload.name ??
       payload.displayName ??
       payload.name ??
+      upstreamId ??
       id ??
       "Dataset",
   );
@@ -2025,6 +2028,7 @@ function mapCatalogRecordToDataset(record: MetadataRecord<unknown>): CatalogData
 
   return {
     id,
+    upstreamId: upstreamId ?? null,
     displayName,
     description,
     source,
@@ -2234,7 +2238,9 @@ async function triggerCollectionForEndpoint(
     filters,
   });
   if (shouldBypassCollection(ctx)) {
-    return finalizeCollectionRun(prisma, run.id, "SUCCEEDED");
+    const bypassReason = endpoint.url ? resolveBypassFailureReason(endpoint.url) : null;
+    const status: MetadataCollectionStatus = bypassReason ? "FAILED" : "SUCCEEDED";
+    return finalizeCollectionRun(prisma, run.id, status, bypassReason);
   }
   const { client, taskQueue } = await getTemporalClient();
   const workflowIdPrefix = options?.reason === "register" ? "metadata-collection-initial" : "metadata-collection";
@@ -2256,6 +2262,22 @@ async function triggerCollectionForEndpoint(
 
 function shouldBypassCollection(context: ResolverContext): boolean {
   return Boolean(context.bypassWrites || process.env.METADATA_FAKE_COLLECTIONS === "1");
+}
+
+function resolveBypassFailureReason(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname.endsWith(".example.com") || hostname.endsWith(".invalid") || hostname.endsWith(".test")) {
+      return "Endpoint URL points to a placeholder host and cannot be collected.";
+    }
+    return null;
+  } catch {
+    if (/^https?:/i.test(url.trim())) {
+      return "Endpoint URL is invalid.";
+    }
+    return null;
+  }
 }
 
 async function finalizeCollectionRun(
