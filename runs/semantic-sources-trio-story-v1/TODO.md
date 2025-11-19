@@ -1,0 +1,6 @@
+- [x] Scaffold docs directory + required markdown files.
+- [x] Complete CAPABILITIES-MATRIX.md.
+- [x] Author CDM docs for work, docs, and files.
+- [x] Write INGESTION-CONTRACT.md.
+- [x] Document signals, KB mapping, vector profiles.
+- [x] Describe GraphQL ingestion surfaces.
