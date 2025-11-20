@@ -558,6 +558,41 @@ test("metadata workspace surfaces ADR-0001 UI states", async ({ page }) => {
   await ensureWorkspaceReady(page);
 });
 
+test("knowledge base overview surfaces metrics and explorer links", async ({ page }) => {
+  await openKnowledgeBase(page);
+  await expect(page.getByText("Admin Console")).toBeVisible();
+  await expect(page.getByText("Total nodes")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /View explorer/i }).first().click();
+  await expect(page).toHaveURL(/\/kb\/explorer\/nodes/);
+});
+
+test("knowledge base explorers support node and edge actions", async ({ page }) => {
+  await openKnowledgeBase(page);
+  await page.getByTestId("kb-tab-nodes").click();
+  const nodeRows = page.locator("table tbody tr");
+  await expect(nodeRows.first()).toBeVisible({ timeout: 20_000 });
+  await nodeRows.first().click();
+  const nodeDetail = page.getByTestId("kb-node-detail-panel");
+  await expect(nodeDetail).toBeVisible();
+  await nodeDetail.getByRole("button", { name: "Scenes" }).click();
+  await expect(page).toHaveURL(/\/kb\/scenes/);
+  await expect(page.getByText("Graph preview")).toBeVisible({ timeout: 20_000 });
+  const sceneUrl = new URL(page.url());
+  const selectedNodeId = sceneUrl.searchParams.get("node") ?? "";
+  await page.getByTestId("kb-tab-provenance").click();
+  await expect(page).toHaveURL(/\/kb\/provenance/);
+  await expect(page.getByLabel("Node id")).toHaveValue(selectedNodeId);
+  await expect(page.getByText("Timestamp")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("kb-tab-edges").click();
+  await expect(page).toHaveURL(/\/kb\/explorer\/edges/);
+  await expect(page.getByTestId("kb-edges-table")).toBeVisible({ timeout: 20_000 });
+  const edgeRow = page.locator("table tbody tr").first();
+  await expect(edgeRow).toBeVisible({ timeout: 20_000 });
+  await edgeRow.locator("button").first().click({ timeout: 20_000 });
+  await expect(page).toHaveURL(/\/kb\/explorer\/nodes/);
+  await expect(page.getByTestId("kb-node-detail-panel")).toBeVisible({ timeout: 20_000 });
+});
+
 async function ensureWorkspaceReady(page: Page) {
   const errorBanner = page.getByTestId("metadata-error-banner");
   if (await errorBanner.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -579,6 +614,13 @@ async function openMetadataWorkspace(page: Page, credentials?: { username?: stri
     await page.goto(`${metadataBase}/`, { waitUntil: "domcontentloaded" });
   }
   await ensureWorkspaceReady(page);
+}
+
+async function openKnowledgeBase(page: Page, credentials?: { username?: string; password?: string }) {
+  await openMetadataWorkspace(page, credentials);
+  const knowledgeBaseButton = page.getByRole("button", { name: "Knowledge Base" });
+  await knowledgeBaseButton.click();
+  await expect(page.getByText("Admin Console")).toBeVisible({ timeout: 20_000 });
 }
 
 async function waitForCatalogDataset(page: Page, displayName: string, timeout = 30_000) {

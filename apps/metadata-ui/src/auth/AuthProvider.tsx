@@ -43,6 +43,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const hasKeycloak = Boolean(kc);
+const disableProfileHydration =
+  typeof import.meta.env.VITE_KC_DISABLE_PROFILE !== "undefined" &&
+  String(import.meta.env.VITE_KC_DISABLE_PROFILE).trim() === "1";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -251,6 +254,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [authError, phase, syncAutoAttempts]);
 
   useEffect(() => {
+    if (disableProfileHydration) {
+      return;
+    }
     if (!kc || typeof kc.loadUserProfile !== "function") {
       return;
     }
@@ -296,7 +302,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, disableProfileHydration]);
 
   const login = useCallback(() => {
     if (!kc || typeof window === "undefined") {

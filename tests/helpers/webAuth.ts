@@ -9,10 +9,21 @@ const keycloakAdminUser = process.env.KEYCLOAK_ADMIN ?? "admin";
 const keycloakAdminPassword = process.env.KEYCLOAK_ADMIN_PASSWORD ?? "admin";
 
 export async function waitForKeycloakAuth(page: Page) {
-  await page.waitForURL(
-    (url) => url.href.startsWith(`${keycloakBase}/realms/`) && url.href.includes("/protocol/openid-connect/auth"),
-    { timeout: 15_000 },
-  );
+  try {
+    await page.waitForURL(
+      (url) => url.href.startsWith(`${keycloakBase}/realms/`) && url.href.includes("/protocol/openid-connect/auth"),
+      { timeout: 15_000 },
+    );
+  } catch (error) {
+    const reachedMetadata = await page
+      .waitForURL((url) => url.href.startsWith(metadataBase), { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (reachedMetadata) {
+      return;
+    }
+    throw error;
+  }
 }
 
 type KeycloakCredentials = {

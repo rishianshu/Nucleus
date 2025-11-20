@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { LuCloudUpload, LuDatabase, LuGauge, LuLogOut, LuMoon, LuSun } from "react-icons/lu";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { LuCloudUpload, LuDatabase, LuGauge, LuLogOut, LuMoon, LuNetwork, LuSun } from "react-icons/lu";
 import { MetadataWorkspace } from "./metadata/MetadataWorkspace";
 import { MetadataAuthBoundary } from "./metadata/MetadataAuthBoundary";
 import { useAuth, type Role } from "./auth/AuthProvider";
+import { KnowledgeBaseConsole } from "./knowledge-base/KnowledgeBaseConsole";
 
 const METADATA_ENDPOINT = import.meta.env.VITE_METADATA_GRAPHQL_ENDPOINT ?? "/metadata/graphql";
 
@@ -16,17 +17,28 @@ function App() {
     <MetadataAuthBoundary>
       <BrowserRouter>
         <Routes>
-          <Route
-            path="/"
-            element={
-              <MetadataWorkspaceShell
-                metadataEndpoint={METADATA_ENDPOINT}
-                authToken={auth.token}
-                projectSlug={projectSlug}
-                userRole={userRole}
-              />
-            }
-          />
+        <Route
+          path="/"
+          element={
+            <MetadataWorkspaceShell
+              metadataEndpoint={METADATA_ENDPOINT}
+              authToken={auth.token}
+              projectSlug={projectSlug}
+              userRole={userRole}
+            />
+          }
+        />
+        <Route
+          path="/kb/*"
+          element={
+            <MetadataWorkspaceShell
+              metadataEndpoint={METADATA_ENDPOINT}
+              authToken={auth.token}
+              projectSlug={projectSlug}
+              userRole={userRole}
+            />
+          }
+        />
           <Route
             path="/catalog/datasets/:datasetId"
             element={
@@ -55,6 +67,7 @@ type MetadataWorkspaceShellProps = {
 function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, userRole }: MetadataWorkspaceShellProps) {
   const auth = useAuth();
   const { datasetId } = useParams<{ datasetId?: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const [shellCollapsed, setShellCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -81,11 +94,14 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
   const shellMenu = useMemo(
     () => [
       { id: "metadata", label: "Metadata", icon: LuDatabase, href: "/", disabled: false },
+      { id: "kb", label: "Knowledge Base", icon: LuNetwork, href: "/kb", disabled: false },
       { id: "ingestion", label: "Ingestion", icon: LuCloudUpload, disabled: true },
       { id: "recon", label: "Reconciliation", icon: LuGauge, disabled: true },
     ],
     [],
   );
+  const isKnowledgeBaseRoute = location.pathname.startsWith("/kb");
+  const activeMenuId = isKnowledgeBaseRoute ? "kb" : "metadata";
 
   return (
     <div
@@ -146,8 +162,8 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
           <nav className="space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {shellMenu.map((item) => {
               const Icon = item.icon ?? LuDatabase;
-              const isActive = item.id === "metadata";
-              const disabled = item.disabled ?? item.id !== "metadata";
+              const isActive = item.id === activeMenuId;
+              const disabled = item.disabled ?? false;
               return (
                 <button
                   key={item.id}
@@ -195,14 +211,23 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
         </div>
       </aside>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <MetadataWorkspace
-          metadataEndpoint={metadataEndpoint}
-          authToken={authToken}
-          projectSlug={projectSlug}
-          userRole={userRole}
-          datasetDetailRouteId={datasetId ?? null}
-          onDatasetDetailRouteChange={handleDatasetRouteChange}
-        />
+        {isKnowledgeBaseRoute ? (
+          <KnowledgeBaseConsole
+            metadataEndpoint={metadataEndpoint}
+            authToken={authToken}
+            projectSlug={projectSlug}
+            userRole={userRole}
+          />
+        ) : (
+          <MetadataWorkspace
+            metadataEndpoint={metadataEndpoint}
+            authToken={authToken}
+            projectSlug={projectSlug}
+            userRole={userRole}
+            datasetDetailRouteId={datasetId ?? null}
+            onDatasetDetailRouteChange={handleDatasetRouteChange}
+          />
+        )}
       </div>
     </div>
   );

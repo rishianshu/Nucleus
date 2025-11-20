@@ -1,0 +1,11 @@
+{
+  "startedAt": "2025-11-20T19:28:30.994Z",
+  "nodesProcessed": 29,
+  "nodesMigrated": 29,
+  "nodeErrors": [],
+  "edgesProcessed": 0,
+  "edgesMigrated": 0,
+  "edgeErrors": [],
+  "edgeMissingNode": [],
+  "finishedAt": "2025-11-20T19:28:32.304Z"
+}

@@ -20,6 +20,8 @@ This contract instructs the Developer Agent (Codex) how to pick work, read specs
 ## Loop
 Plan → Implement → Test → Patch → Heartbeat (≤ ~150 LOC per commit, reference AC#).
 Once the loop starts, remain in execution mode: only surface progress through the mandated heartbeats, blocker reports, or final summaries—never pause to re-confirm instructions unless required artifacts are missing or conflicting.
+- Before declaring progress or failures, inspect the active browser/dev server console logs (or Playwright console output) so issues can be reported with concrete error details. Use these logs to debug immediately; do not halt without capturing the console evidence.
+
 
 ## Heartbeat
 Append only to LOG.md every 10–15 min: `{timestamp, done, next, risks}`.  

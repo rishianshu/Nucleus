@@ -96,6 +96,101 @@ test("graphEdges query returns hashed logical identity", async (t) => {
   assert.ok(edge.identity.targetLogicalKey, "edge target logical key should be set");
 });
 
+test("kbNodes and kbEdges expose scope-aware data with pagination and scenes", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-kb-resolvers-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildResolverContext();
+  const tenantContext = { tenantId: ctx.auth.tenantId, projectId: ctx.auth.projectId, actorId: ctx.userId ?? undefined };
+
+  const orders = await graphStore.upsertEntity(
+    {
+      entityType: "catalog.dataset",
+      displayName: "Sample Orders",
+      canonicalPath: "postgres.orders",
+      properties: { schema: "public", table: "orders" },
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  const customers = await graphStore.upsertEntity(
+    {
+      entityType: "catalog.dataset",
+      displayName: "Sample Customers",
+      canonicalPath: "postgres.customers",
+      properties: { schema: "public", table: "customers" },
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  await graphStore.upsertEntity(
+    {
+      entityType: "catalog.dataset",
+      displayName: "Other org node",
+      properties: {},
+      scope: { orgId: "another-tenant", projectId: ctx.auth.projectId },
+    },
+    { tenantId: "another-tenant", projectId: ctx.auth.projectId, actorId: ctx.userId ?? undefined },
+  );
+  await graphStore.upsertEdge(
+    {
+      edgeType: "DEPENDENCY_OF",
+      sourceEntityId: orders.id,
+      targetEntityId: customers.id,
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+
+  const firstPage = await resolvers.Query.kbNodes(null, { type: "catalog.dataset", first: 1 }, ctx as any);
+  assert.equal(firstPage.edges.length, 1);
+  assert.equal(firstPage.totalCount, 2);
+  const nextPage = await resolvers.Query.kbNodes(null, { type: "catalog.dataset", first: 5, after: firstPage.pageInfo.endCursor ?? undefined }, ctx as any);
+  assert.equal(nextPage.edges.length, 1);
+
+  const detail = await resolvers.Query.kbNode(null, { id: orders.id }, ctx as any);
+  assert.equal(detail?.id, orders.id);
+  assert.ok(detail?.identity.logicalKey);
+
+  const edgesConnection = await resolvers.Query.kbEdges(null, { edgeType: "DEPENDENCY_OF", first: 10 }, ctx as any);
+  assert.equal(edgesConnection.totalCount, 1);
+  assert.equal(edgesConnection.edges[0].node.sourceEntityId, orders.id);
+  assert.equal(edgesConnection.edges[0].node.targetEntityId, customers.id);
+
+  const scene = await resolvers.Query.kbScene(null, { id: orders.id, depth: 2, limit: 10 }, ctx as any);
+  assert.ok(scene.nodes.length >= 2);
+  assert.equal(scene.summary.truncated, false);
+});
+
+test("kbNodes and kbEdges fall back to sample graph data when store is empty", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-kb-sample-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildResolverContext();
+
+  const nodesConnection = await resolvers.Query.kbNodes(null, { first: 5 }, ctx as any);
+  assert.ok(nodesConnection.totalCount > 0, "sample kb nodes should be available");
+  const sampleNodeId = nodesConnection.edges[0]?.node.id;
+  assert.ok(sampleNodeId, "sample node id present");
+
+  const nodeDetail = await resolvers.Query.kbNode(null, { id: sampleNodeId! }, ctx as any);
+  assert.equal(nodeDetail?.id, sampleNodeId);
+
+  const edgesConnection = await resolvers.Query.kbEdges(null, { first: 5 }, ctx as any);
+  assert.ok(edgesConnection.totalCount > 0, "sample kb edges should be available");
+
+  const scene = await resolvers.Query.kbScene(null, { id: sampleNodeId!, depth: 2, limit: 25 }, ctx as any);
+  assert.ok(scene.nodes.length >= 1);
+});
+
 function buildResolverContext() {
   return {
     auth: {

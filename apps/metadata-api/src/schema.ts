@@ -29,6 +29,13 @@ const TEMPLATE_REFRESH_BACKOFF_MS = Number(process.env.METADATA_TEMPLATE_REFRESH
 const PLAYWRIGHT_INVALID_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const COLLECTION_SCHEDULE_PREFIX = "collection";
 const COLLECTION_SCHEDULE_PAUSE_REASON = "collection disabled";
+const KB_NODES_DEFAULT_PAGE_SIZE = 25;
+const KB_NODES_MAX_PAGE_SIZE = 100;
+const KB_EDGES_DEFAULT_PAGE_SIZE = 25;
+const KB_EDGES_MAX_PAGE_SIZE = 100;
+const KB_SCENE_NODE_CAP = 300;
+const KB_SCENE_EDGE_CAP = 600;
+const KB_SAMPLE_TIMESTAMP = "2024-01-01T00:00:00.000Z";
 
 export const typeDefs = `#graphql
   scalar DateTime
@@ -63,6 +70,13 @@ export const typeDefs = `#graphql
     teamId: String
   }
 
+  input GraphScopeInput {
+    orgId: String
+    domainId: String
+    projectId: String
+    teamId: String
+  }
+
   type GraphIdentity {
     logicalKey: String!
     externalId: JSON
@@ -85,8 +99,10 @@ export const typeDefs = `#graphql
     specRef: String
     properties: JSON!
     version: Int!
+    phase: String
     scope: GraphScope!
     identity: GraphIdentity!
+    provenance: JSON
     createdAt: DateTime!
     updatedAt: DateTime!
   }
@@ -105,6 +121,40 @@ export const typeDefs = `#graphql
     identity: GraphIdentity!
     createdAt: DateTime!
     updatedAt: DateTime!
+  }
+
+  type KbNodeEdge {
+    cursor: ID!
+    node: GraphNode!
+  }
+
+  type KbNodeConnection {
+    edges: [KbNodeEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type KbEdgeEdge {
+    cursor: ID!
+    node: GraphEdge!
+  }
+
+  type KbEdgeConnection {
+    edges: [KbEdgeEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type KbSceneSummary {
+    nodeCount: Int!
+    edgeCount: Int!
+    truncated: Boolean!
+  }
+
+  type KbScene {
+    nodes: [GraphNode!]!
+    edges: [GraphEdge!]!
+    summary: KbSceneSummary!
   }
 
   input GraphNodeFilter {
@@ -470,6 +520,11 @@ export const typeDefs = `#graphql
     metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
+    kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
+    kbEdges(edgeType: String, scope: GraphScopeInput, sourceId: ID, targetId: ID, first: Int = 25, after: ID): KbEdgeConnection!
+    kbNode(id: ID!): GraphNode
+    kbNeighbors(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
+    kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
@@ -809,6 +864,49 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
           },
           buildTenantContextForGraph(ctx),
         );
+      },
+      kbNodes: async (
+        _parent: unknown,
+        args: { type?: string | null; scope?: GraphQLGraphScopeInput | null; search?: string | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        return resolveKbNodes(store, args, ctx);
+      },
+      kbEdges: async (
+        _parent: unknown,
+        args: {
+          edgeType?: string | null;
+          scope?: GraphQLGraphScopeInput | null;
+          sourceId?: string | null;
+          targetId?: string | null;
+          first?: number | null;
+          after?: string | null;
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        return resolveKbEdges(store, args, ctx);
+      },
+      kbNode: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        return resolveKbNode(store, args.id, ctx);
+      },
+      kbNeighbors: async (
+        _parent: unknown,
+        args: { id: string; edgeTypes?: string[] | null; depth?: number | null; limit?: number | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        return resolveKbScene(store, args, ctx);
+      },
+      kbScene: async (
+        _parent: unknown,
+        args: { id: string; edgeTypes?: string[] | null; depth?: number | null; limit?: number | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        return resolveKbScene(store, args, ctx);
       },
       metadataEndpoints: async (
         _parent: unknown,
@@ -1865,6 +1963,13 @@ type GraphQLGraphEdgeFilter = {
   limit?: number | null;
 };
 
+type GraphQLGraphScopeInput = {
+  orgId?: string | null;
+  domainId?: string | null;
+  projectId?: string | null;
+  teamId?: string | null;
+};
+
 type ResolverContext = {
   auth: AuthContext;
   userId: string | null;
@@ -2740,6 +2845,845 @@ async function createCollectionRunRecord(
 
 function buildCollectionScheduleId(collectionId: string): string {
   return `${COLLECTION_SCHEDULE_PREFIX}::${collectionId}`;
+}
+
+type GraphScopeFilter = {
+  orgId: string;
+  domainId?: string | null;
+  projectId?: string | null;
+  teamId?: string | null;
+};
+
+type GraphNodeRecordShape = {
+  id: string;
+  tenantId: string;
+  projectId?: string | null;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string | null;
+  sourceSystem?: string | null;
+  specRef?: string | null;
+  properties?: Record<string, unknown> | null;
+  version?: number | null;
+  phase?: string | null;
+  scope: GraphScopeFilter;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  logicalKey: string;
+  externalId?: unknown;
+  provenance?: unknown;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+type GraphEdgeRecordShape = {
+  id: string;
+  tenantId: string;
+  projectId?: string | null;
+  edgeType: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  sourceLogicalKey: string;
+  targetLogicalKey: string;
+  scope: GraphScopeFilter;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  logicalKey: string;
+  confidence?: number | null;
+  specRef?: string | null;
+  metadata?: Record<string, unknown> | null;
+  externalId?: unknown;
+  phase?: string | null;
+  provenance?: unknown;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+type SampleGraph = {
+  nodes: GraphNodeRecordShape[];
+  edges: GraphEdgeRecordShape[];
+};
+
+function buildSampleGraphDataForTenant(orgId: string, projectId?: string | null): SampleGraph {
+  const targetProject = projectId ?? (sampleMetadata.projectId as string | undefined) ?? DEFAULT_PROJECT_ID;
+  const endpointBlueprint = (sampleMetadata.endpoints?.[0] ?? {}) as Partial<MetadataEndpointDescriptor>;
+  const datasetBlueprint = (sampleMetadata.datasets?.[0]?.payload?.dataset ?? {}) as Record<string, unknown>;
+  const datasetId = (sampleMetadata.datasets?.[0]?.id as string | undefined) ?? "sample_catalog_dataset";
+  const derivedDatasetId = `${datasetId}_derived`;
+  const endpointId = endpointBlueprint.id ?? "sample_endpoint";
+  const nodes: GraphNodeRecordShape[] = [
+    createSampleGraphNode(
+      {
+        id: datasetId,
+        entityType: CATALOG_DATASET_DOMAIN,
+        displayName: (datasetBlueprint.displayName as string | undefined) ?? "Sample Catalog Dataset",
+        canonicalPath: (datasetBlueprint.id as string | undefined) ?? datasetId,
+        description: (datasetBlueprint.description as string | undefined) ?? "Synthetic dataset seeded for demos.",
+        originEndpointId: endpointId,
+        originVendor: endpointBlueprint.domain ?? "postgres",
+        properties: {
+          datasetId,
+          sample: true,
+          fields: datasetBlueprint.fields ?? [],
+        },
+      },
+      orgId,
+      targetProject,
+    ),
+    createSampleGraphNode(
+      {
+        id: derivedDatasetId,
+        entityType: CATALOG_DATASET_DOMAIN,
+        displayName: "Derived Jira Insights",
+        canonicalPath: "derived/jira/insights",
+        description: "Downstream dataset joined with Jira users.",
+        originEndpointId: endpointId,
+        originVendor: endpointBlueprint.domain ?? "postgres",
+        properties: {
+          datasetId: derivedDatasetId,
+          sample: true,
+          fields: [{ name: "issue_id", type: "STRING" }],
+        },
+      },
+      orgId,
+      targetProject,
+    ),
+    createSampleGraphNode(
+      {
+        id: endpointId,
+        entityType: "metadata.endpoint",
+        displayName: endpointBlueprint.name ?? "Sample Warehouse Endpoint",
+        canonicalPath: endpointBlueprint.url ?? "postgresql://sample-host:5432/analytics",
+        description: endpointBlueprint.description ?? "Seeded PostgreSQL endpoint used for demos.",
+        originEndpointId: endpointId,
+        originVendor: endpointBlueprint.domain ?? "postgres",
+        properties: {
+          vendor: endpointBlueprint.domain ?? "postgres",
+          url: endpointBlueprint.url ?? "postgresql://sample-host:5432/analytics",
+        },
+      },
+      orgId,
+      targetProject,
+    ),
+    createSampleGraphNode(
+      {
+        id: "sample_doc_runbook",
+        entityType: "doc.page",
+        displayName: "Metadata Runbook",
+        canonicalPath: "/docs/runbooks/metadata",
+        description: "Explains metadata synchronization procedures.",
+        properties: {
+          url: "https://docs.nucleus.local/runbooks/metadata",
+        },
+      },
+      orgId,
+      targetProject,
+    ),
+  ];
+  const edges: GraphEdgeRecordShape[] = [
+    createSampleGraphEdge("sample_edge_dataset_dependency", "DEPENDENCY_OF", nodes[0], nodes[1], orgId, targetProject),
+    createSampleGraphEdge("sample_edge_dataset_endpoint", "DOCUMENTED_BY", nodes[0], nodes[2], orgId, targetProject),
+    createSampleGraphEdge("sample_edge_derived_runbook", "DOCUMENTED_BY", nodes[1], nodes[3], orgId, targetProject),
+  ];
+  return { nodes, edges };
+}
+
+function createSampleGraphNode(
+  seed: {
+    id: string;
+    entityType: string;
+    displayName: string;
+    canonicalPath?: string | null;
+    description?: string | null;
+    scopeDomainId?: string | null;
+    scopeTeamId?: string | null;
+    originEndpointId?: string | null;
+    originVendor?: string | null;
+    properties?: Record<string, unknown>;
+  },
+  orgId: string,
+  projectId: string,
+): GraphNodeRecordShape {
+  return {
+    id: seed.id,
+    tenantId: orgId,
+    projectId,
+    entityType: seed.entityType,
+    displayName: seed.displayName,
+    canonicalPath: seed.canonicalPath ?? null,
+    sourceSystem: seed.originVendor ?? "sample",
+    specRef: null,
+    properties: {
+      description: seed.description ?? undefined,
+      ...(seed.properties ?? {}),
+    },
+    version: 1,
+    phase: "SYNTHETIC",
+    scope: {
+      orgId,
+      domainId: seed.scopeDomainId ?? null,
+      projectId,
+      teamId: seed.scopeTeamId ?? null,
+    },
+    originEndpointId: seed.originEndpointId ?? null,
+    originVendor: seed.originVendor ?? null,
+    logicalKey: `sample::${orgId}::${projectId}::${seed.id}`,
+    externalId: { sampleId: seed.id },
+    provenance: { sample: true },
+    createdAt: KB_SAMPLE_TIMESTAMP,
+    updatedAt: KB_SAMPLE_TIMESTAMP,
+  };
+}
+
+function createSampleGraphEdge(
+  id: string,
+  edgeType: string,
+  source: GraphNodeRecordShape,
+  target: GraphNodeRecordShape,
+  orgId: string,
+  projectId: string,
+): GraphEdgeRecordShape {
+  return {
+    id,
+    tenantId: orgId,
+    projectId,
+    edgeType,
+    sourceNodeId: source.id,
+    targetNodeId: target.id,
+    sourceLogicalKey: source.logicalKey,
+    targetLogicalKey: target.logicalKey,
+    scope: {
+      orgId,
+      domainId: source.scope.domainId ?? target.scope.domainId ?? null,
+      projectId,
+      teamId: source.scope.teamId ?? target.scope.teamId ?? null,
+    },
+    originEndpointId: source.originEndpointId ?? target.originEndpointId ?? null,
+    originVendor: source.originVendor ?? target.originVendor ?? null,
+    logicalKey: `sample::${orgId}::${projectId}::${id}`,
+    confidence: 0.8,
+    specRef: null,
+    metadata: { sample: true },
+    externalId: { sampleId: id },
+    phase: "SYNTHETIC",
+    provenance: { sample: true },
+    createdAt: KB_SAMPLE_TIMESTAMP,
+    updatedAt: KB_SAMPLE_TIMESTAMP,
+  };
+}
+
+function matchesSampleNodeFilters(
+  record: GraphNodeRecordShape,
+  scope: GraphScopeFilter,
+  typeFilter?: string | null,
+  searchValue?: string,
+): boolean {
+  if (!matchesGraphScope(record.scope, scope)) {
+    return false;
+  }
+  if (typeFilter && record.entityType !== typeFilter) {
+    return false;
+  }
+  if (searchValue && searchValue.length > 0) {
+    const haystack = buildNodeSearchHaystack(record);
+    if (!haystack.includes(searchValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function matchesSampleEdgeFilters(
+  record: GraphEdgeRecordShape,
+  scope: GraphScopeFilter,
+  args: { edgeType?: string | null; sourceId?: string | null; targetId?: string | null },
+): boolean {
+  if (!matchesGraphScope(record.scope, scope)) {
+    return false;
+  }
+  if (args.edgeType && record.edgeType !== args.edgeType) {
+    return false;
+  }
+  if (args.sourceId && record.sourceNodeId !== args.sourceId) {
+    return false;
+  }
+  if (args.targetId && record.targetNodeId !== args.targetId) {
+    return false;
+  }
+  return true;
+}
+
+function buildNodeSearchHaystack(record: GraphNodeRecordShape): string {
+  return `${record.displayName ?? ""} ${record.canonicalPath ?? ""} ${JSON.stringify(record.properties ?? {})}`.toLowerCase();
+}
+
+type GraphCursor = {
+  id: string;
+};
+
+async function resolveKbNodes(
+  store: MetadataStore,
+  args: { type?: string | null; scope?: GraphQLGraphScopeInput | null; search?: string | null; first?: number | null; after?: string | null },
+  ctx: ResolverContext,
+) {
+  const limit = clampConnectionLimit(args.first ?? undefined, KB_NODES_DEFAULT_PAGE_SIZE, KB_NODES_MAX_PAGE_SIZE);
+  const cursor = decodeGraphCursor(args.after);
+  const scope = normalizeGraphScopeFilter(ctx, args.scope);
+  const searchValue = args.search?.trim().toLowerCase() ?? "";
+  const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after;
+  const prisma = await tryGetPrismaGraphClient();
+  if (prisma?.graphNode?.findMany) {
+    const where = buildPrismaGraphNodeWhere(scope, args.type, args.search);
+    const totalCount = await prisma.graphNode.count({ where });
+    const records = await prisma.graphNode.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
+    });
+    const mapped = records.map(mapPrismaGraphNodeRecord);
+    return buildNodeConnection(mapped, limit, totalCount, Boolean(args.after));
+  }
+  const records = await store.listGraphNodes({
+    scopeOrgId: scope.orgId,
+    entityTypes: args.type ? [args.type] : undefined,
+    search: args.search ?? undefined,
+  });
+  let filtered = sortGraphNodeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
+  if (!filtered.length && allowSampleFallback) {
+    const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
+    filtered = sortGraphNodeRecords(
+      sampleGraph.nodes.filter((record) => matchesSampleNodeFilters(record, scope, args.type, searchValue)),
+    );
+  }
+  const window = sliceRecordsAfterCursor(filtered, cursor, limit);
+  return buildNodeConnection(window, limit, filtered.length, Boolean(args.after));
+}
+
+async function resolveKbEdges(
+  store: MetadataStore,
+  args: {
+    edgeType?: string | null;
+    scope?: GraphQLGraphScopeInput | null;
+    sourceId?: string | null;
+    targetId?: string | null;
+    first?: number | null;
+    after?: string | null;
+  },
+  ctx: ResolverContext,
+) {
+  const limit = clampConnectionLimit(args.first ?? undefined, KB_EDGES_DEFAULT_PAGE_SIZE, KB_EDGES_MAX_PAGE_SIZE);
+  const cursor = decodeGraphCursor(args.after);
+  const scope = normalizeGraphScopeFilter(ctx, args.scope);
+  const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after && !args.sourceId && !args.targetId;
+  const prisma = await tryGetPrismaGraphClient();
+  if (prisma?.graphEdge?.findMany) {
+    const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.sourceId, args.targetId);
+    const totalCount = await prisma.graphEdge.count({ where });
+    const records = await prisma.graphEdge.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
+    });
+    const mapped = records.map(mapPrismaGraphEdgeRecord);
+    return buildEdgeConnection(mapped, limit, totalCount, Boolean(args.after));
+  }
+  const filters = {
+    scopeOrgId: scope.orgId,
+    edgeTypes: args.edgeType ? [args.edgeType] : undefined,
+    sourceNodeId: args.sourceId ?? undefined,
+    targetNodeId: args.targetId ?? undefined,
+  };
+  const records = await store.listGraphEdges(filters);
+  let filtered = sortGraphEdgeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
+  if (!filtered.length && allowSampleFallback) {
+    const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
+    filtered = sortGraphEdgeRecords(
+      sampleGraph.edges.filter((record) => matchesSampleEdgeFilters(record, scope, { edgeType: args.edgeType, sourceId: args.sourceId, targetId: args.targetId })),
+    );
+  }
+  const window = sliceRecordsAfterCursor(filtered, cursor, limit);
+  return buildEdgeConnection(window, limit, filtered.length, Boolean(args.after));
+}
+
+async function resolveKbNode(store: MetadataStore, id: string, ctx: ResolverContext) {
+  const prisma = await tryGetPrismaGraphClient();
+  if (prisma?.graphNode?.findUnique) {
+    const record = await prisma.graphNode.findUnique({ where: { id } });
+    if (!record || record.scopeOrgId !== ctx.auth.tenantId) {
+      return null;
+    }
+    return mapGraphNodeRecordToGraphQL(mapPrismaGraphNodeRecord(record));
+  }
+  const record = await store.getGraphNodeById(id);
+  if (!record || record.scope.orgId !== ctx.auth.tenantId) {
+    if (ENABLE_SAMPLE_FALLBACK) {
+      const sampleNode = buildSampleGraphDataForTenant(ctx.auth.tenantId, ctx.auth.projectId).nodes.find((node) => node.id === id);
+      if (sampleNode) {
+        return mapGraphNodeRecordToGraphQL(sampleNode);
+      }
+    }
+    return null;
+  }
+  return mapGraphNodeRecordToGraphQL(record);
+}
+
+async function resolveKbScene(
+  store: MetadataStore,
+  args: { id: string; edgeTypes?: string[] | null; depth?: number | null; limit?: number | null },
+  ctx: ResolverContext,
+) {
+  const depth = Math.max(1, Math.min(args.depth ?? 2, 3));
+  const nodeCap = Math.max(1, Math.min(args.limit ?? KB_SCENE_NODE_CAP, KB_SCENE_NODE_CAP));
+  const prisma = await tryGetPrismaGraphClient();
+  const edgeTypes = (args.edgeTypes ?? []).filter((value) => typeof value === "string" && value.trim().length > 0);
+  const { nodeRecord: rootNode, graphNodeFetcher, sampleGraph } = await fetchGraphNodeForScene(store, prisma, args.id, ctx);
+  const nodesMap = new Map<string, GraphNodeRecordShape>();
+  nodesMap.set(rootNode.id, rootNode);
+  const edgesMap = new Map<string, GraphEdgeRecordShape>();
+  const queue: Array<{ id: string; depth: number }> = [{ id: rootNode.id, depth: 0 }];
+  while (queue.length > 0 && nodesMap.size < nodeCap && edgesMap.size < KB_SCENE_EDGE_CAP) {
+    const current = queue.shift()!;
+    if (current.depth >= depth) {
+      continue;
+    }
+    const remainingEdges = KB_SCENE_EDGE_CAP - edgesMap.size;
+    if (remainingEdges <= 0) {
+      break;
+    }
+    const neighbors = sampleGraph
+      ? sampleGraph.edges
+          .filter((edge) => edge.sourceNodeId === current.id || edge.targetNodeId === current.id)
+          .filter((edge) => (edgeTypes.length ? edgeTypes.includes(edge.edgeType) : true))
+          .slice(0, remainingEdges)
+      : await fetchEdgesForNode(store, prisma, ctx.auth.tenantId, current.id, edgeTypes, remainingEdges);
+    for (const edge of neighbors) {
+      if (!edgesMap.has(edge.id)) {
+        edgesMap.set(edge.id, edge);
+      }
+      const neighborId = edge.sourceNodeId === current.id ? edge.targetNodeId : edge.sourceNodeId;
+      if (!nodesMap.has(neighborId) && nodesMap.size < nodeCap) {
+        const nextNode = await graphNodeFetcher(neighborId);
+        if (nextNode && nextNode.scope.orgId === ctx.auth.tenantId) {
+          nodesMap.set(nextNode.id, nextNode);
+          queue.push({ id: nextNode.id, depth: current.depth + 1 });
+        }
+      }
+    }
+  }
+  const truncated = nodesMap.size >= nodeCap || edgesMap.size >= KB_SCENE_EDGE_CAP;
+  const nodes = sortGraphNodeRecords(Array.from(nodesMap.values())).map(mapGraphNodeRecordToGraphQL);
+  const edges = sortGraphEdgeRecords(Array.from(edgesMap.values())).map(mapGraphEdgeRecordToGraphQL);
+  return {
+    nodes,
+    edges,
+    summary: {
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      truncated,
+    },
+  };
+}
+
+async function fetchGraphNodeForScene(
+  store: MetadataStore,
+  prisma: any | null,
+  id: string,
+  ctx: ResolverContext,
+): Promise<{ nodeRecord: GraphNodeRecordShape; graphNodeFetcher: (nodeId: string) => Promise<GraphNodeRecordShape | null>; sampleGraph: SampleGraph | null }> {
+  if (prisma?.graphNode?.findUnique) {
+    const node = await prisma.graphNode.findUnique({ where: { id } });
+    if (!node || node.scopeOrgId !== ctx.auth.tenantId) {
+      throw new GraphQLError("KB node not found", { extensions: { code: "E_NOT_FOUND" } });
+    }
+    const mapped = mapPrismaGraphNodeRecord(node);
+    return {
+      nodeRecord: mapped,
+      graphNodeFetcher: async (nodeId: string) => {
+        const match = await prisma.graphNode.findUnique({ where: { id: nodeId } });
+        return match ? mapPrismaGraphNodeRecord(match) : null;
+      },
+      sampleGraph: null,
+    };
+  }
+  const record = await store.getGraphNodeById(id);
+  if (!record || record.scope.orgId !== ctx.auth.tenantId) {
+    if (ENABLE_SAMPLE_FALLBACK) {
+      const sampleGraph = buildSampleGraphDataForTenant(ctx.auth.tenantId, ctx.auth.projectId);
+      const sampleNode = sampleGraph.nodes.find((node) => node.id === id);
+      if (sampleNode) {
+        return {
+          nodeRecord: sampleNode,
+          graphNodeFetcher: async (nodeId: string) => sampleGraph.nodes.find((node) => node.id === nodeId) ?? null,
+          sampleGraph,
+        };
+      }
+    }
+    throw new GraphQLError("KB node not found", { extensions: { code: "E_NOT_FOUND" } });
+  }
+  return {
+    nodeRecord: record,
+    graphNodeFetcher: (nodeId: string) => store.getGraphNodeById(nodeId),
+    sampleGraph: null,
+  };
+}
+
+async function fetchEdgesForNode(
+  store: MetadataStore,
+  prisma: any | null,
+  orgId: string,
+  nodeId: string,
+  edgeTypes: string[],
+  limit: number,
+) {
+  if (prisma?.graphEdge?.findMany) {
+    const where = {
+      scopeOrgId: orgId,
+      ...(edgeTypes.length ? { edgeType: { in: edgeTypes } } : {}),
+      OR: [{ sourceNodeId: nodeId }, { targetNodeId: nodeId }],
+    };
+    const records = await prisma.graphEdge.findMany({ where, orderBy: { updatedAt: "desc" }, take: limit });
+    return records.map(mapPrismaGraphEdgeRecord);
+  }
+  const baseFilter = {
+    scopeOrgId: orgId,
+    edgeTypes: edgeTypes.length ? edgeTypes : undefined,
+  };
+  const outgoing = await store.listGraphEdges({ ...baseFilter, sourceNodeId: nodeId, limit });
+  const incoming = await store.listGraphEdges({ ...baseFilter, targetNodeId: nodeId, limit });
+  const combined = [...outgoing, ...incoming];
+  const deduped: GraphEdgeRecordShape[] = [];
+  const seen = new Set<string>();
+  for (const edge of combined) {
+    if (!seen.has(edge.id)) {
+      deduped.push(edge);
+      seen.add(edge.id);
+    }
+    if (deduped.length >= limit) {
+      break;
+    }
+  }
+  return deduped;
+}
+
+function normalizeGraphScopeFilter(ctx: ResolverContext, scope?: GraphQLGraphScopeInput | null): GraphScopeFilter {
+  const normalize = (value?: string | null) => {
+    if (!value) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  };
+  return {
+    orgId: ctx.auth.tenantId,
+    domainId: normalize(scope?.domainId),
+    projectId: normalize(scope?.projectId),
+    teamId: normalize(scope?.teamId),
+  };
+}
+
+function buildPrismaGraphNodeWhere(scope: GraphScopeFilter, type?: string | null, search?: string | null) {
+  const where: Record<string, unknown> = {
+    scopeOrgId: scope.orgId,
+  };
+  if (type) {
+    where.entityType = type;
+  }
+  if (scope.domainId) {
+    where.scopeDomainId = scope.domainId;
+  }
+  if (scope.projectId) {
+    where.scopeProjectId = scope.projectId;
+  }
+  if (scope.teamId) {
+    where.scopeTeamId = scope.teamId;
+  }
+  const searchValue = search?.trim();
+  if (searchValue) {
+    where.OR = [
+      { displayName: { contains: searchValue, mode: "insensitive" } },
+      { canonicalPath: { contains: searchValue, mode: "insensitive" } },
+    ];
+  }
+  return where;
+}
+
+function buildPrismaGraphEdgeWhere(
+  scope: GraphScopeFilter,
+  edgeType?: string | null,
+  sourceId?: string | null,
+  targetId?: string | null,
+) {
+  const where: Record<string, unknown> = {
+    scopeOrgId: scope.orgId,
+  };
+  if (scope.domainId) {
+    where.scopeDomainId = scope.domainId;
+  }
+  if (scope.projectId) {
+    where.scopeProjectId = scope.projectId;
+  }
+  if (scope.teamId) {
+    where.scopeTeamId = scope.teamId;
+  }
+  if (edgeType) {
+    where.edgeType = edgeType;
+  }
+  if (sourceId) {
+    where.sourceNodeId = sourceId;
+  }
+  if (targetId) {
+    where.targetNodeId = targetId;
+  }
+  return where;
+}
+
+function buildNodeConnection(
+  window: GraphNodeRecordShape[],
+  limit: number,
+  totalCount: number,
+  afterProvided: boolean,
+) {
+  const pageRecords = window.slice(0, limit);
+  const edges = pageRecords.map((record) => ({
+    cursor: encodeGraphCursor(record.id),
+    node: mapGraphNodeRecordToGraphQL(record),
+  }));
+  return {
+    edges,
+    pageInfo: {
+      hasNextPage: window.length > limit,
+      hasPreviousPage: afterProvided,
+      startCursor: edges[0]?.cursor ?? null,
+      endCursor: edges[edges.length - 1]?.cursor ?? null,
+    },
+    totalCount,
+  };
+}
+
+function buildEdgeConnection(
+  window: GraphEdgeRecordShape[],
+  limit: number,
+  totalCount: number,
+  afterProvided: boolean,
+) {
+  const pageRecords = window.slice(0, limit);
+  const edges = pageRecords.map((record) => ({
+    cursor: encodeGraphCursor(record.id),
+    node: mapGraphEdgeRecordToGraphQL(record),
+  }));
+  return {
+    edges,
+    pageInfo: {
+      hasNextPage: window.length > limit,
+      hasPreviousPage: afterProvided,
+      startCursor: edges[0]?.cursor ?? null,
+      endCursor: edges[edges.length - 1]?.cursor ?? null,
+    },
+    totalCount,
+  };
+}
+
+function matchesGraphScope(scope: GraphScopeFilter, filter: GraphScopeFilter): boolean {
+  if (scope.orgId !== filter.orgId) {
+    return false;
+  }
+  if (filter.domainId && scope.domainId !== filter.domainId) {
+    return false;
+  }
+  if (filter.projectId && scope.projectId !== filter.projectId) {
+    return false;
+  }
+  if (filter.teamId && scope.teamId !== filter.teamId) {
+    return false;
+  }
+  return true;
+}
+
+function sortGraphNodeRecords(records: GraphNodeRecordShape[]) {
+  return [...records].sort((a, b) => compareByUpdatedAtDesc(a, b));
+}
+
+function sortGraphEdgeRecords(records: GraphEdgeRecordShape[]) {
+  return [...records].sort((a, b) => compareByUpdatedAtDesc(a, b));
+}
+
+function compareByUpdatedAtDesc(a: { updatedAt: string | Date; id: string }, b: { updatedAt: string | Date; id: string }) {
+  const aTime = toTimestamp(a.updatedAt);
+  const bTime = toTimestamp(b.updatedAt);
+  if (aTime !== bTime) {
+    return bTime - aTime;
+  }
+  return b.id.localeCompare(a.id);
+}
+
+function sliceRecordsAfterCursor<T extends { id: string }>(records: T[], cursor: GraphCursor | null, limit: number) {
+  if (!cursor) {
+    return records.slice(0, limit + 1);
+  }
+  const startIndex = records.findIndex((record) => record.id === cursor.id);
+  const offset = startIndex >= 0 ? startIndex + 1 : 0;
+  return records.slice(offset, offset + limit + 1);
+}
+
+function mapGraphNodeRecordToGraphQL(record: GraphNodeRecordShape) {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    projectId: record.projectId ?? null,
+    entityType: record.entityType,
+    displayName: record.displayName,
+    canonicalPath: record.canonicalPath ?? null,
+    sourceSystem: record.sourceSystem ?? null,
+    specRef: record.specRef ?? null,
+    properties: record.properties ?? {},
+    version: record.version ?? 1,
+    phase: record.phase ?? null,
+    scope: {
+      orgId: record.scope.orgId,
+      domainId: record.scope.domainId ?? null,
+      projectId: record.scope.projectId ?? null,
+      teamId: record.scope.teamId ?? null,
+    },
+    identity: {
+      logicalKey: record.logicalKey,
+      externalId: record.externalId ?? null,
+      originEndpointId: record.originEndpointId ?? null,
+      originVendor: record.originVendor ?? null,
+      provenance: record.provenance ?? null,
+      phase: record.phase ?? null,
+    },
+    provenance: record.provenance ?? null,
+    createdAt: toISOStringValue(record.createdAt),
+    updatedAt: toISOStringValue(record.updatedAt),
+  };
+}
+
+function mapGraphEdgeRecordToGraphQL(record: GraphEdgeRecordShape) {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    projectId: record.projectId ?? null,
+    edgeType: record.edgeType,
+    sourceEntityId: record.sourceNodeId,
+    targetEntityId: record.targetNodeId,
+    confidence: record.confidence ?? null,
+    specRef: record.specRef ?? null,
+    metadata: record.metadata ?? {},
+    scope: {
+      orgId: record.scope.orgId,
+      domainId: record.scope.domainId ?? null,
+      projectId: record.scope.projectId ?? null,
+      teamId: record.scope.teamId ?? null,
+    },
+    identity: {
+      logicalKey: record.logicalKey,
+      sourceLogicalKey: record.sourceLogicalKey,
+      targetLogicalKey: record.targetLogicalKey,
+      externalId: record.externalId ?? null,
+      originEndpointId: record.originEndpointId ?? null,
+      originVendor: record.originVendor ?? null,
+      phase: record.phase ?? null,
+      provenance: record.provenance ?? null,
+    },
+    createdAt: toISOStringValue(record.createdAt),
+    updatedAt: toISOStringValue(record.updatedAt),
+  };
+}
+
+function mapPrismaGraphNodeRecord(record: any): GraphNodeRecordShape {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    projectId: record.projectId ?? null,
+    entityType: record.entityType,
+    displayName: record.displayName,
+    canonicalPath: record.canonicalPath ?? null,
+    sourceSystem: record.sourceSystem ?? null,
+    specRef: record.specRef ?? null,
+    properties: record.properties ?? {},
+    version: record.version ?? 1,
+    phase: record.phase ?? null,
+    scope: {
+      orgId: record.scopeOrgId,
+      domainId: record.scopeDomainId ?? null,
+      projectId: record.scopeProjectId ?? null,
+      teamId: record.scopeTeamId ?? null,
+    },
+    originEndpointId: record.originEndpointId ?? null,
+    originVendor: record.originVendor ?? null,
+    logicalKey: record.logicalKey,
+    externalId: record.externalId ?? null,
+    provenance: record.provenance ?? null,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function mapPrismaGraphEdgeRecord(record: any): GraphEdgeRecordShape {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    projectId: record.projectId ?? null,
+    edgeType: record.edgeType,
+    sourceNodeId: record.sourceNodeId,
+    targetNodeId: record.targetNodeId,
+    sourceLogicalKey: record.sourceLogicalKey,
+    targetLogicalKey: record.targetLogicalKey,
+    scope: {
+      orgId: record.scopeOrgId,
+      domainId: record.scopeDomainId ?? null,
+      projectId: record.scopeProjectId ?? null,
+      teamId: record.scopeTeamId ?? null,
+    },
+    originEndpointId: record.originEndpointId ?? null,
+    originVendor: record.originVendor ?? null,
+    logicalKey: record.logicalKey,
+    confidence: record.confidence ?? null,
+    specRef: record.specRef ?? null,
+    metadata: record.metadata ?? {},
+    externalId: record.externalId ?? null,
+    phase: record.phase ?? null,
+    provenance: record.provenance ?? null,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function encodeGraphCursor(id: string) {
+  return Buffer.from(JSON.stringify({ id }), "utf-8").toString("base64");
+}
+
+function decodeGraphCursor(cursor?: string | null): GraphCursor | null {
+  if (!cursor) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8"));
+    if (parsed && typeof parsed.id === "string" && parsed.id.trim().length > 0) {
+      return { id: parsed.id };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function toTimestamp(value: string | Date) {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
+function toISOStringValue(value: string | Date) {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+async function tryGetPrismaGraphClient(): Promise<any | null> {
+  try {
+    return await getPrismaClient();
+  } catch {
+    return null;
+  }
 }
 
 async function syncCollectionSchedule(
