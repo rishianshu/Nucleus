@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-semantic-sources-trio-story-v1 (success @ 2025-11-19T14:25Z)
+graphstore-identity-hardening (success @ 2025-11-20T02:56Z)
 
 ## Last Run
-- slug: semantic-sources-trio-story-v1
+- slug: graphstore-identity-hardening
 - status: success
-- duration: ~30m (story docs)
-- tests: docs only (n/a)
+- duration: ~several hrs across sessions
+- tests: metadata-api/unit, metadata-ui Vitest, metadata-auth Playwright
 - commits: pending
 - decisions: 0 new
-- next_step: hand off contracts to implementation slugs (drivers/UI/API).
+- next_step: monitor ingestion/backfill + follow-up client adoption if needed.
 
 ## Global Queue
 TODAY:

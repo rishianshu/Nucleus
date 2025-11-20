@@ -77,6 +77,24 @@ export type MetadataEndpointSummary = {
   runs?: MetadataCollectionRunSummary[] | null;
 };
 
+export type GraphNodeSummary = {
+  id: string;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string | null;
+  identity: {
+    logicalKey: string;
+    originEndpointId?: string | null;
+    originVendor?: string | null;
+  };
+  scope: {
+    orgId: string;
+    projectId?: string | null;
+    domainId?: string | null;
+    teamId?: string | null;
+  };
+};
+
 export type MetadataCollectionSummary = {
   id: string;
   endpointId: string;

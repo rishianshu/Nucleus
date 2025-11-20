@@ -1,17 +1,17 @@
 You are AGENT_CODEX as defined in docs/meta/AGENT_CODEX.md.
 
-Feature slug: {{slug}}
+Feature slug: graphstore-identity-hardening
 
 Follow AGENT_CODEX.md exactly:
 
 1. Boot:
    - Use this slug.
-   - Verify intents/{{slug}}/* exists.
-   - Ensure runs/{{slug}}/* exists or create missing run files.
+   - Verify intents/graphstore-identity-hardening/* exists.
+   - Ensure runs/graphstore-identity-hardening/* exists or create missing run files.
    - Append start/resume heartbeat to LOG.md.
    - Set sync/STATE.md Focus Feature status accordingly.
 
-2. Then follow runs/{{slug}}/RUNCARD.md for:
+2. Then follow runs/graphstore-identity-hardening/RUNCARD.md for:
    - RESUME protocol
    - Loop
    - Guardrails

@@ -192,6 +192,44 @@ export type TenantContext = {
   actorId?: string;
 };
 
+export type GraphScopeInput = {
+  orgId: string;
+  domainId?: string | null;
+  projectId?: string | null;
+  teamId?: string | null;
+};
+
+export type GraphScope = {
+  orgId: string;
+  domainId?: string | null;
+  projectId?: string | null;
+  teamId?: string | null;
+};
+
+export type GraphIdentityInput = {
+  logicalKey?: string | null;
+  externalId?: Record<string, unknown> | null;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  phase?: string | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+export type GraphIdentity = Omit<GraphIdentityInput, "logicalKey"> & {
+  logicalKey: string;
+};
+
+export type GraphEdgeIdentityInput = GraphIdentityInput & {
+  sourceLogicalKey?: string | null;
+  targetLogicalKey?: string | null;
+};
+
+export type GraphEdgeIdentity = Omit<GraphEdgeIdentityInput, "logicalKey" | "sourceLogicalKey" | "targetLogicalKey"> & {
+  logicalKey: string;
+  sourceLogicalKey: string;
+  targetLogicalKey: string;
+};
+
 export type GraphEntityInput = {
   id?: string;
   entityType: string;
@@ -200,13 +238,23 @@ export type GraphEntityInput = {
   sourceSystem?: string;
   specRef?: string;
   properties?: Record<string, unknown>;
+  scope: GraphScopeInput;
+  identity?: GraphIdentityInput;
 };
 
-export type GraphEntity = GraphEntityInput & {
+export type GraphEntity = {
   id: string;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string;
+  sourceSystem?: string;
+  specRef?: string;
+  properties: Record<string, unknown>;
   tenantId: string;
-  projectId: string;
+  projectId: string | null;
   version: number;
+  scope: GraphScope;
+  identity: GraphIdentity;
   createdAt: string;
   updatedAt: string;
 };
@@ -225,12 +273,22 @@ export type GraphEdgeInput = {
   confidence?: number;
   specRef?: string;
   metadata?: Record<string, unknown>;
+  scope: GraphScopeInput;
+  identity?: GraphEdgeIdentityInput;
 };
 
-export type GraphEdge = GraphEdgeInput & {
+export type GraphEdge = {
   id: string;
+  edgeType: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  confidence?: number;
+  specRef?: string;
+  metadata: Record<string, unknown>;
   tenantId: string;
-  projectId: string;
+  projectId: string | null;
+  scope: GraphScope;
+  identity: GraphEdgeIdentity;
   createdAt: string;
   updatedAt: string;
 };
@@ -239,6 +297,109 @@ export type GraphEdgeFilter = {
   edgeTypes?: string[];
   sourceEntityId?: string;
   targetEntityId?: string;
+  limit?: number;
+};
+
+type GraphNodeRecord = {
+  id: string;
+  tenantId: string;
+  projectId: string | null;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string | null;
+  sourceSystem?: string | null;
+  specRef?: string | null;
+  properties: Record<string, unknown>;
+  version: number;
+  scope: GraphScope;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  logicalKey: string;
+  externalId?: Record<string, unknown> | null;
+  phase?: string | null;
+  provenance?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type GraphNodeRecordInput = {
+  id?: string;
+  tenantId: string;
+  projectId?: string | null;
+  entityType: string;
+  displayName: string;
+  canonicalPath?: string | null;
+  sourceSystem?: string | null;
+  specRef?: string | null;
+  properties?: Record<string, unknown> | null;
+  version?: number;
+  scope: GraphScope;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  logicalKey: string;
+  externalId?: Record<string, unknown> | null;
+  phase?: string | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+type GraphNodeRecordFilter = {
+  scopeOrgId: string;
+  entityTypes?: string[];
+  search?: string;
+  limit?: number;
+};
+
+type GraphEdgeRecord = {
+  id: string;
+  tenantId: string;
+  projectId: string | null;
+  edgeType: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  sourceLogicalKey: string;
+  targetLogicalKey: string;
+  scope: GraphScope;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  logicalKey: string;
+  confidence?: number | null;
+  specRef?: string | null;
+  metadata: Record<string, unknown>;
+  externalId?: Record<string, unknown> | null;
+  phase?: string | null;
+  provenance?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type GraphEdgeRecordInput = {
+  id?: string;
+  tenantId: string;
+  projectId?: string | null;
+  edgeType: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  sourceLogicalKey: string;
+  targetLogicalKey: string;
+  scope: GraphScope;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  logicalKey: string;
+  confidence?: number | null;
+  specRef?: string | null;
+  metadata?: Record<string, unknown> | null;
+  externalId?: Record<string, unknown> | null;
+  phase?: string | null;
+  provenance?: Record<string, unknown> | null;
+};
+
+type GraphEdgeRecordFilter = {
+  scopeOrgId: string;
+  edgeTypes?: string[];
+  sourceLogicalKey?: string;
+  targetLogicalKey?: string;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   limit?: number;
 };
 
@@ -292,6 +453,14 @@ export interface MetadataStore {
   registerEndpoint(endpoint: MetadataEndpointDescriptor): Promise<MetadataEndpointDescriptor>;
   listEndpointTemplates(family?: MetadataEndpointTemplateFamily): Promise<MetadataEndpointTemplateDescriptor[]>;
   saveEndpointTemplates(templates: MetadataEndpointTemplateDescriptor[]): Promise<void>;
+  upsertGraphNode(input: GraphNodeRecordInput): Promise<GraphNodeRecord>;
+  getGraphNodeById(id: string): Promise<GraphNodeRecord | null>;
+  getGraphNodeByLogicalKey(logicalKey: string): Promise<GraphNodeRecord | null>;
+  listGraphNodes(filter: GraphNodeRecordFilter): Promise<GraphNodeRecord[]>;
+  upsertGraphEdge(input: GraphEdgeRecordInput): Promise<GraphEdgeRecord>;
+  getGraphEdgeById(id: string): Promise<GraphEdgeRecord | null>;
+  getGraphEdgeByLogicalKey(logicalKey: string): Promise<GraphEdgeRecord | null>;
+  listGraphEdges(filter: GraphEdgeRecordFilter): Promise<GraphEdgeRecord[]>;
 }
 
 export type FileMetadataStoreOptions = {
@@ -303,6 +472,8 @@ const DEFAULT_DATA_DIR = path.resolve(process.cwd(), "metadata", "store");
 const RECORDS_FILE = "records.json";
 const ENDPOINTS_FILE = "endpoints.json";
 const ENDPOINT_TEMPLATES_FILE = "endpoint-templates.json";
+const GRAPH_NODES_FILE = "graph-nodes.json";
+const GRAPH_EDGES_FILE = "graph-edges.json";
 const DEFAULT_OBJECT_STORE_DIR = path.resolve(process.cwd(), "metadata", "objects");
 const DEFAULT_KV_STORE_FILE = path.resolve(process.cwd(), "metadata", "kv-store.json");
 const DEFAULT_JSON_STORE_DIR = path.resolve(process.cwd(), "metadata", "json");
@@ -313,12 +484,16 @@ export class FileMetadataStore implements MetadataStore {
   private readonly recordsFile: string;
   private readonly endpointsFile: string;
   private readonly endpointTemplatesFile: string;
+  private readonly graphNodesFile: string;
+  private readonly graphEdgesFile: string;
 
   constructor(options?: FileMetadataStoreOptions) {
     this.rootDir = options?.rootDir ?? DEFAULT_DATA_DIR;
     this.recordsFile = path.resolve(this.rootDir, options?.filename ?? RECORDS_FILE);
     this.endpointsFile = path.resolve(this.rootDir, ENDPOINTS_FILE);
     this.endpointTemplatesFile = path.resolve(this.rootDir, ENDPOINT_TEMPLATES_FILE);
+    this.graphNodesFile = path.resolve(this.rootDir, GRAPH_NODES_FILE);
+    this.graphEdgesFile = path.resolve(this.rootDir, GRAPH_EDGES_FILE);
   }
 
   async listRecords<T = Record<string, unknown>>(domain: string, filter?: RecordFilter): Promise<MetadataRecord<T>[]> {
@@ -450,6 +625,158 @@ export class FileMetadataStore implements MetadataStore {
     await this.persistEndpointTemplates(Array.from(merged.values()));
   }
 
+  async upsertGraphNode(input: GraphNodeRecordInput): Promise<GraphNodeRecord> {
+    const nodes = await this.loadGraphNodes();
+    const now = new Date().toISOString();
+    const logicalKey = input.logicalKey;
+    let targetIndex = nodes.findIndex((entry) => entry.id === input.id);
+    if (targetIndex < 0) {
+      targetIndex = nodes.findIndex((entry) => entry.logicalKey === logicalKey);
+    }
+    const previous = targetIndex >= 0 ? nodes[targetIndex] : null;
+    const id = input.id ?? previous?.id ?? cryptoRandomId();
+    const version = input.version ?? (previous ? (previous.version ?? 0) + 1 : 1);
+    const normalizedScope = normalizeGraphScope(input.scope);
+    const record: GraphNodeRecord = {
+      id,
+      tenantId: input.tenantId,
+      projectId: input.projectId ?? previous?.projectId ?? null,
+      entityType: input.entityType,
+      displayName: input.displayName,
+      canonicalPath: input.canonicalPath ?? null,
+      sourceSystem: input.sourceSystem ?? null,
+      specRef: input.specRef ?? null,
+      properties: input.properties ?? {},
+      version,
+      scope: normalizedScope,
+      originEndpointId: input.originEndpointId ?? previous?.originEndpointId ?? null,
+      originVendor: input.originVendor ?? previous?.originVendor ?? null,
+      logicalKey,
+      externalId: input.externalId ?? previous?.externalId ?? null,
+      phase: input.phase ?? previous?.phase ?? null,
+      provenance: input.provenance ?? previous?.provenance ?? null,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    };
+    if (targetIndex >= 0) {
+      nodes[targetIndex] = record;
+    } else {
+      nodes.push(record);
+    }
+    await this.persistGraphNodes(nodes);
+    return record;
+  }
+
+  async getGraphNodeById(id: string): Promise<GraphNodeRecord | null> {
+    const nodes = await this.loadGraphNodes();
+    return nodes.find((entry) => entry.id === id) ?? null;
+  }
+
+  async getGraphNodeByLogicalKey(logicalKey: string): Promise<GraphNodeRecord | null> {
+    const nodes = await this.loadGraphNodes();
+    return nodes.find((entry) => entry.logicalKey === logicalKey) ?? null;
+  }
+
+  async listGraphNodes(filter: GraphNodeRecordFilter): Promise<GraphNodeRecord[]> {
+    const nodes = await this.loadGraphNodes();
+    const normalizedSearch = filter.search?.toLowerCase();
+    return nodes
+      .filter((entry) => entry.scope.orgId === filter.scopeOrgId)
+      .filter((entry) => {
+        if (!filter.entityTypes?.length) {
+          return true;
+        }
+        return filter.entityTypes.includes(entry.entityType);
+      })
+      .filter((entry) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        const haystack = `${entry.displayName} ${entry.canonicalPath ?? ""} ${JSON.stringify(entry.properties ?? {})}`.toLowerCase();
+        return haystack.includes(normalizedSearch);
+      })
+      .slice(0, filter.limit ?? Number.POSITIVE_INFINITY);
+  }
+
+  async upsertGraphEdge(input: GraphEdgeRecordInput): Promise<GraphEdgeRecord> {
+    const edges = await this.loadGraphEdges();
+    const now = new Date().toISOString();
+    let targetIndex = edges.findIndex((entry) => entry.id === input.id);
+    if (targetIndex < 0) {
+      targetIndex = edges.findIndex((entry) => entry.logicalKey === input.logicalKey);
+    }
+    const previous = targetIndex >= 0 ? edges[targetIndex] : null;
+    const id = input.id ?? previous?.id ?? cryptoRandomId();
+    const normalizedScope = normalizeGraphScope(input.scope);
+    const record: GraphEdgeRecord = {
+      id,
+      tenantId: input.tenantId,
+      projectId: input.projectId ?? previous?.projectId ?? null,
+      edgeType: input.edgeType,
+      sourceNodeId: input.sourceNodeId,
+      targetNodeId: input.targetNodeId,
+      sourceLogicalKey: input.sourceLogicalKey,
+      targetLogicalKey: input.targetLogicalKey,
+      scope: normalizedScope,
+      originEndpointId: input.originEndpointId ?? previous?.originEndpointId ?? null,
+      originVendor: input.originVendor ?? previous?.originVendor ?? null,
+      logicalKey: input.logicalKey,
+      confidence: input.confidence ?? previous?.confidence ?? null,
+      specRef: input.specRef ?? previous?.specRef ?? null,
+      metadata: input.metadata ?? previous?.metadata ?? {},
+      externalId: input.externalId ?? previous?.externalId ?? null,
+      phase: input.phase ?? previous?.phase ?? null,
+      provenance: input.provenance ?? previous?.provenance ?? null,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    };
+    if (targetIndex >= 0) {
+      edges[targetIndex] = record;
+    } else {
+      edges.push(record);
+    }
+    await this.persistGraphEdges(edges);
+    return record;
+  }
+
+  async getGraphEdgeById(id: string): Promise<GraphEdgeRecord | null> {
+    const edges = await this.loadGraphEdges();
+    return edges.find((entry) => entry.id === id) ?? null;
+  }
+
+  async getGraphEdgeByLogicalKey(logicalKey: string): Promise<GraphEdgeRecord | null> {
+    const edges = await this.loadGraphEdges();
+    return edges.find((entry) => entry.logicalKey === logicalKey) ?? null;
+  }
+
+  async listGraphEdges(filter: GraphEdgeRecordFilter): Promise<GraphEdgeRecord[]> {
+    const edges = await this.loadGraphEdges();
+    return edges
+      .filter((entry) => entry.scope.orgId === filter.scopeOrgId)
+      .filter((entry) => {
+        if (!filter.edgeTypes?.length) {
+          return true;
+        }
+        return filter.edgeTypes.includes(entry.edgeType);
+      })
+      .filter((entry) => {
+        if (filter.sourceLogicalKey && entry.sourceLogicalKey !== filter.sourceLogicalKey) {
+          return false;
+        }
+        if (filter.targetLogicalKey && entry.targetLogicalKey !== filter.targetLogicalKey) {
+          return false;
+        }
+        if (filter.sourceNodeId && entry.sourceNodeId !== filter.sourceNodeId) {
+          return false;
+        }
+        if (filter.targetNodeId && entry.targetNodeId !== filter.targetNodeId) {
+          return false;
+        }
+        return true;
+      })
+      .slice(0, filter.limit ?? Number.POSITIVE_INFINITY);
+  }
+
   private async loadEndpointTemplates(): Promise<MetadataEndpointTemplateDescriptor[]> {
     try {
       const contents = await readFile(this.endpointTemplatesFile, "utf-8");
@@ -528,6 +855,52 @@ export class FileMetadataStore implements MetadataStore {
     await ensureDir(this.rootDir);
     await writeFile(this.endpointsFile, JSON.stringify(endpoints, null, 2), "utf-8");
   }
+
+  private async loadGraphNodes(): Promise<GraphNodeRecord[]> {
+    await ensureDir(this.rootDir);
+    try {
+      const contents = await readFile(this.graphNodesFile, "utf-8");
+      const parsed = JSON.parse(contents);
+      if (Array.isArray(parsed)) {
+        return parsed as GraphNodeRecord[];
+      }
+      return [];
+    } catch (error: unknown) {
+      if (isENOENT(error)) {
+        await this.persistGraphNodes([]);
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async persistGraphNodes(nodes: GraphNodeRecord[]): Promise<void> {
+    await ensureDir(this.rootDir);
+    await writeFile(this.graphNodesFile, JSON.stringify(nodes, null, 2), "utf-8");
+  }
+
+  private async loadGraphEdges(): Promise<GraphEdgeRecord[]> {
+    await ensureDir(this.rootDir);
+    try {
+      const contents = await readFile(this.graphEdgesFile, "utf-8");
+      const parsed = JSON.parse(contents);
+      if (Array.isArray(parsed)) {
+        return parsed as GraphEdgeRecord[];
+      }
+      return [];
+    } catch (error: unknown) {
+      if (isENOENT(error)) {
+        await this.persistGraphEdges([]);
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async persistGraphEdges(edges: GraphEdgeRecord[]): Promise<void> {
+    await ensureDir(this.rootDir);
+    await writeFile(this.graphEdgesFile, JSON.stringify(edges, null, 2), "utf-8");
+  }
 }
 
 type PrismaMetadataClient = {
@@ -553,6 +926,16 @@ type PrismaMetadataClient = {
   };
   metadataEndpointTemplate?: {
     findMany(args?: unknown): Promise<any[]>;
+    upsert(args: unknown): Promise<any>;
+  };
+  graphNode?: {
+    findMany(args?: unknown): Promise<any[]>;
+    findUnique(args: unknown): Promise<any | null>;
+    upsert(args: unknown): Promise<any>;
+  };
+  graphEdge?: {
+    findMany(args?: unknown): Promise<any[]>;
+    findUnique(args: unknown): Promise<any | null>;
     upsert(args: unknown): Promise<any>;
   };
 };
@@ -762,6 +1145,179 @@ export class PrismaMetadataStore implements MetadataStore {
     );
   }
 
+  async upsertGraphNode(input: GraphNodeRecordInput): Promise<GraphNodeRecord> {
+    const client = this.prisma.graphNode;
+    if (!client?.upsert) {
+      throw new Error("Graph node storage is not available for this metadata store.");
+    }
+    const normalizedScope = normalizeGraphScope(input.scope);
+    const ensuredProjectId = await this.ensureProject(input.projectId ?? null);
+    const baseData = {
+      tenantId: input.tenantId,
+      projectId: ensuredProjectId,
+      entityType: input.entityType,
+      displayName: input.displayName,
+      canonicalPath: input.canonicalPath ?? null,
+      sourceSystem: input.sourceSystem ?? null,
+      specRef: input.specRef ?? null,
+      properties: input.properties ?? {},
+      scopeOrgId: normalizedScope.orgId,
+      scopeDomainId: normalizedScope.domainId,
+      scopeProjectId: normalizedScope.projectId ?? ensuredProjectId,
+      scopeTeamId: normalizedScope.teamId,
+      originEndpointId: input.originEndpointId ?? null,
+      originVendor: input.originVendor ?? null,
+      externalId: input.externalId ?? null,
+      phase: input.phase ?? null,
+      provenance: input.provenance ?? null,
+      logicalKey: input.logicalKey,
+    };
+    const record = await client.upsert({
+      where: { logicalKey: input.logicalKey },
+      update: {
+        ...baseData,
+        version: { increment: 1 },
+      },
+      create: {
+        ...baseData,
+        id: input.id ?? cryptoRandomId(),
+        version: input.version ?? 1,
+      },
+    });
+    return mapPrismaGraphNode(record);
+  }
+
+  async getGraphNodeById(id: string): Promise<GraphNodeRecord | null> {
+    const client = this.prisma.graphNode;
+    if (!client?.findUnique) {
+      return null;
+    }
+    const record = await client.findUnique({ where: { id } });
+    return record ? mapPrismaGraphNode(record) : null;
+  }
+
+  async getGraphNodeByLogicalKey(logicalKey: string): Promise<GraphNodeRecord | null> {
+    const client = this.prisma.graphNode;
+    if (!client?.findUnique) {
+      return null;
+    }
+    const record = await client.findUnique({ where: { logicalKey } });
+    return record ? mapPrismaGraphNode(record) : null;
+  }
+
+  async listGraphNodes(filter: GraphNodeRecordFilter): Promise<GraphNodeRecord[]> {
+    const client = this.prisma.graphNode;
+    if (!client?.findMany) {
+      return [];
+    }
+    const search = filter.search?.trim();
+    const where: Record<string, unknown> = {
+      scopeOrgId: filter.scopeOrgId,
+      ...(filter.entityTypes?.length ? { entityType: { in: filter.entityTypes } } : {}),
+    };
+    if (search && search.length > 0) {
+      where.OR = [
+        { displayName: { contains: search, mode: "insensitive" } },
+        { canonicalPath: { contains: search, mode: "insensitive" } },
+      ];
+    }
+    const records = await client.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      take: filter.limit,
+    });
+    return records.map(mapPrismaGraphNode);
+  }
+
+  async upsertGraphEdge(input: GraphEdgeRecordInput): Promise<GraphEdgeRecord> {
+    const client = this.prisma.graphEdge;
+    if (!client?.upsert) {
+      throw new Error("Graph edge storage is not available for this metadata store.");
+    }
+    const normalizedScope = normalizeGraphScope(input.scope);
+    const ensuredProjectId = await this.ensureProject(input.projectId ?? null);
+    const baseData = {
+      tenantId: input.tenantId,
+      projectId: ensuredProjectId,
+      edgeType: input.edgeType,
+      sourceNodeId: input.sourceNodeId,
+      targetNodeId: input.targetNodeId,
+      sourceLogicalKey: input.sourceLogicalKey,
+      targetLogicalKey: input.targetLogicalKey,
+      scopeOrgId: normalizedScope.orgId,
+      scopeDomainId: normalizedScope.domainId,
+      scopeProjectId: normalizedScope.projectId ?? ensuredProjectId,
+      scopeTeamId: normalizedScope.teamId,
+      originEndpointId: input.originEndpointId ?? null,
+      originVendor: input.originVendor ?? null,
+      logicalKey: input.logicalKey,
+      confidence: input.confidence ?? null,
+      specRef: input.specRef ?? null,
+      metadata: input.metadata ?? {},
+      externalId: input.externalId ?? null,
+      phase: input.phase ?? null,
+      provenance: input.provenance ?? null,
+    };
+    const record = await client.upsert({
+      where: { logicalKey: input.logicalKey },
+      update: baseData,
+      create: {
+        ...baseData,
+        id: input.id ?? cryptoRandomId(),
+      },
+    });
+    return mapPrismaGraphEdge(record);
+  }
+
+  async getGraphEdgeById(id: string): Promise<GraphEdgeRecord | null> {
+    const client = this.prisma.graphEdge;
+    if (!client?.findUnique) {
+      return null;
+    }
+    const record = await client.findUnique({ where: { id } });
+    return record ? mapPrismaGraphEdge(record) : null;
+  }
+
+  async getGraphEdgeByLogicalKey(logicalKey: string): Promise<GraphEdgeRecord | null> {
+    const client = this.prisma.graphEdge;
+    if (!client?.findUnique) {
+      return null;
+    }
+    const record = await client.findUnique({ where: { logicalKey } });
+    return record ? mapPrismaGraphEdge(record) : null;
+  }
+
+  async listGraphEdges(filter: GraphEdgeRecordFilter): Promise<GraphEdgeRecord[]> {
+    const client = this.prisma.graphEdge;
+    if (!client?.findMany) {
+      return [];
+    }
+    const where: Record<string, unknown> = {
+      scopeOrgId: filter.scopeOrgId,
+    };
+    if (filter.edgeTypes?.length) {
+      where.edgeType = { in: filter.edgeTypes };
+    }
+    if (filter.sourceLogicalKey) {
+      where.sourceLogicalKey = filter.sourceLogicalKey;
+    }
+    if (filter.targetLogicalKey) {
+      where.targetLogicalKey = filter.targetLogicalKey;
+    }
+    if (filter.sourceNodeId) {
+      where.sourceNodeId = filter.sourceNodeId;
+    }
+    if (filter.targetNodeId) {
+      where.targetNodeId = filter.targetNodeId;
+    }
+    const records = await client.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      take: filter.limit,
+    });
+    return records.map(mapPrismaGraphEdge);
+  }
+
   private async ensureProject(projectId?: string | null): Promise<string | null> {
     if (!projectId) {
       return null;
@@ -907,6 +1463,65 @@ function mapPrismaEndpointTemplate(template: any): MetadataEndpointTemplateDescr
   };
 }
 
+function mapPrismaGraphNode(node: any): GraphNodeRecord {
+  return {
+    id: node.id,
+    tenantId: node.tenantId,
+    projectId: node.projectId ?? null,
+    entityType: node.entityType,
+    displayName: node.displayName,
+    canonicalPath: node.canonicalPath ?? null,
+    sourceSystem: node.sourceSystem ?? null,
+    specRef: node.specRef ?? null,
+    properties: (node.properties ?? {}) as Record<string, unknown>,
+    version: node.version ?? 1,
+    scope: {
+      orgId: node.scopeOrgId,
+      domainId: node.scopeDomainId ?? null,
+      projectId: node.scopeProjectId ?? node.projectId ?? null,
+      teamId: node.scopeTeamId ?? null,
+    },
+    originEndpointId: node.originEndpointId ?? null,
+    originVendor: node.originVendor ?? null,
+    logicalKey: node.logicalKey,
+    externalId: (node.externalId ?? null) as Record<string, unknown> | null,
+    phase: node.phase ?? null,
+    provenance: (node.provenance ?? null) as Record<string, unknown> | null,
+    createdAt: node.createdAt instanceof Date ? node.createdAt.toISOString() : node.createdAt,
+    updatedAt: node.updatedAt instanceof Date ? node.updatedAt.toISOString() : node.updatedAt,
+  };
+}
+
+function mapPrismaGraphEdge(edge: any): GraphEdgeRecord {
+  return {
+    id: edge.id,
+    tenantId: edge.tenantId,
+    projectId: edge.projectId ?? null,
+    edgeType: edge.edgeType,
+    sourceNodeId: edge.sourceNodeId,
+    targetNodeId: edge.targetNodeId,
+    sourceLogicalKey: edge.sourceLogicalKey,
+    targetLogicalKey: edge.targetLogicalKey,
+    scope: {
+      orgId: edge.scopeOrgId,
+      domainId: edge.scopeDomainId ?? null,
+      projectId: edge.scopeProjectId ?? edge.projectId ?? null,
+      teamId: edge.scopeTeamId ?? null,
+    },
+    originEndpointId: edge.originEndpointId ?? null,
+    originVendor: edge.originVendor ?? null,
+    logicalKey: edge.logicalKey,
+    confidence: edge.confidence ?? null,
+    specRef: edge.specRef ?? null,
+    metadata: (edge.metadata ?? {}) as Record<string, unknown>,
+    externalId: (edge.externalId ?? null) as Record<string, unknown> | null,
+    phase: edge.phase ?? null,
+    provenance: (edge.provenance ?? null) as Record<string, unknown> | null,
+    createdAt: edge.createdAt instanceof Date ? edge.createdAt.toISOString() : edge.createdAt,
+    updatedAt: edge.updatedAt instanceof Date ? edge.updatedAt.toISOString() : edge.updatedAt,
+  };
+}
+
 function cryptoRandomId(): string {
   try {
     return nodeRandomUUID().replace(/-/g, "");
@@ -931,6 +1546,15 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "") || "source";
 }
 
+function normalizeGraphScope(scope: GraphScopeInput | GraphScope): GraphScope {
+  return {
+    orgId: scope.orgId,
+    domainId: scope.domainId ?? null,
+    projectId: scope.projectId ?? null,
+    teamId: scope.teamId ?? null,
+  };
+}
+
 async function ensureDir(dir: string): Promise<void> {
   try {
     await mkdir(dir, { recursive: true });
@@ -953,29 +1577,6 @@ function isEEXIST(error: unknown): boolean {
   return Boolean((error as NodeJS.ErrnoException)?.code === "EEXIST");
 }
 
-type GraphEntityRecordPayload = {
-  tenantId: string;
-  entityType: string;
-  displayName: string;
-  canonicalPath?: string;
-  sourceSystem?: string;
-  specRef?: string;
-  properties?: Record<string, unknown>;
-  version: number;
-  projectId: string;
-};
-
-type GraphEdgeRecordPayload = {
-  tenantId: string;
-  edgeType: string;
-  sourceEntityId: string;
-  targetEntityId: string;
-  confidence?: number;
-  specRef?: string;
-  metadata?: Record<string, unknown>;
-  projectId: string;
-};
-
 type GraphEmbeddingRecordPayload = {
   tenantId: string;
   projectId: string;
@@ -986,8 +1587,6 @@ type GraphEmbeddingRecordPayload = {
   metadata?: Record<string, unknown>;
 };
 
-const GRAPH_ENTITY_DOMAIN = "graph.entity";
-const GRAPH_EDGE_DOMAIN = "graph.edge";
 const GRAPH_EMBEDDING_DOMAIN = "graph.embedding";
 
 class MetadataGraphStore implements GraphStore {
@@ -1002,94 +1601,97 @@ class MetadataGraphStore implements GraphStore {
   }
 
   async upsertEntity(input: GraphEntityInput, context: TenantContext): Promise<GraphEntity> {
-    const existing = input.id
-      ? await this.store.getRecord<GraphEntityRecordPayload>(GRAPH_ENTITY_DOMAIN, input.id)
-      : null;
-    const nextVersion = existing ? (existing.payload?.version ?? 0) + 1 : 1;
-    const record = await this.store.upsertRecord<GraphEntityRecordPayload>({
+    const normalizedScope = normalizeGraphScope(input.scope ?? { orgId: context.tenantId, projectId: context.projectId });
+    const identity = resolveGraphEntityIdentity(input, normalizedScope);
+    const record = await this.store.upsertGraphNode({
       id: input.id,
+      tenantId: context.tenantId,
       projectId: context.projectId,
-      domain: GRAPH_ENTITY_DOMAIN,
-      labels: [context.tenantId, input.entityType],
-      payload: {
-        tenantId: context.tenantId,
-        entityType: input.entityType,
-        displayName: input.displayName,
-        canonicalPath: input.canonicalPath,
-        sourceSystem: input.sourceSystem,
-        specRef: input.specRef,
-        properties: input.properties ?? {},
-        version: nextVersion,
-        projectId: context.projectId,
-      },
+      entityType: input.entityType,
+      displayName: input.displayName,
+      canonicalPath: input.canonicalPath ?? null,
+      sourceSystem: input.sourceSystem ?? null,
+      specRef: input.specRef ?? null,
+      properties: input.properties ?? {},
+      scope: normalizedScope,
+      originEndpointId: identity.originEndpointId ?? undefined,
+      originVendor: identity.originVendor ?? undefined,
+      logicalKey: identity.logicalKey,
+      externalId: identity.externalId ?? undefined,
+      phase: identity.phase ?? undefined,
+      provenance: identity.provenance ?? undefined,
     });
-    return mapRecordToGraphEntity(record);
+    return mapGraphNodeRecordToEntity(record);
   }
 
   async getEntity(id: string, context: TenantContext): Promise<GraphEntity | null> {
-    const record = await this.store.getRecord<GraphEntityRecordPayload>(GRAPH_ENTITY_DOMAIN, id);
-    if (!record || record.projectId !== context.projectId) {
+    const record = await this.store.getGraphNodeById(id);
+    if (!record || record.scope.orgId !== context.tenantId) {
       return null;
     }
-    return mapRecordToGraphEntity(record);
+    return mapGraphNodeRecordToEntity(record);
   }
 
   async listEntities(filter: GraphEntityFilter | undefined, context: TenantContext): Promise<GraphEntity[]> {
-    const records = await this.store.listRecords<GraphEntityRecordPayload>(GRAPH_ENTITY_DOMAIN, {
-      projectId: context.projectId,
+    const records = await this.store.listGraphNodes({
+      scopeOrgId: context.tenantId,
+      entityTypes: filter?.entityTypes,
+      search: filter?.search,
       limit: filter?.limit,
     });
-    return records
-      .filter((record) => (filter?.entityTypes?.length ? filter.entityTypes.includes(record.payload.entityType) : true))
-      .filter((record) => {
-        if (!filter?.search) {
-          return true;
-        }
-        const haystack = `${record.payload.displayName} ${record.payload.canonicalPath ?? ""} ${JSON.stringify(
-          record.payload.properties ?? {},
-        )}`.toLowerCase();
-        return haystack.includes(filter.search.toLowerCase());
-      })
-      .map(mapRecordToGraphEntity);
+    return records.map(mapGraphNodeRecordToEntity);
   }
 
   async upsertEdge(input: GraphEdgeInput, context: TenantContext): Promise<GraphEdge> {
-    const record = await this.store.upsertRecord<GraphEdgeRecordPayload>({
+    const source = await this.requireGraphNode(input.sourceEntityId, context);
+    const target = await this.requireGraphNode(input.targetEntityId, context);
+    const normalizedScope = normalizeGraphScope(
+      input.scope ?? source.scope ?? { orgId: context.tenantId, projectId: context.projectId },
+    );
+    if (source.scope.orgId !== target.scope.orgId || source.scope.orgId !== normalizedScope.orgId) {
+      throw new Error("Cross-scope graph edges are not permitted.");
+    }
+    const identity = resolveGraphEdgeIdentity(input, normalizedScope, source, target);
+    const record = await this.store.upsertGraphEdge({
       id: input.id,
+      tenantId: context.tenantId,
       projectId: context.projectId,
-      domain: GRAPH_EDGE_DOMAIN,
-      labels: [context.tenantId, input.edgeType],
-      payload: {
-        tenantId: context.tenantId,
-        edgeType: input.edgeType,
-        sourceEntityId: input.sourceEntityId,
-        targetEntityId: input.targetEntityId,
-        confidence: input.confidence,
-        specRef: input.specRef,
-        metadata: input.metadata ?? {},
-        projectId: context.projectId,
-      },
+      edgeType: input.edgeType,
+      sourceNodeId: source.id,
+      targetNodeId: target.id,
+      sourceLogicalKey: identity.sourceLogicalKey,
+      targetLogicalKey: identity.targetLogicalKey,
+      scope: normalizedScope,
+      originEndpointId: identity.originEndpointId ?? undefined,
+      originVendor: identity.originVendor ?? undefined,
+      logicalKey: identity.logicalKey,
+      confidence: input.confidence ?? undefined,
+      specRef: input.specRef ?? undefined,
+      metadata: input.metadata ?? undefined,
+      externalId: identity.externalId ?? undefined,
+      phase: identity.phase ?? undefined,
+      provenance: identity.provenance ?? undefined,
     });
-    return mapRecordToGraphEdge(record);
+    return mapGraphEdgeRecordToEdge(record);
   }
 
   async listEdges(filter: GraphEdgeFilter | undefined, context: TenantContext): Promise<GraphEdge[]> {
-    const records = await this.store.listRecords<GraphEdgeRecordPayload>(GRAPH_EDGE_DOMAIN, {
-      projectId: context.projectId,
+    const records = await this.store.listGraphEdges({
+      scopeOrgId: context.tenantId,
+      edgeTypes: filter?.edgeTypes,
+      sourceNodeId: filter?.sourceEntityId,
+      targetNodeId: filter?.targetEntityId,
       limit: filter?.limit,
     });
-    return records
-      .filter((record) => (filter?.edgeTypes?.length ? filter.edgeTypes.includes(record.payload.edgeType) : true))
-      .filter((record) => {
-        if (filter?.sourceEntityId && record.payload.sourceEntityId !== filter.sourceEntityId) {
-          return false;
-        }
-        if (filter?.targetEntityId && record.payload.targetEntityId !== filter.targetEntityId) {
-          return false;
-        }
-        return true;
-      })
-      .map(mapRecordToGraphEdge);
+    return records.map(mapGraphEdgeRecordToEdge);
+  }
+
+  private async requireGraphNode(id: string, context: TenantContext): Promise<GraphNodeRecord> {
+    const record = await this.store.getGraphNodeById(id);
+    if (!record || record.scope.orgId !== context.tenantId) {
+      throw new Error(`Graph node ${id} is not accessible within tenant scope.`);
+    }
+    return record;
   }
 
   async putEmbedding(input: GraphEmbeddingInput, context: TenantContext): Promise<GraphEmbedding> {
@@ -1131,37 +1733,177 @@ class MetadataGraphStore implements GraphStore {
   }
 }
 
-function mapRecordToGraphEntity(record: MetadataRecord<GraphEntityRecordPayload>): GraphEntity {
+function mapGraphNodeRecordToEntity(record: GraphNodeRecord): GraphEntity {
   return {
     id: record.id,
-    tenantId: record.payload.tenantId,
+    entityType: record.entityType,
+    displayName: record.displayName,
+    canonicalPath: record.canonicalPath ?? undefined,
+    sourceSystem: record.sourceSystem ?? undefined,
+    specRef: record.specRef ?? undefined,
+    properties: record.properties ?? {},
+    tenantId: record.tenantId,
     projectId: record.projectId,
-    entityType: record.payload.entityType,
-    displayName: record.payload.displayName,
-    canonicalPath: record.payload.canonicalPath,
-    sourceSystem: record.payload.sourceSystem,
-    specRef: record.payload.specRef,
-    properties: record.payload.properties ?? {},
-    version: record.payload.version ?? 1,
+    version: record.version ?? 1,
+    scope: record.scope,
+    identity: {
+      logicalKey: record.logicalKey,
+      externalId: record.externalId ?? null,
+      originEndpointId: record.originEndpointId ?? null,
+      originVendor: record.originVendor ?? null,
+      phase: record.phase ?? null,
+      provenance: record.provenance ?? null,
+    },
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
 }
 
-function mapRecordToGraphEdge(record: MetadataRecord<GraphEdgeRecordPayload>): GraphEdge {
+function mapGraphEdgeRecordToEdge(record: GraphEdgeRecord): GraphEdge {
   return {
     id: record.id,
-    tenantId: record.payload.tenantId,
+    edgeType: record.edgeType,
+    sourceEntityId: record.sourceNodeId,
+    targetEntityId: record.targetNodeId,
+    confidence: record.confidence ?? undefined,
+    specRef: record.specRef ?? undefined,
+    metadata: record.metadata ?? {},
+    tenantId: record.tenantId,
     projectId: record.projectId,
-    edgeType: record.payload.edgeType,
-    sourceEntityId: record.payload.sourceEntityId,
-    targetEntityId: record.payload.targetEntityId,
-    confidence: record.payload.confidence,
-    specRef: record.payload.specRef,
-    metadata: record.payload.metadata ?? {},
+    scope: record.scope,
+    identity: {
+      logicalKey: record.logicalKey,
+      sourceLogicalKey: record.sourceLogicalKey,
+      targetLogicalKey: record.targetLogicalKey,
+      externalId: record.externalId ?? null,
+      originEndpointId: record.originEndpointId ?? null,
+      originVendor: record.originVendor ?? null,
+      phase: record.phase ?? null,
+      provenance: record.provenance ?? null,
+    },
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function resolveGraphEntityIdentity(input: GraphEntityInput, scope: GraphScope): GraphIdentity {
+  const identityInput = input.identity ?? {};
+  const logicalKey =
+    identityInput.logicalKey ??
+    buildGraphEntityLogicalKey({
+      entityType: input.entityType,
+      scope,
+      canonicalPath: input.canonicalPath ?? input.displayName ?? input.id ?? "",
+      fallbackId: input.id ?? null,
+      originEndpointId: identityInput.originEndpointId ?? null,
+      originVendor: identityInput.originVendor ?? null,
+      externalId: identityInput.externalId ?? null,
+    });
+  return {
+    logicalKey,
+    externalId: identityInput.externalId ?? null,
+    originEndpointId: identityInput.originEndpointId ?? null,
+    originVendor: identityInput.originVendor ?? null,
+    phase: identityInput.phase ?? null,
+    provenance: identityInput.provenance ?? null,
+  };
+}
+
+function resolveGraphEdgeIdentity(
+  input: GraphEdgeInput,
+  scope: GraphScope,
+  source: GraphNodeRecord,
+  target: GraphNodeRecord,
+): GraphEdgeIdentity {
+  const identityInput = input.identity ?? {};
+  const sourceLogicalKey = identityInput.sourceLogicalKey ?? source.logicalKey;
+  const targetLogicalKey = identityInput.targetLogicalKey ?? target.logicalKey;
+  const logicalKey =
+    identityInput.logicalKey ??
+    buildGraphEdgeLogicalKey({
+      edgeType: input.edgeType,
+      scope,
+      sourceLogicalKey,
+      targetLogicalKey,
+      originEndpointId: identityInput.originEndpointId ?? null,
+      originVendor: identityInput.originVendor ?? null,
+    });
+  return {
+    logicalKey,
+    sourceLogicalKey,
+    targetLogicalKey,
+    externalId: identityInput.externalId ?? null,
+    originEndpointId: identityInput.originEndpointId ?? null,
+    originVendor: identityInput.originVendor ?? null,
+    phase: identityInput.phase ?? null,
+    provenance: identityInput.provenance ?? null,
+  };
+}
+
+function buildGraphEntityLogicalKey(params: {
+  entityType: string;
+  scope: GraphScope;
+  canonicalPath?: string | null;
+  fallbackId?: string | null;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+  externalId?: Record<string, unknown> | null;
+}): string {
+  return hashLogicalKey([
+    "entity",
+    params.entityType,
+    params.scope.orgId,
+    params.scope.projectId ?? "",
+    params.scope.domainId ?? "",
+    params.scope.teamId ?? "",
+    params.originEndpointId ?? "",
+    params.originVendor ?? "",
+    params.canonicalPath ?? "",
+    params.fallbackId ?? "",
+    stableStringify(params.externalId ?? null),
+  ]);
+}
+
+function buildGraphEdgeLogicalKey(params: {
+  edgeType: string;
+  scope: GraphScope;
+  sourceLogicalKey: string;
+  targetLogicalKey: string;
+  originEndpointId?: string | null;
+  originVendor?: string | null;
+}): string {
+  return hashLogicalKey([
+    "edge",
+    params.edgeType,
+    params.scope.orgId,
+    params.scope.projectId ?? "",
+    params.scope.domainId ?? "",
+    params.scope.teamId ?? "",
+    params.originEndpointId ?? "",
+    params.originVendor ?? "",
+    params.sourceLogicalKey,
+    params.targetLogicalKey,
+  ]);
+}
+
+function hashLogicalKey(parts: (string | null | undefined)[]): string {
+  const hash = createHash("sha256");
+  hash.update(parts.map((part) => (part ?? "")).join("|"));
+  return hash.digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value === "undefined") {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function mapRecordToGraphEmbedding(record: MetadataRecord<GraphEmbeddingRecordPayload>): GraphEmbedding {

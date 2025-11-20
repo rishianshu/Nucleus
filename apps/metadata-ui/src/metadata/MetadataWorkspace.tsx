@@ -27,6 +27,7 @@ import {
   DELETE_METADATA_ENDPOINT_MUTATION,
   TEST_METADATA_ENDPOINT_MUTATION,
   TRIGGER_ENDPOINT_COLLECTION_MUTATION,
+  GRAPH_NODES_QUERY,
 } from "./queries";
 import type {
   CatalogDataset,
@@ -38,6 +39,7 @@ import type {
   MetadataEndpointTemplate,
   MetadataEndpointTemplateField,
   MetadataEndpointTestResult,
+  GraphNodeSummary,
 } from "./types";
 import { parseListInput, previewTableColumns } from "./utils";
 import {
@@ -266,6 +268,10 @@ export function MetadataWorkspace({
   const [metadataCatalogPreviewingId, setMetadataCatalogPreviewingId] = useState<string | null>(null);
   const [metadataEndpointDetailId, setMetadataEndpointDetailId] = useState<string | null>(null);
   const [metadataDatasetDetailId, setMetadataDatasetDetailId] = useState<string | null>(datasetDetailRouteId ?? null);
+  const [graphNodes, setGraphNodes] = useState<GraphNodeSummary[]>([]);
+  const [graphNodesSearch, setGraphNodesSearch] = useState("");
+  const [graphNodesLoading, setGraphNodesLoading] = useState(false);
+  const [graphNodesError, setGraphNodesError] = useState<string | null>(null);
   const [datasetDetailCache, setDatasetDetailCache] = useState<Record<string, CatalogDataset>>({});
   const [datasetDetailLoading, setDatasetDetailLoading] = useState(false);
   const [datasetDetailError, setDatasetDetailError] = useState<string | null>(null);
@@ -769,6 +775,47 @@ export function MetadataWorkspace({
       setMetadataCatalogSelection(metadataCatalogFilteredDatasets[0]?.id ?? catalogDatasets[0]?.id ?? null);
     }
   }, [catalogDatasets, datasetDetailRouteId, metadataCatalogFilteredDatasets, metadataCatalogSelectedDataset]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!metadataEndpoint || !authToken) {
+      setGraphNodes([]);
+      setGraphNodesLoading(false);
+      setGraphNodesError(null);
+      return;
+    }
+    const trimmedSearch = graphNodesSearch.trim();
+    setGraphNodesLoading(true);
+    setGraphNodesError(null);
+    fetchMetadataGraphQL<{ graphNodes: GraphNodeSummary[] }>(
+      metadataEndpoint,
+      GRAPH_NODES_QUERY,
+      { search: trimmedSearch.length ? trimmedSearch : null, entityTypes: null, limit: 25 },
+      undefined,
+      { token: authToken },
+    )
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setGraphNodes(payload.graphNodes ?? []);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setGraphNodesError(error instanceof Error ? error.message : String(error));
+        setGraphNodes([]);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGraphNodesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [metadataEndpoint, authToken, graphNodesSearch]);
 
   const metadataCatalogLabelOptions = useMemo(() => {
     const labels = new Set<string>();
@@ -2876,6 +2923,59 @@ export function MetadataWorkspace({
             Load more sources
           </button>
         ) : null}
+        <section
+          className="mt-6 space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          data-testid="metadata-graph-nodes"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-[200px] flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Graph identities</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Recent entities stored in the centralized GraphStore. Use search to inspect canonical identity data.
+              </p>
+            </div>
+            <input
+              type="search"
+              placeholder="Search graph nodes"
+              value={graphNodesSearch}
+              onChange={(event) => setGraphNodesSearch(event.target.value)}
+              className="min-w-[200px] flex-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            />
+          </div>
+          {graphNodesLoading ? (
+            <p className="text-xs text-slate-500">Loading graph nodes…</p>
+          ) : graphNodesError ? (
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
+              {graphNodesError}
+            </p>
+          ) : graphNodes.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">
+              No graph entities found.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+              {graphNodes.map((node) => (
+                <li key={node.id} className="py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-white">{node.displayName}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{node.canonicalPath ?? node.entityType}</p>
+                    </div>
+                    <span className="rounded-full border border-slate-200 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                      {node.entityType}
+                    </span>
+                  </div>
+                  <p className="mt-1 break-all text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                    Logical key · {node.identity.logicalKey}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Scope · {formatGraphScope(node.scope)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         </section>
       </div>
     );
@@ -3763,4 +3863,19 @@ export function MetadataWorkspace({
       ) : null}
     </>
   );
+}
+
+function formatGraphScope(scope: GraphNodeSummary["scope"]): string {
+  const parts: string[] = [];
+  parts.push(scope.orgId ? `org:${scope.orgId}` : "org:unknown");
+  if (scope.projectId) {
+    parts.push(`project:${scope.projectId}`);
+  }
+  if (scope.domainId) {
+    parts.push(`domain:${scope.domainId}`);
+  }
+  if (scope.teamId) {
+    parts.push(`team:${scope.teamId}`);
+  }
+  return parts.join(" · ");
 }

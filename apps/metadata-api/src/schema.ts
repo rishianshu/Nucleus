@@ -9,11 +9,14 @@ import type {
   MetadataRecordInput,
   MetadataRecord,
   HttpVerb,
+  GraphStore,
+  TenantContext,
 } from "@metadata/core";
 import type { EndpointBuildResult, EndpointTemplate, EndpointTestResult } from "./types.js";
 import { getPrismaClient } from "./prismaClient.js";
 import { getTemporalClient } from "./temporal/client.js";
 import { WORKFLOW_NAMES } from "./temporal/workflows.js";
+import { getGraphStore } from "./context.js";
 import type { AuthContext } from "./auth.js";
 import sampleMetadata from "./fixtures/sample-metadata.json" assert { type: "json" };
 import { DEFAULT_ENDPOINT_TEMPLATES } from "./fixtures/default-endpoint-templates.js";
@@ -51,6 +54,70 @@ export const typeDefs = `#graphql
     payload: JSON!
     createdAt: DateTime!
     updatedAt: DateTime!
+  }
+
+  type GraphScope {
+    orgId: String!
+    domainId: String
+    projectId: String
+    teamId: String
+  }
+
+  type GraphIdentity {
+    logicalKey: String!
+    externalId: JSON
+    originEndpointId: ID
+    originVendor: String
+    phase: String
+    provenance: JSON
+    sourceLogicalKey: String
+    targetLogicalKey: String
+  }
+
+  type GraphNode {
+    id: ID!
+    tenantId: String!
+    projectId: String
+    entityType: String!
+    displayName: String!
+    canonicalPath: String
+    sourceSystem: String
+    specRef: String
+    properties: JSON!
+    version: Int!
+    scope: GraphScope!
+    identity: GraphIdentity!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type GraphEdge {
+    id: ID!
+    tenantId: String!
+    projectId: String
+    edgeType: String!
+    sourceEntityId: ID!
+    targetEntityId: ID!
+    confidence: Float
+    specRef: String
+    metadata: JSON!
+    scope: GraphScope!
+    identity: GraphIdentity!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  input GraphNodeFilter {
+    entityTypes: [String!]
+    search: String
+    limit: Int
+  }
+
+  input GraphEdgeFilter {
+    edgeTypes: [String!]
+    sourceEntityId: ID
+    targetEntityId: ID
+    limit: Int
   }
 
   input MetadataRecordInput {
@@ -401,6 +468,8 @@ export const typeDefs = `#graphql
     health: Health!
     metadataDomains: [MetadataDomain!]!
     metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
+    graphNodes(filter: GraphNodeFilter): [GraphNode!]!
+    graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
@@ -437,7 +506,8 @@ export const typeDefs = `#graphql
   }
 `;
 
-export function createResolvers(store: MetadataStore) {
+export function createResolvers(store: MetadataStore, options?: { graphStore?: GraphStore }) {
+  const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
   const registerEndpointWithInput = async (input: GraphQLMetadataEndpointInput, ctx: ResolverContext) => {
     let templateId: string | null = null;
     try {
@@ -712,6 +782,33 @@ export function createResolvers(store: MetadataStore) {
           search: args.search,
           limit: args.limit,
         });
+      },
+      graphNodes: async (_parent: unknown, args: { filter?: GraphQLGraphNodeFilter | null }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const graphStore = await resolveGraphStore();
+        const filter = args.filter ?? {};
+        return graphStore.listEntities(
+          {
+            entityTypes: filter.entityTypes ?? undefined,
+            search: filter.search ?? undefined,
+            limit: filter.limit ?? undefined,
+          },
+          buildTenantContextForGraph(ctx),
+        );
+      },
+      graphEdges: async (_parent: unknown, args: { filter?: GraphQLGraphEdgeFilter | null }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const graphStore = await resolveGraphStore();
+        const filter = args.filter ?? {};
+        return graphStore.listEdges(
+          {
+            edgeTypes: filter.edgeTypes ?? undefined,
+            sourceEntityId: filter.sourceEntityId ?? undefined,
+            targetEntityId: filter.targetEntityId ?? undefined,
+            limit: filter.limit ?? undefined,
+          },
+          buildTenantContextForGraph(ctx),
+        );
       },
       metadataEndpoints: async (
         _parent: unknown,
@@ -1755,6 +1852,19 @@ type CatalogDatasetConnection = {
   totalCount: number;
 };
 
+type GraphQLGraphNodeFilter = {
+  entityTypes?: string[] | null;
+  search?: string | null;
+  limit?: number | null;
+};
+
+type GraphQLGraphEdgeFilter = {
+  edgeTypes?: string[] | null;
+  sourceEntityId?: string | null;
+  targetEntityId?: string | null;
+  limit?: number | null;
+};
+
 type ResolverContext = {
   auth: AuthContext;
   userId: string | null;
@@ -2736,5 +2846,16 @@ function mapCollectionToGraphQL(collection: PrismaCollectionWithEndpoint) {
   return {
     ...collection,
     endpoint: normalizeEndpointForGraphQL(collection.endpoint as unknown as MetadataEndpointDescriptor)!,
+  };
+}
+
+function buildTenantContextForGraph(ctx: ResolverContext): TenantContext {
+  if (!ctx.auth.tenantId || !ctx.auth.projectId) {
+    throw new GraphQLError("Missing tenant context for graph query.", { extensions: { code: "E_ROLE_FORBIDDEN" } });
+  }
+  return {
+    tenantId: ctx.auth.tenantId,
+    projectId: ctx.auth.projectId,
+    actorId: ctx.userId ?? undefined,
   };
 }

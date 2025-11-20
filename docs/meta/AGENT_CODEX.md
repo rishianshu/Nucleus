@@ -14,13 +14,16 @@ This contract instructs the Developer Agent (Codex) how to pick work, read specs
 1) If invoked with slug, use it. Else read sync/STATE.md Focus Feature.
 2) Verify intents/<slug>/* exists; else set blocked + QUESTIONS.md.
 3) Ensure runs/<slug>/* files exist; append start heartbeat. Set STATE to in-progress.
+4) Once the run begins, stay in execution mode; only surface progress via LOG heartbeats, blocker notes, or final summaries. Do not pause for validation unless a required artifact is missing/conflicting
 
 
-## Loop:
+## Loop
 Plan → Implement → Test → Patch → Heartbeat (≤ ~150 LOC per commit, reference AC#).
+Once the loop starts, remain in execution mode: only surface progress through the mandated heartbeats, blocker reports, or final summaries—never pause to re-confirm instructions unless required artifacts are missing or conflicting.
 
-## Heartbeat:
-Append only to LOG.md every 10–15 min: {timestamp, done, next, risks}. Treat this as part of the loop—log the heartbeat and continue immediately with the recorded `next` step (no waiting for external confirmation).
+## Heartbeat
+Append only to LOG.md every 10–15 min: `{timestamp, done, next, risks}`.  
+Treat the heartbeat entry as the sole routine status output and immediately continue with the recorded `next` step—no conversational “still working?” messages in the main console.
 
 ## Guardrails
 - Keep commits small (≤ ~150 LOC), reference acceptance ID.
@@ -32,6 +35,7 @@ Append only to LOG.md every 10–15 min: {timestamp, done, next, risks}. Treat t
 - Blocked: write minimal repro in QUESTIONS.md; set STATE status=blocked.
 
 ## Post-Run
+
 After each run, update `sync/STATE.md` to reflect the **current snapshot**, not full history:
 
 1. **Focus Feature**

@@ -68,6 +68,28 @@ export const METADATA_ENDPOINTS_PAGED_QUERY = `
   }
 `;
 
+export const GRAPH_NODES_QUERY = `
+  query GraphNodes($search: String, $entityTypes: [String!], $limit: Int!) {
+    graphNodes(filter: { search: $search, entityTypes: $entityTypes, limit: $limit }) {
+      id
+      entityType
+      displayName
+      canonicalPath
+      identity {
+        logicalKey
+        originEndpointId
+        originVendor
+      }
+      scope {
+        orgId
+        projectId
+        domainId
+        teamId
+      }
+    }
+  }
+`;
+
 export const CATALOG_DATASETS_CONNECTION_QUERY = `
   query MetadataCatalogDatasets($first: Int!, $after: ID, $endpointId: ID, $search: String, $labels: [String!], $unlabeledOnly: Boolean) {
     catalogDatasetConnection(first: $first, after: $after, endpointId: $endpointId, search: $search, labels: $labels, unlabeledOnly: $unlabeledOnly) {

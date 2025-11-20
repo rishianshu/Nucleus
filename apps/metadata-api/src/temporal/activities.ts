@@ -461,6 +461,24 @@ async function syncRecordToGraph(
       sourceSystem: (dataset.source as string | undefined) ?? undefined,
       specRef: (dataset.specRef as string | undefined) ?? undefined,
       properties: payload,
+      scope: {
+        orgId: context.tenantId,
+        projectId: record.projectId ?? context.projectId,
+      },
+      identity: {
+        externalId: datasetIdentity
+          ? {
+              datasetId: datasetIdentity.id,
+              sourceId: datasetIdentity.sourceId,
+              schema: datasetIdentity.schema,
+              table: datasetIdentity.table,
+              database: datasetIdentity.database ?? null,
+              canonicalPath: datasetIdentity.canonicalPath,
+            }
+          : { recordId: record.id },
+        originEndpointId: datasetIdentity?.sourceId ?? (dataset.sourceEndpointId as string | undefined) ?? null,
+        originVendor: (dataset.sourceVendor as string | undefined) ?? null,
+      },
     },
     context,
   );

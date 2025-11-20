@@ -2,13 +2,14 @@ import { ApolloServer } from "@apollo/server";
 import { startStandaloneServer } from "@apollo/server/standalone";
 import type { IncomingMessage } from "node:http";
 import { createResolvers, typeDefs } from "./schema.js";
-import { getMetadataStore } from "./context.js";
+import { getMetadataStore, getGraphStore } from "./context.js";
 import { authenticateRequest } from "./auth.js";
 
 async function main() {
   const store = await getMetadataStore();
   console.info("[metadata-api] using store", store.constructor?.name ?? "unknown");
-  const resolvers = createResolvers(store);
+  const graphStore = await getGraphStore();
+  const resolvers = createResolvers(store, { graphStore });
 
   const server = new ApolloServer({
     typeDefs,
