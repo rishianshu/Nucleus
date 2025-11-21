@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { LuClipboard, LuExternalLink, LuMap, LuRefreshCcw } from "react-icons/lu";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
+import { LuCheck, LuClipboard, LuExternalLink, LuMap, LuRefreshCcw } from "react-icons/lu";
 import { useNavigate } from "react-router-dom";
+import { resolveKbLabel } from "@metadata/client";
 import { usePagedQuery, useToastQueue } from "../metadata/hooks";
 import type { KbEdge, KbScope } from "./types";
 import { KB_EDGES_QUERY } from "./queries";
+import { useKbFacets } from "./useKbFacets";
+import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
+import { ViewToggle } from "./ViewToggle";
 
 type EdgesExplorerProps = {
   metadataEndpoint: string | null;
@@ -17,33 +22,46 @@ type ScopeFilters = {
 };
 
 export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProps) {
-  const [edgeType, setEdgeType] = useState("all");
+  const [edgeType, setEdgeType] = useState("");
   const [scopeFilters, setScopeFilters] = useState<ScopeFilters>({});
   const [sourceId, setSourceId] = useState("");
   const [targetId, setTargetId] = useState("");
-  const toast = useToastQueue();
+  const toastQueue = useToastQueue();
   const navigate = useNavigate();
   const [selectedEdge, setSelectedEdge] = useState<KbEdge | null>(null);
+  const [copiedEdgeId, setCopiedEdgeId] = useState<string | null>(null);
+  const [copyAnnouncement, setCopyAnnouncement] = useState("");
+  const copyResetRef = useRef<number | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
 
-  const edgeQueryVariables = useMemo(() => {
-    const projectId = scopeFilters.projectId?.trim() ?? "";
-    const domainId = scopeFilters.domainId?.trim() ?? "";
-    const teamId = scopeFilters.teamId?.trim() ?? "";
-    const normalizedScope = {
-      projectId: projectId.length ? projectId : null,
-      domainId: domainId.length ? domainId : null,
-      teamId: teamId.length ? teamId : null,
+  const normalizedScope = useMemo(() => {
+    const projectId = scopeFilters.projectId?.trim();
+    const domainId = scopeFilters.domainId?.trim();
+    const teamId = scopeFilters.teamId?.trim();
+    return {
+      projectId: projectId && projectId.length ? projectId : null,
+      domainId: domainId && domainId.length ? domainId : null,
+      teamId: teamId && teamId.length ? teamId : null,
     };
-    const hasScopeFilters = Boolean(normalizedScope.projectId || normalizedScope.domainId || normalizedScope.teamId);
+  }, [scopeFilters.projectId, scopeFilters.domainId, scopeFilters.teamId]);
+  const hasScopeFilters = Boolean(normalizedScope.projectId || normalizedScope.domainId || normalizedScope.teamId);
+  const scopeArgument = useMemo(() => (hasScopeFilters ? normalizedScope : null), [hasScopeFilters, normalizedScope]);
+  const edgeQueryVariables = useMemo(() => {
     const sourceValue = sourceId.trim();
     const targetValue = targetId.trim();
     return {
-      edgeType: edgeType === "all" ? null : edgeType,
-      scope: hasScopeFilters ? normalizedScope : null,
+      edgeType: edgeType || null,
+      scope: scopeArgument,
       sourceId: sourceValue.length ? sourceValue : null,
       targetId: targetValue.length ? targetValue : null,
     };
-  }, [edgeType, scopeFilters.projectId, scopeFilters.domainId, scopeFilters.teamId, sourceId, targetId]);
+  }, [edgeType, scopeArgument, sourceId, targetId]);
+
+  const { facets, loading: facetsLoading, error: facetsError, refresh: refreshFacets } = useKbFacets(
+    metadataEndpoint,
+    authToken ?? undefined,
+    normalizedScope,
+  );
 
   const selectEdgesConnection = useCallback(
     (payload: { kbEdges?: { edges: Array<{ node: KbEdge }>; pageInfo: unknown } } | null | undefined) => {
@@ -74,13 +92,76 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
     }
   }, [pagedQuery.items, selectedEdge]);
 
+  const handleCopy = useCallback(
+    (event: MouseEvent<HTMLButtonElement> | null, logicalKey: string | null | undefined, edgeId: string) => {
+      event?.stopPropagation();
+      if (!logicalKey) {
+        toastQueue.pushToast({ title: "Logical key unavailable", intent: "error" });
+        return;
+      }
+      navigator.clipboard?.writeText(logicalKey).catch(() => {});
+      toastQueue.pushToast({ title: "Logical key copied", intent: "success" });
+      setCopiedEdgeId(edgeId);
+      setCopyAnnouncement("Edge logical key copied");
+      if (copyResetRef.current) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        setCopiedEdgeId(null);
+        setCopyAnnouncement("");
+      }, 1500);
+    },
+    [toastQueue],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  const graphNodes = useMemo(() => {
+    const map = new Map<string, { id: string; label: string }>();
+    pagedQuery.items.forEach((edge) => {
+      if (!map.has(edge.sourceEntityId)) {
+        map.set(edge.sourceEntityId, { id: edge.sourceEntityId, label: edge.sourceEntityId });
+      }
+      if (!map.has(edge.targetEntityId)) {
+        map.set(edge.targetEntityId, { id: edge.targetEntityId, label: edge.targetEntityId });
+      }
+    });
+    return Array.from(map.values());
+  }, [pagedQuery.items]);
+
+  const graphEdges = useMemo(
+    () =>
+      pagedQuery.items.map((edge) => ({
+        id: edge.id,
+        sourceId: edge.sourceEntityId,
+        targetId: edge.targetEntityId,
+      })),
+    [pagedQuery.items],
+  );
+
   if (!metadataEndpoint) {
     return <p className="text-sm text-slate-500">Metadata endpoint not configured.</p>;
   }
 
   return (
     <div className="flex h-full min-h-0 gap-6">
+      <div role="status" aria-live="polite" className="sr-only">
+        {copyAnnouncement}
+      </div>
       <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.4em] text-slate-500">View</p>
+            <p className="text-lg font-semibold text-slate-900 dark:text-white">Edges explorer</p>
+          </div>
+          <ViewToggle value={viewMode} onChange={setViewMode} disableGraph={!graphNodes.length || !graphEdges.length} />
+        </div>
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col">
             <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Edge type</label>
@@ -88,15 +169,34 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
               value={edgeType}
               onChange={(event) => setEdgeType(event.target.value)}
               className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              data-testid="kb-edge-type-filter"
             >
-              <option value="all">All</option>
-              <option value="DEPENDENCY_OF">Dependency</option>
-              <option value="DOCUMENTED_BY">Documented by</option>
+              <option value="">All</option>
+              {(facets?.edgeTypes ?? []).map((facet) => (
+                <option key={facet.value} value={facet.value}>
+                  {facet.label} ({facet.count})
+                </option>
+              ))}
             </select>
           </div>
-          <ScopeInput label="Project" value={scopeFilters.projectId ?? ""} onChange={(value) => setScopeFilters((prev) => ({ ...prev, projectId: value }))} />
-          <ScopeInput label="Domain" value={scopeFilters.domainId ?? ""} onChange={(value) => setScopeFilters((prev) => ({ ...prev, domainId: value }))} />
-          <ScopeInput label="Team" value={scopeFilters.teamId ?? ""} onChange={(value) => setScopeFilters((prev) => ({ ...prev, teamId: value }))} />
+          <ScopeInput
+            label="Project"
+            value={scopeFilters.projectId ?? ""}
+            onChange={(value) => setScopeFilters((prev) => ({ ...prev, projectId: value }))}
+            options={facets?.projects}
+          />
+          <ScopeInput
+            label="Domain"
+            value={scopeFilters.domainId ?? ""}
+            onChange={(value) => setScopeFilters((prev) => ({ ...prev, domainId: value }))}
+            options={facets?.domains}
+          />
+          <ScopeInput
+            label="Team"
+            value={scopeFilters.teamId ?? ""}
+            onChange={(value) => setScopeFilters((prev) => ({ ...prev, teamId: value }))}
+            options={facets?.teams}
+          />
           <TextInput label="Source node" value={sourceId} onChange={setSourceId} placeholder="Node ID" />
           <TextInput label="Target node" value={targetId} onChange={setTargetId} placeholder="Node ID" />
           <button
@@ -107,83 +207,120 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
             <LuRefreshCcw className="h-4 w-4" /> Refresh
           </button>
         </div>
+        {facetsError ? (
+          <p className="mt-2 text-xs text-rose-500">
+            Failed to load edge filters: {facetsError}{" "}
+            <button type="button" onClick={() => refreshFacets()} className="underline">
+              Retry
+            </button>
+          </p>
+        ) : null}
         <div className="mt-4 flex-1 overflow-auto">
-          {pagedQuery.error ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
-              {pagedQuery.error}
-            </p>
-          ) : null}
-          {pagedQuery.loading && pagedQuery.items.length === 0 ? <p className="text-sm text-slate-500">Loading edges…</p> : null}
-          {!pagedQuery.loading && pagedQuery.items.length === 0 ? (
-            <p className="text-sm text-slate-500">No edges match the current filters.</p>
-          ) : null}
-          {pagedQuery.items.length > 0 ? (
-            <table className="mt-2 w-full table-auto text-sm" data-testid="kb-edges-table">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-[0.3em] text-slate-500">
-                  <th className="px-2 py-2">Type</th>
-                  <th className="px-2 py-2">Source</th>
-                  <th className="px-2 py-2">Target</th>
-                  <th className="px-2 py-2">Updated</th>
-                  <th className="px-2 py-2">Identity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedQuery.items.map((edge) => {
-                  const isSelected = selectedEdge?.id === edge.id;
-                  return (
-                    <tr
-                      key={edge.id}
-                      className={`border-t border-slate-100 text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40 ${
-                        isSelected ? "bg-slate-100 dark:bg-slate-800/60" : ""
-                      }`}
-                      onClick={() => setSelectedEdge(edge)}
-                    >
-                    <td className="px-2 py-2 font-semibold">{edge.edgeType}</td>
-                    <td className="px-2 py-2 text-xs text-slate-500">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          navigate(`/kb/explorer/nodes?node=${edge.sourceEntityId}`);
-                        }}
-                        className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-                      >
-                        {edge.sourceEntityId}
-                      </button>
-                    </td>
-                    <td className="px-2 py-2 text-xs text-slate-500">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          navigate(`/kb/explorer/nodes?node=${edge.targetEntityId}`);
-                        }}
-                        className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-                      >
-                        {edge.targetEntityId}
-                      </button>
-                    </td>
-                    <td className="px-2 py-2 text-xs text-slate-500">{new Date(edge.updatedAt).toLocaleString()}</td>
-                    <td className="px-2 py-2 text-xs text-slate-500">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-1 text-[10px] uppercase tracking-[0.4em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          navigator.clipboard?.writeText(edge.identity.logicalKey ?? "");
-                          toast.enqueue({ id: `kb-edge-copy-${edge.id}`, message: "Logical key copied", tone: "success" });
-                        }}
-                      >
-                        <LuClipboard className="h-3 w-3" /> Copy
-                      </button>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : null}
+          {viewMode === "graph" ? (
+            <KnowledgeBaseGraphView
+              nodes={graphNodes}
+              edges={graphEdges}
+              selectedNodeId={selectedEdge?.sourceEntityId}
+              selectedEdgeId={selectedEdge?.id ?? null}
+              onSelectNode={(nodeId) => {
+                navigate(`/kb/explorer/nodes?node=${nodeId}`);
+              }}
+              onSelectEdge={(edgeId) => {
+                const match = pagedQuery.items.find((edge) => edge.id === edgeId);
+                if (match) {
+                  setSelectedEdge(match);
+                }
+              }}
+            />
+          ) : (
+            <>
+              {pagedQuery.error ? (
+                <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
+                  {pagedQuery.error}
+                </p>
+              ) : null}
+              {pagedQuery.loading && pagedQuery.items.length === 0 ? <p className="text-sm text-slate-500">Loading edges…</p> : null}
+              {!pagedQuery.loading && pagedQuery.items.length === 0 ? (
+                <p className="text-sm text-slate-500">No edges match the current filters.</p>
+              ) : null}
+              {pagedQuery.items.length > 0 ? (
+                <table className="mt-2 w-full table-auto text-sm" data-testid="kb-edges-table">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-[0.3em] text-slate-500">
+                      <th className="px-2 py-2">Type</th>
+                      <th className="px-2 py-2">Source</th>
+                      <th className="px-2 py-2">Target</th>
+                      <th className="px-2 py-2">Updated</th>
+                      <th className="px-2 py-2">Identity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedQuery.items.map((edge) => {
+                      const isSelected = selectedEdge?.id === edge.id;
+                      const isCopied = copiedEdgeId === edge.id;
+                      const typeLabel = resolveKbLabel(edge.edgeType, "edgeType");
+                      return (
+                        <tr
+                          key={edge.id}
+                          className={`border-t border-slate-100 text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40 ${
+                            isSelected ? "bg-slate-100 dark:bg-slate-800/60" : ""
+                          }`}
+                          onClick={() => setSelectedEdge(edge)}
+                        >
+                          <td className="px-2 py-2">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-900 dark:text-white">{typeLabel}</span>
+                              <span className="text-[10px] uppercase tracking-[0.3em] text-slate-400">{edge.edgeType}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/kb/explorer/nodes?node=${edge.sourceEntityId}`);
+                          }}
+                              className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                            >
+                              {edge.sourceEntityId}
+                            </button>
+                          </td>
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                navigate(`/kb/explorer/nodes?node=${edge.targetEntityId}`);
+                              }}
+                              className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                            >
+                              {edge.targetEntityId}
+                            </button>
+                          </td>
+                          <td className="px-2 py-2 text-xs text-slate-500">{new Date(edge.updatedAt).toLocaleString()}</td>
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                        <button
+                          type="button"
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.4em] transition ${
+                            isCopied
+                              ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400 dark:text-emerald-200"
+                              : "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                          }`}
+                          onClick={(event) => handleCopy(event, edge.identity.logicalKey ?? "", edge.id)}
+                          data-testid="kb-edge-copy-button"
+                        >
+                              {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {pagedQuery.loading ? <SkeletonRows columns={5} count={Math.max(3, pagedQuery.items.length ? 2 : 4)} /> : null}
+                  </tbody>
+                </table>
+              ) : null}
+            </>
+          )}
         </div>
         {pagedQuery.pageInfo.hasNextPage ? (
           <button
@@ -206,10 +343,8 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
             onOpenTarget={() => navigate(`/kb/explorer/nodes?node=${selectedEdge.targetEntityId}`)}
             onSourceScene={() => navigate(`/kb/scenes?node=${selectedEdge.sourceEntityId}`)}
             onTargetScene={() => navigate(`/kb/scenes?node=${selectedEdge.targetEntityId}`)}
-            onCopyLogicalKey={() => {
-              navigator.clipboard?.writeText(selectedEdge.identity.logicalKey ?? "");
-              toast.enqueue({ id: `kb-edge-detail-copy-${selectedEdge.id}`, message: "Logical key copied", tone: "success" });
-            }}
+            onCopyLogicalKey={() => handleCopy(null, selectedEdge.identity.logicalKey ?? "", `detail-${selectedEdge.id}`)}
+            isCopied={copiedEdgeId === `detail-${selectedEdge.id}`}
           />
         ) : (
           <p className="text-sm text-slate-500">Select an edge to view details.</p>
@@ -219,16 +354,42 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
   );
 }
 
-function ScopeInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function ScopeInput({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options?: Array<{ value: string; label: string; count?: number }> | null;
+}) {
+  const hasOptions = Boolean(options?.length);
   return (
     <div className="flex flex-col">
       <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1 w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-      />
+      {hasOptions ? (
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1 w-36 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        >
+          <option value="">{`All ${label.toLowerCase()}`}</option>
+          {(options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} {typeof option.count === "number" ? `(${option.count})` : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1 w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        />
+      )}
     </div>
   );
 }
@@ -255,6 +416,7 @@ function EdgeDetail({
   onSourceScene,
   onTargetScene,
   onCopyLogicalKey,
+  isCopied = false,
 }: {
   edge: KbEdge;
   onOpenSource: () => void;
@@ -262,9 +424,10 @@ function EdgeDetail({
   onSourceScene: () => void;
   onTargetScene: () => void;
   onCopyLogicalKey: () => void;
+  isCopied?: boolean;
 }) {
   return (
-    <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
+  <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Edge type</p>
         <p className="text-lg font-semibold text-slate-900 dark:text-white">{edge.edgeType}</p>
@@ -287,9 +450,14 @@ function EdgeDetail({
           <button
             type="button"
             onClick={onCopyLogicalKey}
-            className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-1 text-[10px] uppercase tracking-[0.4em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.4em] transition ${
+              isCopied
+                ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400 dark:text-emerald-200"
+                : "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+            }`}
+            data-testid="kb-edge-detail-copy"
           >
-            <LuClipboard className="h-3 w-3" /> Copy
+            {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
           </button>
         </div>
         <p className="break-all text-slate-900 dark:text-white">{edge.identity.logicalKey}</p>
@@ -329,6 +497,22 @@ function EdgeDetail({
       </div>
       <div className="text-xs text-slate-500">Updated {new Date(edge.updatedAt).toLocaleString()}</div>
     </div>
+  );
+}
+
+function SkeletonRows({ columns, count }: { columns: number; count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, rowIndex) => (
+        <tr key={`kb-edge-skeleton-${rowIndex}`} className="animate-pulse border-t border-slate-100 dark:border-slate-800">
+          {Array.from({ length: columns }).map((__, colIndex) => (
+            <td key={colIndex} className="px-2 py-3">
+              <div className="h-4 w-full rounded bg-slate-200/70 dark:bg-slate-700/50" />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
   );
 }
 

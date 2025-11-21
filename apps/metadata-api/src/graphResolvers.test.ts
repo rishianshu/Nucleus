@@ -191,6 +191,51 @@ test("kbNodes and kbEdges fall back to sample graph data when store is empty", a
   assert.ok(scene.nodes.length >= 1);
 });
 
+test("kbFacets aggregates node and edge facets for the active tenant", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-kb-facets-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildResolverContext();
+  const tenantContext = { tenantId: ctx.auth.tenantId, projectId: ctx.auth.projectId, actorId: ctx.userId ?? undefined };
+
+  const datasetA = await graphStore.upsertEntity(
+    {
+      entityType: "catalog.dataset",
+      displayName: "Dataset A",
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  const datasetB = await graphStore.upsertEntity(
+    {
+      entityType: "catalog.dataset",
+      displayName: "Dataset B",
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId, teamId: "data" },
+    },
+    tenantContext,
+  );
+  await graphStore.upsertEdge(
+    {
+      edgeType: "DEPENDENCY_OF",
+      sourceEntityId: datasetA.id,
+      targetEntityId: datasetB.id,
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+
+  const facets = await resolvers.Query.kbFacets(null, {}, ctx as any);
+  assert.ok(facets.nodeTypes.length > 0, "node facets should exist");
+  const datasetFacet = facets.nodeTypes.find((entry) => entry.value === "catalog.dataset");
+  assert.equal(datasetFacet?.count, 2);
+  const dependencyFacet = facets.edgeTypes.find((entry) => entry.value === "DEPENDENCY_OF");
+  assert.equal(dependencyFacet?.count, 1);
+});
+
 function buildResolverContext() {
   return {
     auth: {

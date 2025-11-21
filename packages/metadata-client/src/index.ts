@@ -251,6 +251,8 @@ export class MetadataClient {
   }
 }
 
+export { resolveKbLabel, resolveKbValue, humanizeKbIdentifier } from "./kbLabels.js";
+
 function normalizeDataset(raw: any): MetadataDataset {
   return {
     id: String(raw.id ?? raw.path ?? raw.name ?? ""),

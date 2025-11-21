@@ -76,6 +76,38 @@ export const KB_EDGES_QUERY = `
   }
 `;
 
+export const KB_FACETS_QUERY = `
+  query KbFacets($scope: GraphScopeInput) {
+    kbFacets(scope: $scope) {
+      nodeTypes {
+        value
+        label
+        count
+      }
+      edgeTypes {
+        value
+        label
+        count
+      }
+      projects {
+        value
+        label
+        count
+      }
+      domains {
+        value
+        label
+        count
+      }
+      teams {
+        value
+        label
+        count
+      }
+    }
+  }
+`;
+
 export const KB_NODE_DETAIL_QUERY = `
   query KbNodeDetail($id: ID!) {
     kbNode(id: $id) {

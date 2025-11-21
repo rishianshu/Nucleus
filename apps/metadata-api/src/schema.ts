@@ -12,6 +12,7 @@ import type {
   GraphStore,
   TenantContext,
 } from "@metadata/core";
+import { resolveKbLabel, humanizeKbIdentifier } from "@metadata/client";
 import type { EndpointBuildResult, EndpointTemplate, EndpointTestResult } from "./types.js";
 import { getPrismaClient } from "./prismaClient.js";
 import { getTemporalClient } from "./temporal/client.js";
@@ -36,6 +37,25 @@ const KB_EDGES_MAX_PAGE_SIZE = 100;
 const KB_SCENE_NODE_CAP = 300;
 const KB_SCENE_EDGE_CAP = 600;
 const KB_SAMPLE_TIMESTAMP = "2024-01-01T00:00:00.000Z";
+const KB_FACET_CACHE_TTL_MS = Number(process.env.KB_FACET_CACHE_TTL_MS ?? 15 * 60 * 1000);
+
+type GraphQLKbFacetValue = {
+  value: string;
+  label: string;
+  count: number;
+};
+
+type GraphQLKbFacets = {
+  nodeTypes: GraphQLKbFacetValue[];
+  edgeTypes: GraphQLKbFacetValue[];
+  projects: GraphQLKbFacetValue[];
+  domains: GraphQLKbFacetValue[];
+  teams: GraphQLKbFacetValue[];
+};
+
+type KbFacetCacheEntry = { expiresAt: number; payload: GraphQLKbFacets };
+
+const kbFacetCache = new Map<string, KbFacetCacheEntry>();
 
 export const typeDefs = `#graphql
   scalar DateTime
@@ -155,6 +175,20 @@ export const typeDefs = `#graphql
     nodes: [GraphNode!]!
     edges: [GraphEdge!]!
     summary: KbSceneSummary!
+  }
+
+  type KbFacetValue {
+    value: String!
+    label: String!
+    count: Int!
+  }
+
+  type KbFacets {
+    nodeTypes: [KbFacetValue!]!
+    edgeTypes: [KbFacetValue!]!
+    projects: [KbFacetValue!]!
+    domains: [KbFacetValue!]!
+    teams: [KbFacetValue!]!
   }
 
   input GraphNodeFilter {
@@ -525,6 +559,7 @@ export const typeDefs = `#graphql
     kbNode(id: ID!): GraphNode
     kbNeighbors(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
+    kbFacets(scope: GraphScopeInput): KbFacets!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
@@ -907,6 +942,10 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
       ) => {
         enforceReadAccess(ctx);
         return resolveKbScene(store, args, ctx);
+      },
+      kbFacets: async (_parent: unknown, args: { scope?: GraphQLGraphScopeInput | null }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        return resolveKbFacets(store, args.scope ?? null, ctx);
       },
       metadataEndpoints: async (
         _parent: unknown,
@@ -3121,6 +3160,27 @@ type GraphCursor = {
   id: string;
 };
 
+async function resolveKbFacets(store: MetadataStore, scopeInput: GraphQLGraphScopeInput | null, ctx: ResolverContext) {
+  const scope = normalizeGraphScopeFilter(ctx, scopeInput);
+  const cacheKey = buildFacetCacheKey(scope);
+  const now = Date.now();
+  const cached = kbFacetCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.payload;
+  }
+  const prisma = await tryGetPrismaGraphClient();
+  let facets: GraphQLKbFacets | null = null;
+  if (prisma) {
+    facets = await buildPrismaKbFacets(prisma, scope);
+  }
+  if (!facets) {
+    facets = await buildStoreKbFacets(store, scope);
+  }
+  const payload = facets ?? { nodeTypes: [], edgeTypes: [], projects: [], domains: [], teams: [] };
+  kbFacetCache.set(cacheKey, { expiresAt: now + KB_FACET_CACHE_TTL_MS, payload });
+  return payload;
+}
+
 async function resolveKbNodes(
   store: MetadataStore,
   args: { type?: string | null; scope?: GraphQLGraphScopeInput | null; search?: string | null; first?: number | null; after?: string | null },
@@ -3284,6 +3344,162 @@ async function resolveKbScene(
       truncated,
     },
   };
+}
+
+async function buildPrismaKbFacets(prisma: PrismaClientInstance, scope: GraphScopeFilter): Promise<GraphQLKbFacets | null> {
+  if (!prisma?.graphNode?.groupBy) {
+    return null;
+  }
+  const nodeWhere = buildPrismaGraphNodeWhere(scope, null, null);
+  const edgeWhere = buildPrismaGraphEdgeWhere(scope, null, null, null);
+  const [
+    nodeTypeGroups,
+    projectGroups,
+    domainGroups,
+    teamGroups,
+    edgeTypeGroups,
+  ] = await Promise.all([
+    prisma.graphNode.groupBy({ by: ["entityType"], where: nodeWhere, _count: { _all: true } }),
+    prisma.graphNode.groupBy({ by: ["scopeProjectId"], where: nodeWhere, _count: { _all: true } }),
+    prisma.graphNode.groupBy({ by: ["scopeDomainId"], where: nodeWhere, _count: { _all: true } }),
+    prisma.graphNode.groupBy({ by: ["scopeTeamId"], where: nodeWhere, _count: { _all: true } }),
+    prisma.graphEdge?.groupBy
+      ? prisma.graphEdge.groupBy({ by: ["edgeType"], where: edgeWhere, _count: { _all: true } })
+      : Promise.resolve([]),
+  ]);
+  const projectLabelMap = await resolveProjectLabelMap(prisma, projectGroups.map((group: any) => group.scopeProjectId));
+  const domainLabelMap = await resolveDomainLabelMap(prisma, domainGroups.map((group: any) => group.scopeDomainId));
+  return {
+    nodeTypes: formatFacetGroup(nodeTypeGroups as any[], "entityType", (value) => resolveKbLabel(value, "nodeType")),
+    edgeTypes: formatFacetGroup(edgeTypeGroups as any[], "edgeType", (value) => resolveKbLabel(value, "edgeType")),
+    projects: formatFacetGroup(projectGroups as any[], "scopeProjectId", (value) => projectLabelMap[value] ?? humanizeKbIdentifier(value)),
+    domains: formatFacetGroup(domainGroups as any[], "scopeDomainId", (value) => domainLabelMap[value] ?? humanizeKbIdentifier(value)),
+    teams: formatFacetGroup(teamGroups as any[], "scopeTeamId", (value) => humanizeKbIdentifier(value)),
+  };
+}
+
+async function buildStoreKbFacets(store: MetadataStore, scope: GraphScopeFilter): Promise<GraphQLKbFacets> {
+  const nodeRecords = await store.listGraphNodes({ scopeOrgId: scope.orgId });
+  const edgeRecords = await store.listGraphEdges({ scopeOrgId: scope.orgId });
+  let scopedNodes = nodeRecords.filter((node) => matchesGraphScope(node.scope, scope));
+  let scopedEdges = edgeRecords.filter((edge) => matchesGraphScope(edge.scope, scope));
+  if (!scopedNodes.length && ENABLE_SAMPLE_FALLBACK) {
+    const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? DEFAULT_PROJECT_ID);
+    scopedNodes = sampleGraph.nodes.filter((node) => matchesGraphScope(node.scope, scope));
+    scopedEdges = sampleGraph.edges.filter((edge) => matchesGraphScope(edge.scope, scope));
+  }
+  const nodeTypeCounts = countBy(scopedNodes, (node) => node.entityType);
+  const edgeTypeCounts = countBy(scopedEdges, (edge) => edge.edgeType);
+  const projectCounts = countBy(scopedNodes, (node) => node.scope.projectId ?? null);
+  const domainCounts = countBy(scopedNodes, (node) => node.scope.domainId ?? null);
+  const teamCounts = countBy(scopedNodes, (node) => node.scope.teamId ?? null);
+  return {
+    nodeTypes: formatFacetCounts(nodeTypeCounts, (value) => resolveKbLabel(value, "nodeType")),
+    edgeTypes: formatFacetCounts(edgeTypeCounts, (value) => resolveKbLabel(value, "edgeType")),
+    projects: formatFacetCounts(projectCounts, (value) => humanizeKbIdentifier(value)),
+    domains: formatFacetCounts(domainCounts, (value) => humanizeKbIdentifier(value)),
+    teams: formatFacetCounts(teamCounts, (value) => humanizeKbIdentifier(value)),
+  };
+}
+
+function buildFacetCacheKey(scope: GraphScopeFilter): string {
+  return [
+    scope.orgId,
+    scope.projectId ?? "*",
+    scope.domainId ?? "*",
+    scope.teamId ?? "*",
+  ].join(":");
+}
+
+async function resolveProjectLabelMap(prisma: PrismaClientInstance, projectIds: Array<string | null | undefined>) {
+  const ids = Array.from(new Set(projectIds.filter((value): value is string => Boolean(value))));
+  if (!ids.length || !prisma.metadataProject?.findMany) {
+    return {};
+  }
+  const rows = await prisma.metadataProject.findMany({ where: { id: { in: ids } } });
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    map[row.id] = row.displayName ?? row.slug ?? row.id;
+  }
+  return map;
+}
+
+async function resolveDomainLabelMap(prisma: PrismaClientInstance, domainIds: Array<string | null | undefined>) {
+  const ids = Array.from(new Set(domainIds.filter((value): value is string => Boolean(value))));
+  if (!ids.length || !prisma.metadataDomain?.findMany) {
+    return {};
+  }
+  const rows = await prisma.metadataDomain.findMany({
+    where: { OR: [{ id: { in: ids } }, { key: { in: ids } }] },
+  });
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    const label = row.title ?? row.key ?? row.id;
+    if (row.id) {
+      map[row.id] = label;
+    }
+    if (row.key) {
+      map[row.key] = label;
+    }
+  }
+  return map;
+}
+
+function formatFacetGroup(rows: any[], field: string, labelResolver: (value: string) => string): GraphQLKbFacetValue[] {
+  const values: GraphQLKbFacetValue[] = [];
+  for (const row of rows) {
+    const rawValue = row?.[field];
+    const normalized = typeof rawValue === "string" ? rawValue.trim() : "";
+    const count = Number(row?._count?._all ?? 0);
+    if (!normalized || !count) {
+      continue;
+    }
+    values.push({
+      value: normalized,
+      label: labelResolver(normalized),
+      count,
+    });
+  }
+  return sortFacetValues(values);
+}
+
+function countBy<T>(items: T[], resolver: (item: T) => string | null | undefined): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const value = resolver(item);
+    if (!value) {
+      continue;
+    }
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function formatFacetCounts(
+  counts: Map<string, number>,
+  labelResolver: (value: string) => string,
+): GraphQLKbFacetValue[] {
+  const values: GraphQLKbFacetValue[] = [];
+  for (const [value, count] of counts.entries()) {
+    if (!value || !count) {
+      continue;
+    }
+    values.push({
+      value,
+      label: labelResolver(value),
+      count,
+    });
+  }
+  return sortFacetValues(values);
+}
+
+function sortFacetValues(values: GraphQLKbFacetValue[]): GraphQLKbFacetValue[] {
+  return [...values].sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+    return a.label.localeCompare(b.label);
+  });
 }
 
 async function fetchGraphNodeForScene(
@@ -3679,6 +3895,9 @@ function toISOStringValue(value: string | Date) {
 }
 
 async function tryGetPrismaGraphClient(): Promise<any | null> {
+  if (!process.env.METADATA_DATABASE_URL) {
+    return null;
+  }
   try {
     return await getPrismaClient();
   } catch {

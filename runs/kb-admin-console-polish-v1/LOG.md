@@ -1,0 +1,4 @@
+2025-11-21T02:28:41Z {done: boot kb-admin-console-polish-v1 (verified intents/runs), next: review intent/spec/plan + sync TODO before implementing, risks: none}
+2025-11-21T02:42:45Z {done: added kbFacets resolver + caching + shared label helper with tests (metadata-api + UI), next: implement UI facet combos/copy feedback/no-flicker loading, risks: graph toggle + d3 integration still open}
+2025-11-21T05:25:05Z {done: implemented facet combos, ADR copy feedback, keep-previous-data + skeletons, List↔Graph toggle with SVG force layout, and Scenes truncation banner/animation; next: extend Playwright coverage + run full e2e/tests and update docs/story/state, risks: new graph view needs e2e selectors}
+2025-11-21T07:12:02Z {done: Playwright + Vitest suites green (knowledge base specs enhanced with facet/copy/graph assertions), STORY + STATE updated, slug ready for handoff, next: none (complete), risks: none}

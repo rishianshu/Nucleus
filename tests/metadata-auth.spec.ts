@@ -569,14 +569,63 @@ test("knowledge base overview surfaces metrics and explorer links", async ({ pag
 test("knowledge base explorers support node and edge actions", async ({ page }) => {
   await openKnowledgeBase(page);
   await page.getByTestId("kb-tab-nodes").click();
+  const nodeTypeFilter = page.getByTestId("kb-node-type-filter");
+  await expect(nodeTypeFilter).toBeVisible({ timeout: 20_000 });
+  await expect(nodeTypeFilter).toContainText("Datasets");
+  await nodeTypeFilter.selectOption({ value: "catalog.dataset" });
+  const nodeCopyButton = page.getByTestId("kb-node-copy-button").first();
+  await nodeCopyButton.click();
+  await expect(nodeCopyButton).toHaveText(/Copied/i);
+  await page.getByTestId("kb-view-graph").click();
+  await expect(page.getByTestId("kb-graph-view")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("kb-view-list").click();
+  await page.getByTestId("kb-tab-nodes").click();
   const nodeRows = page.locator("table tbody tr");
   await expect(nodeRows.first()).toBeVisible({ timeout: 20_000 });
   await nodeRows.first().click();
   const nodeDetail = page.getByTestId("kb-node-detail-panel");
   await expect(nodeDetail).toBeVisible();
+  await nodeDetail.getByTestId("kb-node-detail-copy").click();
+  await expect(nodeDetail.getByTestId("kb-node-detail-copy")).toHaveText(/Copied/);
+  const metadataGraphql = PRIMARY_METADATA_GRAPHQL_ROUTE;
+  let sceneIntercepted = false;
+  const sceneRoute = async (route: Route) => {
+    const payload = route.request().postDataJSON();
+    const query = typeof payload?.query === "string" ? payload.query : "";
+    if (!sceneIntercepted && query.includes("kbScene")) {
+      sceneIntercepted = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            kbScene: {
+              nodes: [
+                {
+                  id: "scene-node",
+                  entityType: "catalog.dataset",
+                  displayName: "Scene Node",
+                  canonicalPath: null,
+                  updatedAt: new Date().toISOString(),
+                  identity: { logicalKey: "scene-node" },
+                },
+              ],
+              edges: [],
+              summary: { nodeCount: 301, edgeCount: 0, truncated: true },
+            },
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  };
+  await page.route(metadataGraphql, sceneRoute);
   await nodeDetail.getByRole("button", { name: "Scenes" }).click();
   await expect(page).toHaveURL(/\/kb\/scenes/);
   await expect(page.getByText("Graph preview")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("kb-scenes-truncated")).toBeVisible({ timeout: 10_000 });
+  await page.unroute(metadataGraphql, sceneRoute);
   const sceneUrl = new URL(page.url());
   const selectedNodeId = sceneUrl.searchParams.get("node") ?? "";
   await page.getByTestId("kb-tab-provenance").click();
@@ -586,11 +635,31 @@ test("knowledge base explorers support node and edge actions", async ({ page }) 
   await page.getByTestId("kb-tab-edges").click();
   await expect(page).toHaveURL(/\/kb\/explorer\/edges/);
   await expect(page.getByTestId("kb-edges-table")).toBeVisible({ timeout: 20_000 });
+  const edgeTypeFilter = page.getByTestId("kb-edge-type-filter");
+  const dependencyOptionCount = await edgeTypeFilter.locator('option[value="DEPENDENCY_OF"]').count();
+  if (dependencyOptionCount > 0) {
+    await edgeTypeFilter.selectOption({ value: "DEPENDENCY_OF" });
+  } else {
+    const fallbackOption = edgeTypeFilter.locator("option").nth(1);
+    if (await fallbackOption.isVisible().catch(() => false)) {
+      const fallbackValue = await fallbackOption.getAttribute("value");
+      if (fallbackValue) {
+        await edgeTypeFilter.selectOption(fallbackValue);
+      }
+    }
+  }
   const edgeRow = page.locator("table tbody tr").first();
   await expect(edgeRow).toBeVisible({ timeout: 20_000 });
+  const edgeCopyButton = page.getByTestId("kb-edge-copy-button").first();
+  await edgeCopyButton.click();
+  await expect(edgeCopyButton).toHaveText(/Copied/);
   await edgeRow.locator("button").first().click({ timeout: 20_000 });
   await expect(page).toHaveURL(/\/kb\/explorer\/nodes/);
   await expect(page.getByTestId("kb-node-detail-panel")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("kb-tab-edges").click();
+  const detailCopy = page.getByTestId("kb-edge-detail-copy").first();
+  await detailCopy.click();
+  await expect(detailCopy).toHaveText(/Copied/);
 });
 
 async function ensureWorkspaceReady(page: Page) {

@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { LuClipboard, LuExternalLink, LuMap, LuRefreshCcw } from "react-icons/lu";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
+import { LuCheck, LuClipboard, LuExternalLink, LuMap, LuRefreshCcw } from "react-icons/lu";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { resolveKbLabel } from "@metadata/client";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { usePagedQuery, useToastQueue, useDebouncedValue } from "../metadata/hooks";
 import type { Role } from "../auth/AuthProvider";
 import { KB_NODES_QUERY, KB_NODE_DETAIL_QUERY } from "./queries";
 import type { KbNode, KbScope } from "./types";
+import { useKbFacets } from "./useKbFacets";
+import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
+import { ViewToggle } from "./ViewToggle";
 
 type NodesExplorerProps = {
   metadataEndpoint: string | null;
@@ -22,37 +27,51 @@ type ScopeFilters = {
 
 export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProps) {
   const navigate = useNavigate();
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("");
   const [scopeFilters, setScopeFilters] = useState<ScopeFilters>({});
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 400);
-  const toast = useToastQueue();
+  const toastQueue = useToastQueue();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<KbNode | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [copiedSourceId, setCopiedSourceId] = useState<string | null>(null);
+  const [copyAnnouncement, setCopyAnnouncement] = useState("");
+  const copyResetRef = useRef<number | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
   const handleSelectNode = (nodeId: string) => {
     setSelectedNodeId(nodeId);
     const next = new URLSearchParams(searchParams);
     next.set("node", nodeId);
     setSearchParams(next, { replace: true });
   };
-  const nodeQueryVariables = useMemo(() => {
-    const projectId = scopeFilters.projectId?.trim() ?? "";
-    const domainId = scopeFilters.domainId?.trim() ?? "";
-    const teamId = scopeFilters.teamId?.trim() ?? "";
-    const searchValue = debouncedSearch.trim();
-    const normalizedScope = {
-      projectId: projectId.length ? projectId : null,
-      domainId: domainId.length ? domainId : null,
-      teamId: teamId.length ? teamId : null,
-    };
-    const hasScopeFilters = Boolean(normalizedScope.projectId || normalizedScope.domainId || normalizedScope.teamId);
+  const normalizedScope = useMemo(() => {
+    const projectId = scopeFilters.projectId?.trim();
+    const domainId = scopeFilters.domainId?.trim();
+    const teamId = scopeFilters.teamId?.trim();
     return {
-      type: typeFilter === "all" ? null : typeFilter,
-      scope: hasScopeFilters ? normalizedScope : null,
+      projectId: projectId && projectId.length ? projectId : null,
+      domainId: domainId && domainId.length ? domainId : null,
+      teamId: teamId && teamId.length ? teamId : null,
+    };
+  }, [scopeFilters.projectId, scopeFilters.domainId, scopeFilters.teamId]);
+  const hasScopeFilters = Boolean(normalizedScope.projectId || normalizedScope.domainId || normalizedScope.teamId);
+  const scopeArgument = useMemo(() => (hasScopeFilters ? normalizedScope : null), [hasScopeFilters, normalizedScope]);
+
+  const nodeQueryVariables = useMemo(() => {
+    const searchValue = debouncedSearch.trim();
+    return {
+      type: typeFilter || null,
+      scope: scopeArgument,
       search: searchValue.length ? searchValue : null,
     };
-  }, [typeFilter, scopeFilters.projectId, scopeFilters.domainId, scopeFilters.teamId, debouncedSearch]);
+  }, [typeFilter, scopeArgument, debouncedSearch]);
+
+  const { facets, loading: facetsLoading, error: facetsError, refresh: refreshFacets } = useKbFacets(
+    metadataEndpoint,
+    authToken ?? undefined,
+    normalizedScope,
+  );
 
   const selectNodesConnection = useCallback(
     (payload: { kbNodes?: { edges: Array<{ node: KbNode }>; pageInfo: unknown } } | null | undefined) => {
@@ -76,6 +95,45 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
     selectConnection: selectNodesConnection,
     deps: [metadataEndpoint, authToken, nodeQueryVariables],
   });
+
+  const handleCopy = useCallback(
+    (event: MouseEvent<HTMLButtonElement> | null, logicalKey: string | null | undefined, sourceId: string) => {
+      event?.stopPropagation();
+      if (!logicalKey) {
+        toastQueue.pushToast({ title: "Logical key unavailable", intent: "error" });
+        return;
+      }
+      navigator.clipboard?.writeText(logicalKey).catch(() => {});
+      toastQueue.pushToast({ title: "Logical key copied", intent: "success" });
+      setCopiedSourceId(sourceId);
+      setCopyAnnouncement("Logical key copied");
+      if (copyResetRef.current) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        setCopiedSourceId(null);
+        setCopyAnnouncement("");
+      }, 1500);
+    },
+    [toastQueue],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  const graphNodes = useMemo(
+    () =>
+      pagedQuery.items.map((node) => ({
+        id: node.id,
+        label: node.displayName ?? resolveKbLabel(node.entityType, "nodeType"),
+      })),
+    [pagedQuery.items],
+  );
 
   useEffect(() => {
     const preselected = searchParams.get("node");
@@ -123,7 +181,17 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
 
   return (
     <div className="flex h-full min-h-0 gap-6">
+      <div role="status" aria-live="polite" className="sr-only">
+        {copyAnnouncement}
+      </div>
       <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.4em] text-slate-500">View</p>
+            <p className="text-lg font-semibold text-slate-900 dark:text-white">Nodes explorer</p>
+          </div>
+          <ViewToggle value={viewMode} onChange={setViewMode} disableGraph={!graphNodes.length} />
+        </div>
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-1 flex-col">
             <label htmlFor="kb-node-type" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
@@ -134,20 +202,34 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
               className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              data-testid="kb-node-type-filter"
             >
-              <option value="all">All types</option>
-              <option value="Dataset">Dataset</option>
-              <option value="Endpoint">Endpoint</option>
-              <option value="DocPage">Doc page</option>
+              <option value="">All types</option>
+              {(facets?.nodeTypes ?? []).map((facet) => (
+                <option key={facet.value} value={facet.value}>
+                  {facet.label} ({facet.count})
+                </option>
+              ))}
             </select>
           </div>
           <ScopeInput
             label="Project"
             value={scopeFilters.projectId ?? ""}
             onChange={(value) => setScopeFilters((prev) => ({ ...prev, projectId: value }))}
+            options={facets?.projects}
           />
-          <ScopeInput label="Domain" value={scopeFilters.domainId ?? ""} onChange={(value) => setScopeFilters((prev) => ({ ...prev, domainId: value }))} />
-          <ScopeInput label="Team" value={scopeFilters.teamId ?? ""} onChange={(value) => setScopeFilters((prev) => ({ ...prev, teamId: value }))} />
+          <ScopeInput
+            label="Domain"
+            value={scopeFilters.domainId ?? ""}
+            onChange={(value) => setScopeFilters((prev) => ({ ...prev, domainId: value }))}
+            options={facets?.domains}
+          />
+          <ScopeInput
+            label="Team"
+            value={scopeFilters.teamId ?? ""}
+            onChange={(value) => setScopeFilters((prev) => ({ ...prev, teamId: value }))}
+            options={facets?.teams}
+          />
           <div className="flex flex-1 flex-col">
             <label htmlFor="kb-node-search" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
               Search
@@ -169,74 +251,98 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
             <LuRefreshCcw className="h-4 w-4" /> Refresh
           </button>
         </div>
+        {facetsError ? (
+          <p className="mt-2 text-xs text-rose-500">
+            Failed to load filters: {facetsError}{" "}
+            <button type="button" onClick={() => refreshFacets()} className="underline">
+              Retry
+            </button>
+          </p>
+        ) : null}
         <div className="mt-4 flex-1 overflow-auto">
-          {pagedQuery.error ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
-              {pagedQuery.error}
-            </p>
-          ) : null}
-          {pagedQuery.loading && pagedQuery.items.length === 0 ? (
-            <p className="text-sm text-slate-500">Loading nodes…</p>
-          ) : null}
-          {!pagedQuery.loading && pagedQuery.items.length === 0 ? (
-            <p className="text-sm text-slate-500">No nodes match the current filters.</p>
-          ) : null}
-          {pagedQuery.items.length > 0 ? (
-            <table className="mt-2 w-full table-auto text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-[0.3em] text-slate-500">
-                  <th className="px-2 py-2">Type</th>
-                  <th className="px-2 py-2">Display</th>
-                  <th className="px-2 py-2">Scope</th>
-                  <th className="px-2 py-2">Updated</th>
-                  <th className="px-2 py-2">Identity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedQuery.items.map((node) => {
-                  const isSelected = node.id === selectedNodeId;
-                  return (
-                    <tr
-                      key={node.id}
-                      className={`cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40 ${
-                        isSelected ? "bg-slate-100 dark:bg-slate-800/60" : ""
-                      }`}
-                      onClick={() => handleSelectNode(node.id)}
-                    >
-                      <td className="px-2 py-2 font-semibold">{node.entityType}</td>
-                      <td className="px-2 py-2">
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-slate-900 dark:text-white">{node.displayName}</span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{node.canonicalPath ?? "—"}</span>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2 text-xs text-slate-500">
-                        <ScopeChips scope={node.scope} />
-                      </td>
-                      <td className="px-2 py-2 text-xs text-slate-500">{new Date(node.updatedAt).toLocaleString()}</td>
-                      <td className="px-2 py-2 text-xs text-slate-500">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-1 text-[10px] uppercase tracking-[0.4em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            navigator.clipboard?.writeText(node.identity.logicalKey ?? "");
-                            toast.enqueue({
-                              id: `kb-node-copy-${node.id}`,
-                              message: "Logical key copied",
-                              tone: "success",
-                            });
-                          }}
-                        >
-                          <LuClipboard className="h-3 w-3" /> Copy
-                        </button>
-                      </td>
+          {viewMode === "graph" ? (
+            <KnowledgeBaseGraphView
+              nodes={graphNodes}
+              edges={[]}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={(id) => handleSelectNode(id)}
+            />
+          ) : (
+            <>
+              {pagedQuery.error ? (
+                <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
+                  {pagedQuery.error}
+                </p>
+              ) : null}
+              {pagedQuery.loading && pagedQuery.items.length === 0 ? (
+                <p className="text-sm text-slate-500">Loading nodes…</p>
+              ) : null}
+              {!pagedQuery.loading && pagedQuery.items.length === 0 ? (
+                <p className="text-sm text-slate-500">No nodes match the current filters.</p>
+              ) : null}
+              {pagedQuery.items.length > 0 ? (
+                <table className="mt-2 w-full table-auto text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-[0.3em] text-slate-500">
+                      <th className="px-2 py-2">Type</th>
+                      <th className="px-2 py-2">Display</th>
+                      <th className="px-2 py-2">Scope</th>
+                      <th className="px-2 py-2">Updated</th>
+                      <th className="px-2 py-2">Identity</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : null}
+                  </thead>
+                  <tbody>
+                    {pagedQuery.items.map((node) => {
+                      const isSelected = node.id === selectedNodeId;
+                      const typeLabel = resolveKbLabel(node.entityType, "nodeType");
+                      const isCopied = copiedSourceId === node.id;
+                      return (
+                        <tr
+                          key={node.id}
+                          className={`cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40 ${
+                            isSelected ? "bg-slate-100 dark:bg-slate-800/60" : ""
+                          }`}
+                          onClick={() => handleSelectNode(node.id)}
+                        >
+                          <td className="px-2 py-2">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-900 dark:text-white">{typeLabel}</span>
+                              <span className="text-[10px] uppercase tracking-[0.3em] text-slate-400">{node.entityType}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-900 dark:text-white">{node.displayName}</span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">{node.canonicalPath ?? "—"}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                            <ScopeChips scope={node.scope} />
+                          </td>
+                          <td className="px-2 py-2 text-xs text-slate-500">{new Date(node.updatedAt).toLocaleString()}</td>
+                          <td className="px-2 py-2 text-xs text-slate-500">
+                            <button
+                              type="button"
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.4em] transition ${
+                                isCopied
+                                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400 dark:text-emerald-300"
+                                  : "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                              }`}
+                              onClick={(event) => handleCopy(event, node.identity.logicalKey ?? "", node.id)}
+                              data-testid="kb-node-copy-button"
+                            >
+                              {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {pagedQuery.loading ? <SkeletonRows columns={5} count={Math.max(3, pagedQuery.items.length ? 2 : 4)} /> : null}
+                  </tbody>
+                </table>
+              ) : null}
+            </>
+          )}
         </div>
         {pagedQuery.pageInfo.hasNextPage ? (
           <button
@@ -258,10 +364,8 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
             onOpenScenes={() => navigate(`/kb/scenes?node=${selectedNode.id}`)}
             onOpenProvenance={() => navigate(`/kb/provenance?node=${selectedNode.id}`)}
             onOpenExplorer={() => navigate(`/kb/explorer/nodes?node=${selectedNode.id}`)}
-            onCopyLogicalKey={() => {
-              navigator.clipboard?.writeText(selectedNode.identity.logicalKey ?? "");
-              toast.enqueue({ id: `kb-node-detail-copy-${selectedNode.id}`, message: "Logical key copied", tone: "success" });
-            }}
+            onCopyLogicalKey={() => handleCopy(null, selectedNode.identity.logicalKey ?? "", `detail-${selectedNode.id}`)}
+            isCopied={copiedSourceId === `detail-${selectedNode.id}`}
           />
         ) : (
           <p className="text-sm text-slate-500">Select a node to view identity and provenance details.</p>
@@ -287,16 +391,43 @@ function ScopeChips({ scope }: { scope: KbScope }) {
   );
 }
 
-function ScopeInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function ScopeInput({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options?: Array<{ value: string; label: string; count?: number }> | null;
+}) {
+  const hasOptions = Boolean(options?.length);
   return (
     <div className="flex flex-col">
       <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1 w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-      />
+      {hasOptions ? (
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1 w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          data-testid={`kb-scope-${label.toLowerCase()}`}
+        >
+          <option value="">{`All ${label.toLowerCase()}`}</option>
+          {(options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} {typeof option.count === "number" ? `(${option.count})` : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1 w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        />
+      )}
     </div>
   );
 }
@@ -307,12 +438,14 @@ function NodeDetail({
   onOpenProvenance,
   onOpenExplorer,
   onCopyLogicalKey,
+  isCopied = false,
 }: {
   node: KbNode;
   onOpenScenes: () => void;
   onOpenProvenance: () => void;
   onOpenExplorer: () => void;
   onCopyLogicalKey: () => void;
+  isCopied?: boolean;
 }) {
   return (
     <div className="flex h-full flex-col gap-4">
@@ -327,9 +460,14 @@ function NodeDetail({
           <button
             type="button"
             onClick={onCopyLogicalKey}
-            className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-1 text-[10px] uppercase tracking-[0.4em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.4em] transition ${
+              isCopied
+                ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400 dark:text-emerald-200"
+                : "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+            }`}
+            data-testid="kb-node-detail-copy"
           >
-            <LuClipboard className="h-3 w-3" /> Copy
+            {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
           </button>
         </div>
         <p className="break-all text-sm text-slate-900 dark:text-white">{node.identity.logicalKey}</p>
@@ -374,5 +512,21 @@ function NodeDetail({
         <span>Last updated {new Date(node.updatedAt).toLocaleString()}</span>
       </div>
     </div>
+  );
+}
+
+function SkeletonRows({ columns, count }: { columns: number; count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, rowIndex) => (
+        <tr key={`kb-node-skeleton-${rowIndex}`} className="animate-pulse border-t border-slate-100 dark:border-slate-800">
+          {Array.from({ length: columns }).map((__, colIndex) => (
+            <td key={colIndex} className="px-2 py-3">
+              <div className="h-4 w-full rounded bg-slate-200/70 dark:bg-slate-700/50" />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
   );
 }

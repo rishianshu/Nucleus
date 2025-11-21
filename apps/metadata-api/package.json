@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@apollo/server": "^4.10.0",
+    "@metadata/client": "workspace:*",
     "@metadata/core": "workspace:*",
     "@temporalio/client": "^1.13.1",
     "@temporalio/worker": "^1.13.1",

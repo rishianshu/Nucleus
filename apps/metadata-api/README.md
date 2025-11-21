@@ -27,5 +27,6 @@ The metadata API now exposes additive queries used by the Knowledge Base admin c
 - `kbNodes` / `kbEdges` return cursor-paginated connections with scope filtering (org/project/team) plus identity + provenance metadata.
 - `kbNode` resolves a single node (used by side panels/provenance).
 - `kbScene` / `kbNeighbors` build bounded subgraphs (≤300 nodes / 600 edges) honoring edge-type allowlists.
+- `kbFacets` returns type/edge/project/domain/team facet values (value + label + count) scoped to the requester, cached for 15 minutes to keep filter combos fast.
 
 When running in local/file-store mode the resolvers fall back to a small synthetic graph seeded from `fixtures/sample-metadata.json`, ensuring the console and tests have representative data even before collections populate the graph tables.

@@ -10,6 +10,9 @@ type ScenesViewProps = {
   authToken?: string | null;
 };
 
+const SCENE_NODE_CAP = 300;
+const SCENE_EDGE_CAP = 600;
+
 export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -21,6 +24,7 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [scene, setScene] = useState<KbScene | null>(null);
   const autoFetchNodeRef = useRef<string | null>(null);
+  const [sceneVersion, setSceneVersion] = useState(0);
 
   useEffect(() => {
     const paramNode = searchParams.get("node");
@@ -80,6 +84,12 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
     }
   };
 
+  useEffect(() => {
+    if (scene) {
+      setSceneVersion((prev) => prev + 1);
+    }
+  }, [scene?.summary.nodeCount, scene?.summary.edgeCount, scene?.summary.truncated]);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
@@ -102,7 +112,15 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
         </div>
       ) : null}
       {scene ? (
-        <div className="flex flex-col gap-4">
+        <div key={sceneVersion} className="flex flex-col gap-4 transition-all duration-500 ease-out">
+          {scene.summary.truncated ? (
+            <div
+              className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-100"
+              data-testid="kb-scenes-truncated"
+            >
+              Graph capped at {SCENE_NODE_CAP} nodes / {SCENE_EDGE_CAP} edges. Narrow filters to explore the full scene.
+            </div>
+          ) : null}
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 lg:col-span-1">
               <h2 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Graph preview</h2>

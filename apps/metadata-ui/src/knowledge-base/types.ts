@@ -54,3 +54,17 @@ export type KbScene = {
     truncated: boolean;
   };
 };
+
+export type KbFacetValue = {
+  value: string;
+  label: string;
+  count: number;
+};
+
+export type KbFacets = {
+  nodeTypes: KbFacetValue[];
+  edgeTypes: KbFacetValue[];
+  projects: KbFacetValue[];
+  domains: KbFacetValue[];
+  teams: KbFacetValue[];
+};
