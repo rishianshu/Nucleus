@@ -4,8 +4,10 @@ import type { IncomingMessage } from "node:http";
 import { createResolvers, typeDefs } from "./schema.js";
 import { getMetadataStore, getGraphStore } from "./context.js";
 import { authenticateRequest } from "./auth.js";
+import { registerDefaultIngestionSinks } from "./ingestion/index.js";
 
 async function main() {
+  registerDefaultIngestionSinks();
   const store = await getMetadataStore();
   console.info("[metadata-api] using store", store.constructor?.name ?? "unknown");
   const graphStore = await getGraphStore();

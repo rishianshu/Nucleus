@@ -4,6 +4,7 @@
     "jsx": "react-jsx",
     "rootDir": "../..",
     "baseUrl": ".",
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
     "paths": {
       "@/*": ["src/*"]
     }

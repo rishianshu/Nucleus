@@ -689,6 +689,24 @@ test("knowledge base explorers support node and edge actions", async ({ page }) 
   await expect(detailCopy).toHaveText(/Copied/);
 });
 
+test("ingestion console is restricted to non-admin users", async ({ page }) => {
+  await openMetadataWorkspace(page);
+  const ingestionButton = page.getByRole("button", { name: "Ingestion" });
+  await expect(ingestionButton).toBeDisabled();
+});
+
+test("ingestion console renders for admin users", async ({ page }) => {
+  await ensureRealmUser({ ...ADMIN_CREDENTIALS, roles: ["admin"] });
+  await openMetadataWorkspace(page, ADMIN_CREDENTIALS);
+  const ingestionButton = page.getByRole("button", { name: "Ingestion" });
+  await ingestionButton.click();
+  const consoleRoot = page.getByTestId("ingestion-console");
+  await expect(consoleRoot).toBeVisible({ timeout: 20_000 });
+  const emptyState = page.getByTestId("ingestion-empty-state");
+  const unitRow = page.getByTestId("ingestion-unit-row").first();
+  await expect(emptyState.or(unitRow)).toBeVisible({ timeout: 20_000 });
+});
+
 async function ensureWorkspaceReady(page: Page) {
   const errorBanner = page.getByTestId("metadata-error-banner");
   if (await errorBanner.isVisible({ timeout: 2000 }).catch(() => false)) {

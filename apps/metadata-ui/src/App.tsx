@@ -5,6 +5,7 @@ import { MetadataWorkspace } from "./metadata/MetadataWorkspace";
 import { MetadataAuthBoundary } from "./metadata/MetadataAuthBoundary";
 import { useAuth, type Role } from "./auth/AuthProvider";
 import { KnowledgeBaseConsole } from "./knowledge-base/KnowledgeBaseConsole";
+import { IngestionConsole } from "./ingestion/IngestionConsole";
 
 const METADATA_ENDPOINT = import.meta.env.VITE_METADATA_GRAPHQL_ENDPOINT ?? "/metadata/graphql";
 
@@ -17,28 +18,39 @@ function App() {
     <MetadataAuthBoundary>
       <BrowserRouter>
         <Routes>
-        <Route
-          path="/"
-          element={
-            <MetadataWorkspaceShell
-              metadataEndpoint={METADATA_ENDPOINT}
-              authToken={auth.token}
-              projectSlug={projectSlug}
-              userRole={userRole}
-            />
-          }
-        />
-        <Route
-          path="/kb/*"
-          element={
-            <MetadataWorkspaceShell
-              metadataEndpoint={METADATA_ENDPOINT}
-              authToken={auth.token}
-              projectSlug={projectSlug}
-              userRole={userRole}
-            />
-          }
-        />
+          <Route
+            path="/"
+            element={
+              <MetadataWorkspaceShell
+                metadataEndpoint={METADATA_ENDPOINT}
+                authToken={auth.token}
+                projectSlug={projectSlug}
+                userRole={userRole}
+              />
+            }
+          />
+          <Route
+            path="/kb/*"
+            element={
+              <MetadataWorkspaceShell
+                metadataEndpoint={METADATA_ENDPOINT}
+                authToken={auth.token}
+                projectSlug={projectSlug}
+                userRole={userRole}
+              />
+            }
+          />
+          <Route
+            path="/ingestion/*"
+            element={
+              <MetadataWorkspaceShell
+                metadataEndpoint={METADATA_ENDPOINT}
+                authToken={auth.token}
+                projectSlug={projectSlug}
+                userRole={userRole}
+              />
+            }
+          />
           <Route
             path="/catalog/datasets/:datasetId"
             element={
@@ -91,17 +103,19 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
 
   const brand = "Nucleus";
   const brandMark = brand.charAt(0).toUpperCase();
+  const canAccessIngestion = userRole === "ADMIN";
   const shellMenu = useMemo(
     () => [
       { id: "metadata", label: "Metadata", icon: LuDatabase, href: "/", disabled: false },
       { id: "kb", label: "Knowledge Base", icon: LuNetwork, href: "/kb", disabled: false },
-      { id: "ingestion", label: "Ingestion", icon: LuCloudUpload, disabled: true },
+      { id: "ingestion", label: "Ingestion", icon: LuCloudUpload, href: "/ingestion", disabled: !canAccessIngestion },
       { id: "recon", label: "Reconciliation", icon: LuGauge, disabled: true },
     ],
-    [],
+    [canAccessIngestion],
   );
   const isKnowledgeBaseRoute = location.pathname.startsWith("/kb");
-  const activeMenuId = isKnowledgeBaseRoute ? "kb" : "metadata";
+  const isIngestionRoute = location.pathname.startsWith("/ingestion");
+  const activeMenuId = isKnowledgeBaseRoute ? "kb" : isIngestionRoute ? "ingestion" : "metadata";
 
   return (
     <div
@@ -213,6 +227,13 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {isKnowledgeBaseRoute ? (
           <KnowledgeBaseConsole
+            metadataEndpoint={metadataEndpoint}
+            authToken={authToken}
+            projectSlug={projectSlug}
+            userRole={userRole}
+          />
+        ) : isIngestionRoute ? (
+          <IngestionConsole
             metadataEndpoint={metadataEndpoint}
             authToken={authToken}
             projectSlug={projectSlug}

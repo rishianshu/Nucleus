@@ -7,6 +7,7 @@ export const WORKFLOW_NAMES = {
   buildEndpointConfig: "buildEndpointConfigWorkflow",
   testEndpointConnection: "testEndpointConnectionWorkflow",
   previewDataset: "previewDatasetWorkflow",
+  ingestionRun: "ingestionRunWorkflow",
 } as const;
 
 const {
@@ -20,6 +21,10 @@ const {
   listEndpointTemplates: listEndpointTemplatesActivity,
   buildEndpointConfig: buildEndpointConfigActivity,
   testEndpointConnection: testEndpointConnectionActivity,
+  startIngestionRun: startIngestionRunActivity,
+  syncIngestionUnit: syncIngestionUnitActivity,
+  completeIngestionRun: completeIngestionRunActivity,
+  failIngestionRun: failIngestionRunActivity,
 } = proxyActivities<MetadataActivities>({
   startToCloseTimeout: "1 hour",
 });
@@ -132,4 +137,52 @@ export async function previewDatasetWorkflow(input: {
     { taskQueue: PYTHON_ACTIVITY_TASK_QUEUE, scheduleToCloseTimeout: "5 minutes" },
     [input],
   );
+}
+
+type IngestionWorkflowInput = {
+  endpointId: string;
+  unitId: string;
+  sinkId?: string | null;
+};
+
+export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
+  if (!input.endpointId || !input.unitId) {
+    throw new Error("ingestionRunWorkflow requires endpointId and unitId");
+  }
+  const context = await startIngestionRunActivity({
+    endpointId: input.endpointId,
+    unitId: input.unitId,
+    sinkId: input.sinkId ?? null,
+  });
+  try {
+    const result = await syncIngestionUnitActivity({
+      endpointId: input.endpointId,
+      unitId: input.unitId,
+      sinkId: context.sinkId,
+      driverId: context.driverId,
+      runId: context.runId,
+      vendorKey: context.vendorKey,
+      checkpoint: context.checkpoint,
+    });
+    await completeIngestionRunActivity({
+      endpointId: input.endpointId,
+      unitId: input.unitId,
+      sinkId: context.sinkId,
+      vendorKey: context.vendorKey,
+      runId: context.runId,
+      checkpointVersion: context.checkpointVersion,
+      newCheckpoint: result.newCheckpoint,
+      stats: result.stats,
+    });
+  } catch (error) {
+    await failIngestionRunActivity({
+      endpointId: input.endpointId,
+      unitId: input.unitId,
+      sinkId: context.sinkId,
+      vendorKey: context.vendorKey,
+      runId: context.runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }

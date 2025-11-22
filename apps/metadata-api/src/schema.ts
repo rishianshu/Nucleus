@@ -11,6 +11,13 @@ import type {
   HttpVerb,
   GraphStore,
   TenantContext,
+  IngestionUnitDescriptor,
+} from "@metadata/core";
+import {
+  getIngestionDriver,
+  getIngestionSink,
+  listRegisteredIngestionDrivers,
+  listRegisteredIngestionSinks,
 } from "@metadata/core";
 import { resolveKbLabel, humanizeKbIdentifier } from "@metadata/client";
 import type { EndpointBuildResult, EndpointTemplate, EndpointTestResult } from "./types.js";
@@ -22,6 +29,9 @@ import type { AuthContext } from "./auth.js";
 import sampleMetadata from "./fixtures/sample-metadata.json" assert { type: "json" };
 import { DEFAULT_ENDPOINT_TEMPLATES } from "./fixtures/default-endpoint-templates.js";
 import { resolveKbMeta } from "./kbMetaRegistry.js";
+import { resolveEndpointDriverId } from "./ingestion/helpers.js";
+import { getUnitState, listUnitStates, markUnitState, ensureUnitState } from "./ingestion/stateStore.js";
+import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 
 const CATALOG_DATASET_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
 const DEFAULT_PROJECT_ID = process.env.METADATA_DEFAULT_PROJECT ?? "global";
@@ -39,6 +49,8 @@ const KB_SCENE_NODE_CAP = 300;
 const KB_SCENE_EDGE_CAP = 600;
 const KB_SAMPLE_TIMESTAMP = "2024-01-01T00:00:00.000Z";
 const KB_FACET_CACHE_TTL_MS = Number(process.env.KB_FACET_CACHE_TTL_MS ?? 15 * 60 * 1000);
+const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
+const DEFAULT_INGESTION_SINK = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 
 type GraphQLKbFacetValue = {
   value: string;
@@ -574,6 +586,43 @@ export const typeDefs = `#graphql
     details: JSON
   }
 
+  enum IngestionState {
+    IDLE
+    RUNNING
+    PAUSED
+    FAILED
+    SUCCEEDED
+  }
+
+  type IngestionUnit {
+    endpointId: ID!
+    unitId: ID!
+    kind: String!
+    displayName: String!
+    stats: JSON
+    driverId: String!
+    sinkId: String!
+  }
+
+  type IngestionStatus {
+    endpointId: ID!
+    unitId: ID!
+    sinkId: String!
+    state: IngestionState!
+    lastRunId: String
+    lastRunAt: DateTime
+    lastError: String
+    stats: JSON
+    checkpoint: JSON
+  }
+
+  type IngestionActionResult {
+    ok: Boolean!
+    runId: String
+    state: IngestionState
+    message: String
+  }
+
   type Query {
     health: Health!
     metadataDomains: [MetadataDomain!]!
@@ -602,6 +651,9 @@ export const typeDefs = `#graphql
     endpointBySourceId(sourceId: String!): MetadataEndpoint
     endpointDatasets(endpointId: ID!, domain: String, projectSlug: String, first: Int = 100, after: ID): [MetadataRecord!]!
     endpointTemplates(family: MetadataEndpointFamily): [MetadataEndpointTemplate!]!
+    ingestionUnits(endpointId: ID!): [IngestionUnit!]!
+    ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
+    ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
   }
 
   type Mutation {
@@ -620,6 +672,9 @@ export const typeDefs = `#graphql
     deleteCollection(id: ID!): Boolean!
     triggerCollection(collectionId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
     triggerEndpointCollection(endpointId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
+    startIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+    pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+    resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
   }
 `;
 
@@ -1214,6 +1269,39 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         enforceReadAccess(ctx);
         return fetchEndpointTemplates(args.family ?? undefined);
       },
+      ingestionUnits: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driverId, driver } = resolveIngestionDriver(endpoint);
+        const sinkId = resolveIngestionSinkId();
+        const units = await driver.listUnits(endpointRowId);
+        return units.map((unit) => mapIngestionUnit(unit, endpointRowId, driverId, sinkId));
+      },
+      ingestionStatuses: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        const sinkId = resolveIngestionSinkId();
+        const units = await driver.listUnits(endpointRowId);
+        await Promise.all(
+          units.map((unit) => ensureUnitState({ endpointId: endpointRowId, unitId: unit.unitId, sinkId })),
+        );
+        const rows = await listUnitStates(endpointRowId);
+        return rows.map(mapIngestionStateRow);
+      },
+      ingestionStatus: async (_parent: unknown, args: { endpointId: string; unitId: string }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId();
+        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        const row = await getUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        return row ? mapIngestionStateRow(row) : null;
+      },
     },
     Mutation: {
       upsertMetadataRecord: async (_parent: unknown, args: { input: GraphQLMetadataRecordInput }, ctx: ResolverContext) => {
@@ -1362,6 +1450,73 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         });
       },
       triggerEndpointCollection: triggerEndpointCollectionMutation,
+      startIngestion: async (_parent: unknown, args: { endpointId: string; unitId: string; sinkId?: string | null }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(args.sinkId);
+        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        if (ctx.bypassWrites) {
+          const bypassRunId = `bypass-${randomUUID()}`;
+          await markUnitState(
+            { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+            { state: "SUCCEEDED", lastRunId: bypassRunId, lastRunAt: new Date(), lastError: null },
+          );
+          return { ok: true, runId: bypassRunId, state: "SUCCEEDED", message: "Bypass mode enabled" };
+        }
+        const { client, taskQueue } = await getTemporalClient();
+        const workflowId = `ingestion-${endpointRowId}-${args.unitId}-${randomUUID()}`;
+        await client.workflow.start(WORKFLOW_NAMES.ingestionRun, {
+          taskQueue,
+          workflowId,
+          args: [{ endpointId: endpointRowId, unitId: args.unitId, sinkId }],
+        });
+        await markUnitState(
+          { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+          { state: "RUNNING", lastRunId: workflowId, lastRunAt: new Date(), lastError: null },
+        );
+        return { ok: true, runId: workflowId, state: "RUNNING" };
+      },
+      pauseIngestion: async (_parent: unknown, args: { endpointId: string; unitId: string; sinkId?: string | null }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(args.sinkId);
+        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        await markUnitState(
+          { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+          { state: "PAUSED", lastError: null },
+        );
+        return { ok: true, state: "PAUSED", message: "Ingestion paused" };
+      },
+      resetIngestionCheckpoint: async (
+        _parent: unknown,
+        args: { endpointId: string; unitId: string; sinkId?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(args.sinkId);
+        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        await clearIngestionCheckpoint({
+          endpointId: endpointRowId,
+          unitId: args.unitId,
+          vendor: resolveVendorKeyForEndpoint(endpoint),
+          sinkId,
+        });
+        await markUnitState(
+          { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+          { checkpoint: null, state: "IDLE", lastError: null },
+        );
+        return { ok: true, state: "IDLE", message: "Checkpoint reset" };
+      },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
         const templateId = parseTemplateId(args.input.config);
@@ -2582,6 +2737,104 @@ function resolveBypassFailureReason(url: string): string | null {
     }
     return null;
   }
+}
+
+function enforceIngestionAdmin(context: ResolverContext) {
+  enforceReadAccess(context);
+  requireRole(context, "admin");
+}
+
+async function fetchEndpointForProject(store: MetadataStore, ctx: ResolverContext, endpointId: string) {
+  const endpoints = await store.listEndpoints(ctx.auth.projectId ?? undefined);
+  const endpoint =
+    endpoints.find((entry) => entry.id === endpointId || entry.sourceId === endpointId) ??
+    endpoints.find((entry) => entry.id === endpointId);
+  if (!endpoint || endpoint.deletedAt) {
+    throw new GraphQLError("Endpoint not found for this project.", {
+      extensions: { code: "E_ENDPOINT_NOT_FOUND", endpointId },
+    });
+  }
+  return endpoint;
+}
+
+function resolveIngestionDriver(endpoint: MetadataEndpointDescriptor) {
+  const driverId = resolveEndpointDriverId(endpoint) ?? DEFAULT_INGESTION_DRIVER;
+  const driver = getIngestionDriver(driverId);
+  if (!driver) {
+    throw new GraphQLError("Ingestion driver is not registered.", {
+      extensions: {
+        code: "E_INGESTION_DRIVER_MISSING",
+        driverId,
+        registeredDrivers: listRegisteredIngestionDrivers(),
+      },
+    });
+  }
+  return { driverId, driver };
+}
+
+function resolveIngestionSinkId(candidate?: string | null): string {
+  const sinkId = candidate && candidate.trim().length > 0 ? candidate.trim() : DEFAULT_INGESTION_SINK;
+  if (!getIngestionSink(sinkId)) {
+    throw new GraphQLError("Ingestion sink is not registered.", {
+      extensions: {
+        code: "E_INGESTION_SINK_MISSING",
+        sinkId,
+        registeredSinks: listRegisteredIngestionSinks(),
+      },
+    });
+  }
+  return sinkId;
+}
+
+async function ensureIngestionUnit(driver: { listUnits(endpointId: string): Promise<IngestionUnitDescriptor[]> }, endpointId: string, unitId: string) {
+  const units = await driver.listUnits(endpointId);
+  const match = units.find((unit) => unit.unitId === unitId);
+  if (!match) {
+    throw new GraphQLError("Ingestion unit not found for this endpoint.", {
+      extensions: { code: "E_INGESTION_UNIT_NOT_FOUND", unitId },
+    });
+  }
+  return match;
+}
+
+function mapIngestionUnit(unit: IngestionUnitDescriptor, endpointId: string, driverId: string, sinkId: string) {
+  return {
+    endpointId,
+    unitId: unit.unitId,
+    kind: unit.kind,
+    displayName: unit.displayName,
+    stats: unit.stats ?? null,
+    driverId,
+    sinkId,
+  };
+}
+
+function mapIngestionStateRow(row: {
+  endpointId: string;
+  unitId: string;
+  sinkId?: string | null;
+  state?: string | null;
+  checkpoint?: unknown;
+  lastRunId?: string | null;
+  lastRunAt?: Date | string | null;
+  lastError?: string | null;
+  stats?: unknown;
+}) {
+  return {
+    endpointId: row.endpointId,
+    unitId: row.unitId,
+    sinkId: row.sinkId ?? DEFAULT_INGESTION_SINK,
+    state: (row.state as string | undefined) ?? "IDLE",
+    lastRunId: row.lastRunId ?? null,
+    lastRunAt: row.lastRunAt ? new Date(row.lastRunAt) : null,
+    lastError: row.lastError ?? null,
+    stats: row.stats ?? null,
+    checkpoint: row.checkpoint ?? null,
+  };
+}
+
+function resolveVendorKeyForEndpoint(endpoint: MetadataEndpointDescriptor): string {
+  return endpoint.domain ?? endpoint.sourceId ?? endpoint.id ?? "default";
 }
 
 async function finalizeCollectionRun(

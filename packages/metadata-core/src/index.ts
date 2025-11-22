@@ -300,6 +300,122 @@ export type GraphEdgeFilter = {
   limit?: number;
 };
 
+export type IngestionUnitDescriptor = {
+  unitId: string;
+  kind: string;
+  displayName: string;
+  stats?: Record<string, unknown> | null;
+};
+
+export type IngestionScope = {
+  orgId: string;
+  projectId?: string | null;
+  domainId?: string | null;
+  teamId?: string | null;
+};
+
+export type NormalizedEdge = {
+  type: string;
+  sourceLogicalId: string;
+  targetLogicalId: string;
+  properties?: Record<string, unknown> | null;
+};
+
+export type NormalizedRecord = {
+  entityType: string;
+  logicalId?: string | null;
+  displayName?: string | null;
+  scope: IngestionScope;
+  provenance: {
+    endpointId: string;
+    vendor?: string | null;
+    sourceEventId?: string | null;
+  };
+  payload: Record<string, unknown> | unknown;
+  phase?: string | null;
+  edges?: NormalizedEdge[];
+};
+
+export type NormalizedBatch = {
+  records: NormalizedRecord[];
+};
+
+export type IngestionDriverSyncArgs = {
+  endpointId: string;
+  unitId: string;
+  checkpoint?: unknown;
+  limit?: number;
+};
+
+export type IngestionDriverSyncResult = {
+  newCheckpoint: unknown;
+  stats?: Record<string, unknown> | null;
+  batches: NormalizedBatch[];
+  sourceEventIds?: string[];
+  errors?: Array<{ code?: string; message: string; sample?: unknown }>;
+};
+
+export interface IngestionDriver {
+  listUnits(endpointId: string): Promise<IngestionUnitDescriptor[]>;
+  estimateLag?(endpointId: string, unitId: string): Promise<number | null>;
+  syncUnit(args: IngestionDriverSyncArgs): Promise<IngestionDriverSyncResult>;
+}
+
+export type IngestionSinkContext = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  runId: string;
+};
+
+export interface IngestionSink {
+  begin(context: IngestionSinkContext): Promise<void>;
+  writeBatch(batch: NormalizedBatch, context: IngestionSinkContext): Promise<{ upserts?: number; edges?: number }>;
+  commit?(context: IngestionSinkContext, stats?: Record<string, unknown> | null): Promise<void>;
+  abort?(context: IngestionSinkContext, error: unknown): Promise<void>;
+}
+
+type IngestionDriverFactory = () => IngestionDriver;
+type IngestionSinkFactory = () => IngestionSink;
+
+const ingestionDriverRegistry = new Map<string, IngestionDriverFactory>();
+const ingestionSinkRegistry = new Map<string, IngestionSinkFactory>();
+
+export function registerIngestionDriver(id: string, factory: IngestionDriverFactory): void {
+  const normalized = id.trim();
+  if (!normalized) {
+    throw new Error("Ingestion driver id is required");
+  }
+  ingestionDriverRegistry.set(normalized, factory);
+}
+
+export function getIngestionDriver(id: string): IngestionDriver | null {
+  const factory = ingestionDriverRegistry.get(id.trim());
+  return factory ? factory() : null;
+}
+
+export function listRegisteredIngestionDrivers(): string[] {
+  return Array.from(ingestionDriverRegistry.keys());
+}
+
+export function registerIngestionSink(id: string, factory: IngestionSinkFactory): void {
+  const normalized = id.trim();
+  if (!normalized) {
+    throw new Error("Ingestion sink id is required");
+  }
+  ingestionSinkRegistry.set(normalized, factory);
+}
+
+export function getIngestionSink(id: string): IngestionSink | null {
+  const normalized = id.trim();
+  const factory = ingestionSinkRegistry.get(normalized);
+  return factory ? factory() : null;
+}
+
+export function listRegisteredIngestionSinks(): string[] {
+  return Array.from(ingestionSinkRegistry.keys());
+}
+
 type GraphNodeRecord = {
   id: string;
   tenantId: string;

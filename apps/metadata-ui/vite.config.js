@@ -2,10 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "node:path";
 const metadataApiTarget = process.env.VITE_METADATA_API_URL ?? "http://localhost:4010";
-const reportingGraphqlEndpoint = process.env.VITE_GRAPHQL_ENDPOINT ?? "http://localhost:4000/graphql";
-const reportingGraphqlUrl = new URL(reportingGraphqlEndpoint);
-const reportingGraphqlTarget = `${reportingGraphqlUrl.protocol}//${reportingGraphqlUrl.host}`;
-const reportingGraphqlPath = reportingGraphqlUrl.pathname.replace(/\/$/, "") || "/graphql";
 const devPort = Number(process.env.VITE_METADATA_UI_PORT ?? 5176);
 const devHost = process.env.VITE_METADATA_HOST ?? "127.0.0.1";
 console.info(`[metadata-ui:vite] host=${devHost} port=${devPort}`);
@@ -21,11 +17,6 @@ export default defineConfig({
                 target: metadataApiTarget,
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/metadata\/graphql/, "/graphql"),
-            },
-            "/api/graphql": {
-                target: reportingGraphqlTarget,
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/api\/graphql/, reportingGraphqlPath),
             },
         },
     },

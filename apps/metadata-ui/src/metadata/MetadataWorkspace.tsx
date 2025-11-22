@@ -38,6 +38,7 @@ import type {
   MetadataEndpointTemplate,
   MetadataEndpointTemplateField,
   MetadataEndpointTestResult,
+  GraphNodeSummary,
 } from "./types";
 import { parseListInput, previewTableColumns } from "./utils";
 import {
@@ -445,17 +446,18 @@ export function MetadataWorkspace({
   const metadataEndpointLookup = useMemo(() => {
     const map = new Map<string, EndpointLookupEntry>();
     const addEndpoint = (entry?: EndpointLookupEntry | null) => {
-      if (!entry || !entry.id) {
+      const id = entry?.id;
+      if (!id) {
         return;
       }
       const normalized: EndpointLookupEntry = {
-        id: entry.id,
-        sourceId: entry.sourceId ?? undefined,
-        name: entry.name ?? undefined,
-        capabilities: entry.capabilities ?? undefined,
-        url: entry.url ?? undefined,
+        id,
+        sourceId: entry?.sourceId ?? undefined,
+        name: entry?.name ?? undefined,
+        capabilities: entry?.capabilities ?? undefined,
+        url: entry?.url ?? undefined,
       };
-      map.set(normalized.id, normalized);
+      map.set(id, normalized);
       if (normalized.sourceId) {
         map.set(normalized.sourceId, normalized);
       }

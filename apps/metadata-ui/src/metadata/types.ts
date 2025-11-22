@@ -217,3 +217,27 @@ export type MetadataEndpointTestResult = {
     field?: string | null;
   }>;
 };
+
+export type IngestionState = "IDLE" | "RUNNING" | "PAUSED" | "FAILED" | "SUCCEEDED";
+
+export type IngestionUnitSummary = {
+  endpointId: string;
+  unitId: string;
+  kind: string;
+  displayName: string;
+  stats?: Record<string, unknown> | null;
+  driverId: string;
+  sinkId: string;
+};
+
+export type IngestionStatusSummary = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  state: IngestionState;
+  lastRunId?: string | null;
+  lastRunAt?: string | null;
+  lastError?: string | null;
+  stats?: Record<string, unknown> | null;
+  checkpoint?: Record<string, unknown> | null;
+};

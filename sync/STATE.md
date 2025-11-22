@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-kb-meta-registry-v1 (success @ 2025-11-22T10:50Z)
+ingestion-core-v1 (in_progress @ 2025-11-22T10:55Z)
 
 ## Last Run
-- slug: kb-meta-registry-v1
-- status: success
-- duration: ~2h elapsed
-- tests: `pnpm --dir apps/metadata-api exec tsx --test src/graphResolvers.test.ts`, `pnpm --filter @apps/metadata-ui test`, `PLAYWRIGHT_BROWSERS_PATH=.playwright pnpm exec dotenv -e .env -- npx playwright test tests/metadata-auth.spec.ts --project=chromium --grep "knowledge base"`
-- commits: pending (working tree)
+- slug: ingestion-core-v1
+- status: in_progress
+- duration: 0h elapsed
+- tests: pending
+- commits: none yet
 - decisions: 0 new
-- next_step: hail mary: none (slug complete)
+- next_step: review PLAN/TODO per run card and begin implementation
 
 ## Global Queue
 TODAY:

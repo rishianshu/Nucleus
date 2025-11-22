@@ -1,0 +1,7 @@
+- [x] Define driver + sink interfaces/registries (metadata-core/runtime-common) and sample driver for tests.
+- [x] Implement KB ingestion sink (normalize logical keys, provenance) with unit tests.
+- [x] Build KV checkpoint helper (read/update/reset) using existing KV store provider.
+- [x] Implement Temporal activities + `IngestWorkflow` (load checkpoint → driver.sync → sink.write → advance) with retries/backoff + status persistence.
+- [x] Extend metadata API GraphQL schema/resolvers with ingestion units/status/mutations (admin-only guards).
+- [x] Create admin Ingestion page in metadata UI (ADR data-loading: debounced filters, keep-previous-data, cursor pagination, action toasts) wired to GraphQL.
+- [x] Add contract/integration tests for checkpoints/workflow/sink and Playwright coverage for ingestion UI + regression run for Catalog/KB.

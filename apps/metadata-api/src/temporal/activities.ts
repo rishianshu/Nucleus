@@ -1,13 +1,31 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { getPrismaClient } from "../prismaClient.js";
-import { getMetadataStore, getGraphStore } from "../context.js";
-import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
-import type { GraphStore, TenantContext, MetadataRecord } from "@metadata/core";
-import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { execa } from "execa";
+import {
+  getIngestionDriver,
+  getIngestionSink,
+  type GraphStore,
+  type IngestionSink,
+  type IngestionSinkContext,
+  type MetadataRecord,
+  type NormalizedBatch,
+  type TenantContext,
+} from "@metadata/core";
+import { getPrismaClient } from "../prismaClient.js";
+import { getMetadataStore, getGraphStore } from "../context.js";
+import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
+import { resolveEndpointDriverId } from "../ingestion/helpers.js";
+import {
+  readCheckpoint,
+  updateCheckpoint,
+  writeCheckpoint,
+  type IngestionCheckpointRecord,
+  type IngestionCheckpointKey,
+} from "../ingestion/checkpoints.js";
+import { markUnitState, upsertUnitState } from "../ingestion/stateStore.js";
+import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SCRIPT_PATH = path.resolve(
@@ -21,6 +39,10 @@ const REGISTRY_SCRIPT_PATH = path.resolve(
   "scripts",
   "endpoint_registry_cli.py",
 );
+
+const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "kb";
+const DEFAULT_DRIVER_ID = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
+const INGESTION_BATCH_LIMIT = Number(process.env.INGESTION_BATCH_LIMIT ?? "500");
 
 export type MetadataActivities = {
   createCollectionRun(input: {
@@ -42,6 +64,10 @@ export type MetadataActivities = {
     extras?: { labels?: string[] };
   }): Promise<EndpointBuildResult>;
   testEndpointConnection(input: { templateId: string; parameters: Record<string, string> }): Promise<EndpointTestResult>;
+  startIngestionRun(input: StartIngestionRunInput): Promise<StartIngestionRunResult>;
+  syncIngestionUnit(input: SyncIngestionUnitInput): Promise<SyncIngestionUnitResult>;
+  completeIngestionRun(input: CompleteIngestionRunInput): Promise<void>;
+  failIngestionRun(input: FailIngestionRunInput): Promise<void>;
 };
 
 const DEFAULT_METADATA_PROJECT = process.env.METADATA_DEFAULT_PROJECT ?? "global";
@@ -70,6 +96,56 @@ export type CatalogRecordInput = {
 };
 
 const CATALOG_DATASET_DOMAIN = "catalog.dataset";
+
+type StartIngestionRunInput = {
+  endpointId: string;
+  unitId: string;
+  sinkId?: string | null;
+};
+
+type StartIngestionRunResult = {
+  runId: string;
+  driverId: string;
+  sinkId: string;
+  vendorKey: string;
+  checkpoint: IngestionCheckpointRecord | null;
+  checkpointVersion: string | null;
+};
+
+type SyncIngestionUnitInput = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  driverId: string;
+  runId: string;
+  vendorKey: string;
+  checkpoint: IngestionCheckpointRecord | null;
+};
+
+type SyncIngestionUnitResult = {
+  newCheckpoint: unknown;
+  stats: Record<string, unknown> | null;
+};
+
+type CompleteIngestionRunInput = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  vendorKey: string;
+  runId: string;
+  checkpointVersion: string | null;
+  newCheckpoint: unknown;
+  stats: Record<string, unknown> | null;
+};
+
+type FailIngestionRunInput = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  vendorKey: string;
+  runId: string;
+  error: string;
+};
 
 type PrismaClient = Awaited<ReturnType<typeof getPrismaClient>>;
 
@@ -302,6 +378,149 @@ export const activities: MetadataActivities = {
       throw error;
     }
   },
+  async startIngestionRun({ endpointId, unitId, sinkId }: StartIngestionRunInput): Promise<StartIngestionRunResult> {
+    const store = await getMetadataStore();
+    const endpoints = await store.listEndpoints();
+    const endpoint = endpoints.find((entry) => entry.id === endpointId);
+    if (!endpoint) {
+      throw new Error(`Endpoint ${endpointId} not found`);
+    }
+    const resolvedSinkId = resolveSinkId(sinkId);
+    if (!getIngestionSink(resolvedSinkId)) {
+      throw new Error(`Ingestion sink "${resolvedSinkId}" is not registered`);
+    }
+    const driverId = resolveEndpointDriverId(endpoint) ?? DEFAULT_DRIVER_ID;
+    if (!getIngestionDriver(driverId)) {
+      throw new Error(`Ingestion driver "${driverId}" is not registered`);
+    }
+    const vendorKey = endpoint.domain ?? endpoint.sourceId ?? endpoint.id ?? endpointId;
+    const checkpointKey: IngestionCheckpointKey = {
+      endpointId,
+      unitId,
+      sinkId: resolvedSinkId,
+      vendor: vendorKey,
+    };
+    const checkpointState = await readCheckpoint(checkpointKey);
+    const runId = randomUUID();
+    await upsertUnitState(
+      { endpointId, unitId, sinkId: resolvedSinkId },
+      {
+        state: "RUNNING",
+        lastRunId: runId,
+        lastRunAt: new Date(),
+        lastError: null,
+      },
+    );
+    return {
+      runId,
+      driverId,
+      sinkId: resolvedSinkId,
+      vendorKey,
+      checkpoint: checkpointState.checkpoint,
+      checkpointVersion: checkpointState.version,
+    };
+  },
+  async syncIngestionUnit(input: SyncIngestionUnitInput): Promise<SyncIngestionUnitResult> {
+    const driver = getIngestionDriver(input.driverId);
+    if (!driver) {
+      throw new Error(`Ingestion driver "${input.driverId}" is not registered`);
+    }
+    const sink = getIngestionSink(input.sinkId);
+    if (!sink) {
+      throw new Error(`Ingestion sink "${input.sinkId}" is not registered`);
+    }
+    const sinkContext: IngestionSinkContext = {
+      endpointId: input.endpointId,
+      unitId: input.unitId,
+      sinkId: input.sinkId,
+      runId: input.runId,
+    };
+    await sink.begin(sinkContext);
+    try {
+      const result = await driver.syncUnit({
+        endpointId: input.endpointId,
+        unitId: input.unitId,
+        checkpoint: input.checkpoint?.cursor ?? undefined,
+        limit: INGESTION_BATCH_LIMIT,
+      });
+      const aggregate = await writeBatches(result.batches ?? [], sink, sinkContext);
+      if (typeof sink.commit === "function") {
+        await sink.commit(sinkContext, aggregate);
+      }
+      return {
+        newCheckpoint: result.newCheckpoint,
+        stats: {
+          ...aggregate,
+          driver: result.stats ?? null,
+          sourceEventIds: result.sourceEventIds ?? [],
+          errors: (result.errors ?? []).map((entry) => ({
+            code: entry.code ?? null,
+            message: entry.message,
+          })),
+        },
+      };
+    } catch (error) {
+      if (typeof sink.abort === "function") {
+        await sink.abort(sinkContext, error);
+      }
+      throw error;
+    }
+  },
+  async completeIngestionRun({
+    endpointId,
+    unitId,
+    sinkId,
+    vendorKey,
+    runId,
+    checkpointVersion,
+    newCheckpoint,
+    stats,
+  }: CompleteIngestionRunInput): Promise<void> {
+    const checkpointKey = buildCheckpointKey({ endpointId, unitId, sinkId, vendorKey });
+    const record: IngestionCheckpointRecord = {
+      cursor: newCheckpoint ?? null,
+      lastRunId: runId,
+      stats,
+    };
+    await writeCheckpoint(checkpointKey, record, {
+      expectedVersion: checkpointVersion ?? undefined,
+    });
+    await markUnitState(
+      { endpointId, unitId, sinkId },
+      {
+        state: "SUCCEEDED",
+        checkpoint: record,
+        lastRunId: runId,
+        lastRunAt: new Date(),
+        lastError: null,
+        stats,
+      },
+    );
+  },
+  async failIngestionRun({
+    endpointId,
+    unitId,
+    sinkId,
+    vendorKey,
+    runId,
+    error,
+  }: FailIngestionRunInput): Promise<void> {
+    const sanitized = sanitizeIngestionError(error);
+    await markUnitState(
+      { endpointId, unitId, sinkId },
+      {
+        state: "FAILED",
+        lastRunId: runId,
+        lastRunAt: new Date(),
+        lastError: sanitized,
+      },
+    );
+    await updateCheckpoint(buildCheckpointKey({ endpointId, unitId, sinkId, vendorKey }), (existing) => ({
+      ...(existing ?? {}),
+      lastRunId: runId,
+      lastError: sanitized,
+    }));
+  },
 };
 
 function resolveSchemas(run: any): string[] {
@@ -427,6 +646,65 @@ async function deleteTempFile(recordsPath?: string | null) {
     await fs.unlink(path.resolve(recordsPath));
   } catch {
     // ignore cleanup failures
+  }
+}
+
+async function writeBatches(batches: NormalizedBatch[], sink: IngestionSink, context: IngestionSinkContext) {
+  let totalRecords = 0;
+  let totalUpserts = 0;
+  let totalEdges = 0;
+  for (const batch of batches) {
+    const recordCount = batch.records?.length ?? 0;
+    totalRecords += recordCount;
+    const writeStats = await sink.writeBatch(batch, context);
+    totalUpserts += writeStats?.upserts ?? 0;
+    totalEdges += writeStats?.edges ?? 0;
+  }
+  return {
+    batches: batches.length,
+    records: totalRecords,
+    upserts: totalUpserts,
+    edges: totalEdges,
+  };
+}
+
+function resolveSinkId(candidate?: string | null): string {
+  if (candidate && candidate.trim().length > 0) {
+    return candidate.trim();
+  }
+  return DEFAULT_SINK_ID;
+}
+
+function buildCheckpointKey({
+  endpointId,
+  unitId,
+  sinkId,
+  vendorKey,
+}: {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  vendorKey: string;
+}): IngestionCheckpointKey {
+  return {
+    endpointId,
+    unitId,
+    sinkId,
+    vendor: vendorKey,
+  };
+}
+
+function sanitizeIngestionError(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message.slice(0, 500);
+  }
+  if (typeof error === "string") {
+    return error.slice(0, 500);
+  }
+  try {
+    return JSON.stringify(error).slice(0, 500);
+  } catch {
+    return "Unknown ingestion error";
   }
 }
 

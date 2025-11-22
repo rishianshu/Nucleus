@@ -148,8 +148,8 @@ export function usePagedQuery<TResult>(options: UsePagedQueryOptions<TResult>): 
         setItems(nextItems);
         setPageInfo((prev) => {
           const raw = connection?.pageInfo ?? {};
-          const derivedStart = append ? prev.startCursor : raw.startCursor ?? nodes[0]?.id ?? null;
-          const derivedEnd = raw.endCursor ?? nodes[nodes.length - 1]?.id ?? prev.endCursor ?? null;
+          const derivedStart = append ? prev.startCursor : raw.startCursor ?? prev.startCursor ?? null;
+          const derivedEnd = raw.endCursor ?? prev.endCursor ?? null;
           return {
             hasNextPage: Boolean(raw.hasNextPage),
             hasPreviousPage: append ? true : Boolean(raw.hasPreviousPage),
@@ -282,7 +282,7 @@ type ToastOptions = {
 export function useToastQueue() {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
   const counterRef = useRef(0);
-  const timeoutsRef = useRef<Record<string, number>>({});
+  const timeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const schedule = typeof window === "undefined" ? globalThis : window;
 
   const dismissToast = useCallback((id: string) => {

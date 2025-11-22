@@ -37,7 +37,6 @@ export const METADATA_OVERVIEW_QUERY = `
     }
   }
 `;
-
 export const METADATA_ENDPOINTS_PAGED_QUERY = `
   query MetadataEndpointsPaged($projectSlug: String, $search: String, $first: Int!, $after: ID) {
     endpoints(projectSlug: $projectSlug, search: $search, first: $first, after: $after) {
@@ -67,7 +66,6 @@ export const METADATA_ENDPOINTS_PAGED_QUERY = `
     }
   }
 `;
-
 export const GRAPH_NODES_QUERY = `
   query GraphNodes($search: String, $entityTypes: [String!], $limit: Int!) {
     graphNodes(filter: { search: $search, entityTypes: $entityTypes, limit: $limit }) {
@@ -89,7 +87,6 @@ export const GRAPH_NODES_QUERY = `
     }
   }
 `;
-
 export const CATALOG_DATASETS_CONNECTION_QUERY = `
   query MetadataCatalogDatasets($first: Int!, $after: ID, $endpointId: ID, $search: String, $labels: [String!], $unlabeledOnly: Boolean) {
     catalogDatasetConnection(first: $first, after: $after, endpointId: $endpointId, search: $search, labels: $labels, unlabeledOnly: $unlabeledOnly) {
@@ -125,7 +122,6 @@ export const CATALOG_DATASETS_CONNECTION_QUERY = `
     }
   }
 `;
-
 export const METADATA_CATALOG_DATASET_QUERY = `
   query MetadataDatasetDetail($id: ID!) {
     metadataDataset(id: $id) {
@@ -166,7 +162,6 @@ export const METADATA_CATALOG_DATASET_QUERY = `
     }
   }
 `;
-
 export const COLLECTION_RUNS_QUERY = `
   query DesignerCollectionRuns($filter: MetadataCollectionRunFilter, $first: Int) {
     collectionRuns(filter: $filter, first: $first) {
@@ -191,7 +186,6 @@ export const COLLECTION_RUNS_QUERY = `
     }
   }
 `;
-
 export const METADATA_ENDPOINT_TEMPLATES_QUERY = `
   query DesignerMetadataEndpointTemplates {
     endpointTemplates {
@@ -251,7 +245,6 @@ export const METADATA_ENDPOINT_TEMPLATES_QUERY = `
     }
   }
 `;
-
 export const INGESTION_ENDPOINTS_QUERY = `
   query IngestionEndpoints($projectSlug: String, $search: String, $first: Int = 100) {
     endpoints(projectSlug: $projectSlug, search: $search, first: $first) {
@@ -266,7 +259,6 @@ export const INGESTION_ENDPOINTS_QUERY = `
     }
   }
 `;
-
 export const INGESTION_UNITS_WITH_STATUS_QUERY = `
   query IngestionUnitsWithStatus($endpointId: ID!) {
     ingestionUnits(endpointId: $endpointId) {
@@ -291,7 +283,6 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
     }
   }
 `;
-
 export const START_INGESTION_MUTATION = `
   mutation StartIngestion($endpointId: ID!, $unitId: ID!, $sinkId: String) {
     startIngestion(endpointId: $endpointId, unitId: $unitId, sinkId: $sinkId) {
@@ -302,7 +293,6 @@ export const START_INGESTION_MUTATION = `
     }
   }
 `;
-
 export const PAUSE_INGESTION_MUTATION = `
   mutation PauseIngestion($endpointId: ID!, $unitId: ID!, $sinkId: String) {
     pauseIngestion(endpointId: $endpointId, unitId: $unitId, sinkId: $sinkId) {
@@ -312,7 +302,6 @@ export const PAUSE_INGESTION_MUTATION = `
     }
   }
 `;
-
 export const RESET_INGESTION_CHECKPOINT_MUTATION = `
   mutation ResetIngestionCheckpoint($endpointId: ID!, $unitId: ID!, $sinkId: String) {
     resetIngestionCheckpoint(endpointId: $endpointId, unitId: $unitId, sinkId: $sinkId) {
@@ -322,7 +311,6 @@ export const RESET_INGESTION_CHECKPOINT_MUTATION = `
     }
   }
 `;
-
 export const REGISTER_METADATA_ENDPOINT_MUTATION = `
   mutation DesignerRegisterMetadataEndpoint($input: EndpointInput!) {
     registerEndpoint(input: $input) {
@@ -330,7 +318,6 @@ export const REGISTER_METADATA_ENDPOINT_MUTATION = `
     }
   }
 `;
-
 export const UPDATE_METADATA_ENDPOINT_MUTATION = `
   mutation DesignerUpdateMetadataEndpoint($id: ID!, $patch: EndpointPatch!) {
     updateEndpoint(id: $id, patch: $patch) {
@@ -344,7 +331,6 @@ export const UPDATE_METADATA_ENDPOINT_MUTATION = `
     }
   }
 `;
-
 export const TRIGGER_ENDPOINT_COLLECTION_MUTATION = `
   mutation DesignerTriggerEndpointCollection($endpointId: ID!, $filters: JSON, $schemaOverride: [String!]) {
     triggerEndpointCollection(endpointId: $endpointId, filters: $filters, schemaOverride: $schemaOverride) {
@@ -355,7 +341,6 @@ export const TRIGGER_ENDPOINT_COLLECTION_MUTATION = `
     }
   }
 `;
-
 export const TEST_METADATA_ENDPOINT_MUTATION = `
   mutation DesignerTestMetadataEndpoint($input: TestEndpointInput!) {
     testEndpoint(input: $input) {
@@ -370,13 +355,11 @@ export const TEST_METADATA_ENDPOINT_MUTATION = `
     }
   }
 `;
-
 export const DELETE_METADATA_ENDPOINT_MUTATION = `
   mutation DesignerDeleteMetadataEndpoint($id: ID!) {
     deleteEndpoint(id: $id)
   }
 `;
-
 export const PREVIEW_METADATA_DATASET_MUTATION = `
   mutation DesignerPreviewMetadataDataset($id: ID!, $limit: Int) {
     previewMetadataDataset(id: $id, limit: $limit) {
@@ -385,7 +368,6 @@ export const PREVIEW_METADATA_DATASET_MUTATION = `
     }
   }
 `;
-
 export const ENDPOINT_DATASETS_QUERY = `
   query DesignerEndpointDatasets($endpointId: ID!) {
     endpointDatasets(endpointId: $endpointId) {

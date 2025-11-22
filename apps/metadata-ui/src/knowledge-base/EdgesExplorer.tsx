@@ -69,18 +69,26 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
     normalizedScope,
   );
 
-  const selectEdgesConnection = useCallback(
-    (payload: { kbEdges?: { edges: Array<{ node: KbEdge }>; pageInfo: unknown } } | null | undefined) => {
-      if (!payload?.kbEdges) {
-        return null;
-      }
-      return {
-        nodes: payload.kbEdges.edges.map((edge: { node: KbEdge }) => edge.node),
-        pageInfo: payload.kbEdges.pageInfo,
+  type KbEdgesQueryResult = {
+    kbEdges?: {
+      edges?: Array<{ node: KbEdge }>;
+      pageInfo?: {
+        hasNextPage?: boolean;
+        hasPreviousPage?: boolean;
+        startCursor?: string | null;
+        endCursor?: string | null;
       };
-    },
-    [],
-  );
+    };
+  };
+  const selectEdgesConnection = useCallback((payload: KbEdgesQueryResult | null | undefined) => {
+    if (!payload?.kbEdges) {
+      return null;
+    }
+    return {
+      nodes: (payload.kbEdges.edges ?? []).map((edge) => edge.node),
+      pageInfo: payload.kbEdges.pageInfo ?? {},
+    };
+  }, []);
 
   const pagedQuery = usePagedQuery<KbEdge>({
     metadataEndpoint,

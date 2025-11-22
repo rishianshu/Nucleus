@@ -96,18 +96,26 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
     normalizedScope,
   );
 
-  const selectNodesConnection = useCallback(
-    (payload: { kbNodes?: { edges: Array<{ node: KbNode }>; pageInfo: unknown } } | null | undefined) => {
-      if (!payload?.kbNodes) {
-        return null;
-      }
-      return {
-        nodes: payload.kbNodes.edges.map((edge: { node: KbNode }) => edge.node),
-        pageInfo: payload.kbNodes.pageInfo,
+  type KbNodesQueryResult = {
+    kbNodes?: {
+      edges?: Array<{ node: KbNode }>;
+      pageInfo?: {
+        hasNextPage?: boolean;
+        hasPreviousPage?: boolean;
+        startCursor?: string | null;
+        endCursor?: string | null;
       };
-    },
-    [],
-  );
+    };
+  };
+  const selectNodesConnection = useCallback((payload: KbNodesQueryResult | null | undefined) => {
+    if (!payload?.kbNodes) {
+      return null;
+    }
+    return {
+      nodes: (payload.kbNodes.edges ?? []).map((edge) => edge.node),
+      pageInfo: payload.kbNodes.pageInfo ?? {},
+    };
+  }, []);
 
   const pagedQuery = usePagedQuery<KbNode>({
     metadataEndpoint,
