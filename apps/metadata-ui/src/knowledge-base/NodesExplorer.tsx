@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { LuCheck, LuClipboard, LuExternalLink, LuMap, LuRefreshCcw } from "react-icons/lu";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { resolveKbLabel } from "@metadata/client";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { usePagedQuery, useToastQueue, useDebouncedValue } from "../metadata/hooks";
 import type { Role } from "../auth/AuthProvider";
@@ -12,6 +11,7 @@ import { useKbFacets } from "./useKbFacets";
 import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
 import { ViewToggle } from "./ViewToggle";
 import { copyTextToClipboard } from "./clipboard";
+import { useKbMetaRegistry } from "./useKbMeta";
 
 type NodesExplorerProps = {
   metadataEndpoint: string | null;
@@ -59,14 +59,36 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
   const hasScopeFilters = Boolean(normalizedScope.projectId || normalizedScope.domainId || normalizedScope.teamId);
   const scopeArgument = useMemo(() => (hasScopeFilters ? normalizedScope : null), [hasScopeFilters, normalizedScope]);
 
+  const {
+    getNodeLabel,
+    matchNodeSynonym,
+    error: metaError,
+    isFallback: metaFallback,
+    refresh: refreshMeta,
+  } = useKbMetaRegistry(metadataEndpoint, authToken ?? undefined, normalizedScope);
+
+  const synonymMatch = useMemo(() => {
+    if (typeFilter.trim().length > 0) {
+      return null;
+    }
+    const trimmed = debouncedSearch.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return matchNodeSynonym(trimmed);
+  }, [debouncedSearch, matchNodeSynonym, typeFilter]);
+
+  const activeTypeFilter = typeFilter || synonymMatch?.value || "";
+  const synonymLabel = useMemo(() => (synonymMatch ? getNodeLabel(synonymMatch.value) : null), [getNodeLabel, synonymMatch]);
+
   const nodeQueryVariables = useMemo(() => {
     const searchValue = debouncedSearch.trim();
     return {
-      type: typeFilter || null,
+      type: activeTypeFilter || null,
       scope: scopeArgument,
       search: searchValue.length ? searchValue : null,
     };
-  }, [typeFilter, scopeArgument, debouncedSearch]);
+  }, [activeTypeFilter, scopeArgument, debouncedSearch]);
 
   const { facets, loading: facetsLoading, error: facetsError, refresh: refreshFacets } = useKbFacets(
     metadataEndpoint,
@@ -133,10 +155,11 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
     () =>
       pagedQuery.items.map((node) => ({
         id: node.id,
-        label: node.displayName ?? resolveKbLabel(node.entityType, "nodeType"),
+        label: node.displayName ?? getNodeLabel(node.entityType),
       })),
-    [pagedQuery.items],
+    [getNodeLabel, pagedQuery.items],
   );
+
 
   useEffect(() => {
     const preselected = searchParams.get("node");
@@ -245,15 +268,28 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
               placeholder="Search by display name or path"
               className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             />
+            {synonymLabel && !typeFilter && debouncedSearch.trim().length > 0 ? (
+              <p className="mt-1 text-xs text-slate-500" data-testid="kb-node-search-synonym">
+                Synonym matched <span className="font-semibold text-slate-900 dark:text-slate-100">{synonymLabel}</span>. Filtering by that type.
+              </p>
+            ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => pagedQuery.refresh()}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-          >
-            <LuRefreshCcw className="h-4 w-4" /> Refresh
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => pagedQuery.refresh()}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+        >
+          <LuRefreshCcw className="h-4 w-4" /> Refresh
+        </button>
+      </div>
+        {metaError && metaFallback ? (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" data-testid="kb-meta-warning">
+            {metaError} — showing canonical values.{" "}
+            <button type="button" onClick={() => refreshMeta()} className="underline">
+              Retry
+            </button>
+          </p>
+        ) : null}
         {facetsError ? (
           <p className="mt-2 text-xs text-rose-500">
             Failed to load filters: {facetsError}{" "}
@@ -299,7 +335,7 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
                     {pagedQuery.items.map((node, index) => {
                       const rowCopyKey = `node-row-${index}`;
                       const isSelected = node.id === selectedNodeId;
-                      const typeLabel = resolveKbLabel(node.entityType, "nodeType");
+                      const typeLabel = getNodeLabel(node.entityType);
                       const isCopied = copiedSourceId === rowCopyKey;
                       return (
                         <tr

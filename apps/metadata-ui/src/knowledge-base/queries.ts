@@ -135,6 +135,31 @@ export const KB_NODE_DETAIL_QUERY = `
   }
 `;
 
+export const KB_META_QUERY = `
+  query KbMeta($scope: GraphScopeInput) {
+    kbMeta(scope: $scope) {
+      version
+      nodeTypes {
+        value
+        label
+        description
+        synonyms
+        icon
+        fieldsDisplay
+        actions
+      }
+      edgeTypes {
+        value
+        label
+        description
+        synonyms
+        icon
+        actions
+      }
+    }
+  }
+`;
+
 export const KB_SCENE_QUERY = `
   query KbScene($id: ID!, $edgeTypes: [String!], $depth: Int!, $limit: Int!) {
     kbScene(id: $id, edgeTypes: $edgeTypes, depth: $depth, limit: $limit) {

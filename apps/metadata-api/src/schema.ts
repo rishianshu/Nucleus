@@ -21,6 +21,7 @@ import { getGraphStore } from "./context.js";
 import type { AuthContext } from "./auth.js";
 import sampleMetadata from "./fixtures/sample-metadata.json" assert { type: "json" };
 import { DEFAULT_ENDPOINT_TEMPLATES } from "./fixtures/default-endpoint-templates.js";
+import { resolveKbMeta } from "./kbMetaRegistry.js";
 
 const CATALOG_DATASET_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
 const DEFAULT_PROJECT_ID = process.env.METADATA_DEFAULT_PROJECT ?? "global";
@@ -95,6 +96,31 @@ export const typeDefs = `#graphql
     domainId: String
     projectId: String
     teamId: String
+  }
+
+  type KbNodeType {
+    value: String!
+    label: String!
+    description: String
+    synonyms: [String!]!
+    icon: String
+    fieldsDisplay: [String!]!
+    actions: [String!]!
+  }
+
+  type KbEdgeType {
+    value: String!
+    label: String!
+    description: String
+    synonyms: [String!]!
+    icon: String
+    actions: [String!]!
+  }
+
+  type KbMeta {
+    version: String!
+    nodeTypes: [KbNodeType!]!
+    edgeTypes: [KbEdgeType!]!
   }
 
   type GraphIdentity {
@@ -560,6 +586,7 @@ export const typeDefs = `#graphql
     kbNeighbors(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbFacets(scope: GraphScopeInput): KbFacets!
+    kbMeta(scope: GraphScopeInput): KbMeta!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
@@ -958,6 +985,16 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
       kbFacets: async (_parent: unknown, args: { scope?: GraphQLGraphScopeInput | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
         return resolveKbFacets(store, args.scope ?? null, ctx);
+      },
+      kbMeta: async (_parent: unknown, args: { scope?: GraphQLGraphScopeInput | null }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const scope = normalizeGraphScopeFilter(ctx, args.scope ?? null);
+        return resolveKbMeta({
+          orgId: scope.orgId,
+          domainId: scope.domainId,
+          projectId: scope.projectId,
+          teamId: scope.teamId,
+        });
       },
       metadataEndpoints: async (
         _parent: unknown,

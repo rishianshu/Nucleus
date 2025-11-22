@@ -1,12 +1,12 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-kb-admin-console-polish-v1 (success @ 2025-11-21T11:20Z)
+kb-meta-registry-v1 (success @ 2025-11-22T10:50Z)
 
 ## Last Run
-- slug: kb-admin-console-polish-v1
+- slug: kb-meta-registry-v1
 - status: success
-- duration: ~9h elapsed
+- duration: ~2h elapsed
 - tests: `pnpm --dir apps/metadata-api exec tsx --test src/graphResolvers.test.ts`, `pnpm --filter @apps/metadata-ui test`, `PLAYWRIGHT_BROWSERS_PATH=.playwright pnpm exec dotenv -e .env -- npx playwright test tests/metadata-auth.spec.ts --project=chromium --grep "knowledge base"`
 - commits: pending (working tree)
 - decisions: 0 new

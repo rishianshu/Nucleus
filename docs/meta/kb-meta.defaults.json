@@ -1,0 +1,50 @@
+{
+  "version": "2025-11-22T00:00:00Z",
+  "nodeTypes": [
+    {
+      "value": "catalog.dataset",
+      "label": "Datasets",
+      "description": "Structured datasets discovered from cataloged sources.",
+      "synonyms": ["dataset", "datasets", "table", "tables"],
+      "icon": "LuDatabase",
+      "fieldsDisplay": ["displayName", "canonicalPath", "sourceSystem"],
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "metadata.endpoint",
+      "label": "Endpoints",
+      "description": "Registered ingestion endpoints and pipelines.",
+      "synonyms": ["endpoint", "endpoints", "source", "connector"],
+      "icon": "LuShare2",
+      "fieldsDisplay": ["displayName", "sourceSystem", "properties.vendor"],
+      "actions": ["openEndpoint", "triggerCollection"]
+    },
+    {
+      "value": "doc.page",
+      "label": "Documentation",
+      "description": "Docs and runbooks linked to datasets/endpoints.",
+      "synonyms": ["doc", "docs", "documentation", "runbook"],
+      "icon": "LuBookOpen",
+      "fieldsDisplay": ["displayName", "canonicalPath"],
+      "actions": ["openDoc"]
+    }
+  ],
+  "edgeTypes": [
+    {
+      "value": "DOCUMENTED_BY",
+      "label": "Documented by",
+      "description": "Documentation links that describe the source node.",
+      "synonyms": ["documented", "documentation", "doc"],
+      "icon": "LuFileText",
+      "actions": ["openDoc"]
+    },
+    {
+      "value": "DEPENDENCY_OF",
+      "label": "Feeds",
+      "description": "Data dependency relationships between nodes.",
+      "synonyms": ["depends", "dependency", "lineage"],
+      "icon": "LuGitBranch",
+      "actions": ["openLineage"]
+    }
+  ]
+}

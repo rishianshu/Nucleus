@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { KB_NODE_DETAIL_QUERY } from "./queries";
 import type { KbNode } from "./types";
+import { useKbMetaRegistry } from "./useKbMeta";
 
 type ProvenanceViewProps = {
   metadataEndpoint: string | null;
@@ -27,6 +28,11 @@ export function ProvenanceView({ metadataEndpoint, authToken }: ProvenanceViewPr
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<ProvenanceEntry[]>([]);
   const [nodeMetadata, setNodeMetadata] = useState<{ id: string; displayName?: string | null; entityType?: string | null } | null>(null);
+  const { getNodeLabel, error: metaError, isFallback: metaFallback, refresh: refreshMeta } = useKbMetaRegistry(
+    metadataEndpoint,
+    authToken ?? undefined,
+    null,
+  );
 
   useEffect(() => {
     const paramNode = searchParams.get("node");
@@ -118,6 +124,17 @@ export function ProvenanceView({ metadataEndpoint, authToken }: ProvenanceViewPr
           ) : null}
         </div>
       </div>
+      {metaError && metaFallback ? (
+        <div
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-100"
+          data-testid="kb-meta-warning"
+        >
+          {metaError} — canonical labels will be used.{" "}
+          <button type="button" onClick={() => refreshMeta()} className="underline">
+            Retry
+          </button>
+        </div>
+      ) : null}
       {loading ? <p className="text-sm text-slate-500">Loading provenance…</p> : null}
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
@@ -128,7 +145,10 @@ export function ProvenanceView({ metadataEndpoint, authToken }: ProvenanceViewPr
         <div className="overflow-auto rounded-2xl border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
           {nodeMetadata ? (
             <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-100">
-              {nodeMetadata.displayName ?? nodeMetadata.id} · {nodeMetadata.entityType ?? "entity"}
+              {nodeMetadata.displayName ?? nodeMetadata.id} · {nodeMetadata.entityType ? getNodeLabel(nodeMetadata.entityType) : "entity"}
+              {nodeMetadata.entityType ? (
+                <span className="ml-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">{nodeMetadata.entityType}</span>
+              ) : null}
             </div>
           ) : null}
           <table className="w-full table-auto text-sm">

@@ -68,3 +68,28 @@ export type KbFacets = {
   domains: KbFacetValue[];
   teams: KbFacetValue[];
 };
+
+export type KbNodeTypeMeta = {
+  value: string;
+  label: string;
+  description?: string | null;
+  synonyms: string[];
+  icon?: string | null;
+  fieldsDisplay: string[];
+  actions: string[];
+};
+
+export type KbEdgeTypeMeta = {
+  value: string;
+  label: string;
+  description?: string | null;
+  synonyms: string[];
+  icon?: string | null;
+  actions: string[];
+};
+
+export type KbMeta = {
+  version: string;
+  nodeTypes: KbNodeTypeMeta[];
+  edgeTypes: KbEdgeTypeMeta[];
+};

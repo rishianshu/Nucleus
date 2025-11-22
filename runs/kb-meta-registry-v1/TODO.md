@@ -1,0 +1,7 @@
+- [x] Create Meta-KB defaults JSON covering required node/edge types.
+- [x] Implement metadata API kbMeta schema/resolver with scope overlay + caching.
+- [x] Add unit tests for kbMeta resolver + fallback behavior.
+- [x] Build `useKbMeta` hook + helpers in metadata UI with cached fetch + fallback toast.
+- [x] Replace hard-coded labels in facets, chips, scenes, and edges with kbMeta values.
+- [x] Implement synonym-aware search/filtering using kbMeta.
+- [x] Update Vitest + Playwright coverage for AC1–AC6.

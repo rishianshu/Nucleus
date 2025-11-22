@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { LuArrowRight } from "react-icons/lu";
 import { useNavigate } from "react-router-dom";
-import { resolveKbValue } from "@metadata/client";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { KB_EDGES_QUERY, KB_NODES_QUERY } from "./queries";
 import type { KbNode, KbEdge } from "./types";
+import { useKbMetaRegistry } from "./useKbMeta";
 
 type KnowledgeBaseOverviewProps = {
   metadataEndpoint: string | null;
@@ -25,11 +25,11 @@ type OverviewState = {
 
 export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: KnowledgeBaseOverviewProps) {
   const navigate = useNavigate();
-  const DATASET_TYPE = useMemo(() => resolveKbValue("Datasets") ?? "catalog.dataset", []);
-  const ENDPOINT_TYPE = useMemo(() => resolveKbValue("Endpoints") ?? "metadata.endpoint", []);
-  const DOCPAGE_TYPE = useMemo(() => resolveKbValue("Doc pages") ?? "doc.page", []);
-  const DEPENDENCY_EDGE = useMemo(() => resolveKbValue("Dependency") ?? "DEPENDENCY_OF", []);
-  const DOCUMENTED_BY_EDGE = useMemo(() => resolveKbValue("Documented by") ?? "DOCUMENTED_BY", []);
+  const DATASET_TYPE = "catalog.dataset";
+  const ENDPOINT_TYPE = "metadata.endpoint";
+  const DOCPAGE_TYPE = "doc.page";
+  const DEPENDENCY_EDGE = "DEPENDENCY_OF";
+  const DOCUMENTED_BY_EDGE = "DOCUMENTED_BY";
   const [state, setState] = useState<OverviewState>({
     nodes: [],
     edges: [],
@@ -43,6 +43,11 @@ export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: Knowledge
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { getNodeLabel, getEdgeLabel, error: metaError, isFallback: metaFallback, refresh: refreshMeta } = useKbMetaRegistry(
+    metadataEndpoint,
+    authToken ?? undefined,
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -161,16 +166,27 @@ export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: Knowledge
   }
   return (
     <div className="space-y-6">
+      {metaError && metaFallback ? (
+        <div
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-100"
+          data-testid="kb-meta-warning"
+        >
+          {metaError} — using canonical labels.{" "}
+          <button type="button" onClick={() => refreshMeta()} className="underline">
+            Retry
+          </button>
+        </div>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <OverviewCard label="Total nodes" value={state.nodeCount.toLocaleString()} helper="Across all entity types" />
-        <OverviewCard label="Datasets" value={state.datasetCount.toLocaleString()} helper="catalog.dataset" />
-        <OverviewCard label="Endpoints" value={state.endpointCount.toLocaleString()} helper="metadata.endpoint" />
+        <OverviewCard label={getNodeLabel(DATASET_TYPE)} value={state.datasetCount.toLocaleString()} helper={DATASET_TYPE} />
+        <OverviewCard label={getNodeLabel(ENDPOINT_TYPE)} value={state.endpointCount.toLocaleString()} helper={ENDPOINT_TYPE} />
         <OverviewCard label="Total edges" value={state.edgeCount.toLocaleString()} helper="All edge types" />
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <OverviewCard label="Docs" value={state.docPageCount.toLocaleString()} helper="doc.page" />
-        <OverviewCard label="Dependencies" value={state.dependencyEdgeCount.toLocaleString()} helper="DEPENDENCY_OF" />
-        <OverviewCard label="Documentation links" value={state.documentedByCount.toLocaleString()} helper="DOCUMENTED_BY" />
+        <OverviewCard label={getNodeLabel(DOCPAGE_TYPE)} value={state.docPageCount.toLocaleString()} helper={DOCPAGE_TYPE} />
+        <OverviewCard label={getEdgeLabel(DEPENDENCY_EDGE)} value={state.dependencyEdgeCount.toLocaleString()} helper={DEPENDENCY_EDGE} />
+        <OverviewCard label={getEdgeLabel(DOCUMENTED_BY_EDGE)} value={state.documentedByCount.toLocaleString()} helper={DOCUMENTED_BY_EDGE} />
         <OverviewCard label="Top scopes" value={scopeSummary.length ? scopeSummary[0].label : "—"} helper={scopeSummary.length ? `${scopeSummary[0].count} recent nodes` : "No data"} />
       </div>
       {scopeSummary.length ? (
@@ -209,7 +225,8 @@ export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: Knowledge
                 <li key={node.id} className="py-2">
                   <p className="font-semibold text-slate-900 dark:text-white">{node.displayName}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {node.entityType} · {node.identity.logicalKey}
+                    {getNodeLabel(node.entityType)} · <span className="uppercase tracking-[0.3em] text-slate-400">{node.entityType}</span> ·{" "}
+                    {node.identity.logicalKey}
                   </p>
                 </li>
               ))}
@@ -233,9 +250,9 @@ export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: Knowledge
             <ul className="divide-y divide-slate-200 pt-3 text-sm dark:divide-slate-800">
               {state.edges.map((edge) => (
                 <li key={edge.id} className="py-2">
-                  <p className="font-semibold text-slate-900 dark:text-white">{edge.edgeType}</p>
+                  <p className="font-semibold text-slate-900 dark:text-white">{getEdgeLabel(edge.edgeType)}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {edge.sourceEntityId} → {edge.targetEntityId}
+                    <span className="uppercase tracking-[0.3em] text-slate-400">{edge.edgeType}</span> · {edge.sourceEntityId} → {edge.targetEntityId}
                   </p>
                 </li>
               ))}

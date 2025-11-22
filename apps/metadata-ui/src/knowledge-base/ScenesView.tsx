@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { KB_SCENE_QUERY } from "./queries";
 import type { KbScene } from "./types";
+import { useKbMetaRegistry } from "./useKbMeta";
 
 type ScenesViewProps = {
   metadataEndpoint: string | null;
@@ -25,6 +26,11 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
   const [scene, setScene] = useState<KbScene | null>(null);
   const autoFetchNodeRef = useRef<string | null>(null);
   const [sceneVersion, setSceneVersion] = useState(0);
+  const { getNodeLabel, getEdgeLabel, error: metaError, isFallback: metaFallback, refresh: refreshMeta } = useKbMetaRegistry(
+    metadataEndpoint,
+    authToken ?? undefined,
+    null,
+  );
 
   useEffect(() => {
     const paramNode = searchParams.get("node");
@@ -105,6 +111,17 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
           <LuRefreshCcw className="h-4 w-4" /> Preview scene
         </button>
       </div>
+      {metaError && metaFallback ? (
+        <div
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-100"
+          data-testid="kb-meta-warning"
+        >
+          {metaError} — using canonical labels.{" "}
+          <button type="button" onClick={() => refreshMeta()} className="underline">
+            Retry
+          </button>
+        </div>
+      ) : null}
       {loading ? <p className="text-sm text-slate-500">Loading scene…</p> : null}
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100">
@@ -168,7 +185,10 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
                             <div className="font-semibold">{node.displayName || node.id}</div>
                             <div className="text-xs text-slate-500">{node.id}</div>
                           </td>
-                          <td className="px-3 py-2 text-xs text-slate-500">{node.entityType}</td>
+                          <td className="px-3 py-2">
+                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">{getNodeLabel(node.entityType)}</div>
+                            <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">{node.entityType}</div>
+                          </td>
                           <td className="px-3 py-2 text-xs text-slate-500">{node.canonicalPath ?? "—"}</td>
                         </tr>
                       ))}
@@ -195,7 +215,10 @@ export function ScenesView({ metadataEndpoint, authToken }: ScenesViewProps) {
                   <tbody>
                     {scene.edges.map((edge) => (
                       <tr key={edge.id} className="border-t border-slate-100 text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                        <td className="px-3 py-2">{edge.edgeType}</td>
+                        <td className="px-3 py-2">
+                          <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">{getEdgeLabel(edge.edgeType)}</div>
+                          <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">{edge.edgeType}</div>
+                        </td>
                         <td className="px-3 py-2 text-xs text-slate-500">
                           <button
                             type="button"

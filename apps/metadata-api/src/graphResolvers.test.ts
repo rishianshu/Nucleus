@@ -236,6 +236,33 @@ test("kbFacets aggregates node and edge facets for the active tenant", async (t)
   assert.equal(dependencyFacet?.count, 1);
 });
 
+test("kbMeta query returns required node and edge types", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-kb-meta-resolver-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildResolverContext();
+
+  const meta = await resolvers.Query.kbMeta(null, { scope: null }, ctx as any);
+  assert.ok(meta.version.length > 0, "version should be populated");
+  const dataset = meta.nodeTypes.find((entry) => entry.value === "catalog.dataset");
+  const endpoint = meta.nodeTypes.find((entry) => entry.value === "metadata.endpoint");
+  const doc = meta.nodeTypes.find((entry) => entry.value === "doc.page");
+  const documentedBy = meta.edgeTypes.find((entry) => entry.value === "DOCUMENTED_BY");
+  const dependency = meta.edgeTypes.find((entry) => entry.value === "DEPENDENCY_OF");
+
+  assert.ok(dataset, "catalog.dataset should exist");
+  assert.equal(dataset?.label, "Datasets");
+  assert.ok(endpoint, "metadata.endpoint should exist");
+  assert.ok(doc, "doc.page should exist");
+  assert.ok(documentedBy, "DOCUMENTED_BY should exist");
+  assert.equal(documentedBy?.label, "Documented by");
+  assert.ok(dependency, "DEPENDENCY_OF should exist");
+});
+
 function buildResolverContext() {
   return {
     auth: {

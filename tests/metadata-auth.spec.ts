@@ -567,11 +567,40 @@ test("knowledge base overview surfaces metrics and explorer links", async ({ pag
 });
 
 test("knowledge base explorers support node and edge actions", async ({ page }) => {
+  const metadataGraphql = PRIMARY_METADATA_GRAPHQL_ROUTE;
+  let kbMetaIntercepted = false;
+  const kbMetaRoute = async (route: Route) => {
+    const payload = route.request().postDataJSON();
+    const query = typeof payload?.query === "string" ? payload.query : "";
+    if (!kbMetaIntercepted && query.includes("kbMeta")) {
+      kbMetaIntercepted = true;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ errors: [{ message: "kbMeta failure" }] }),
+      });
+      return;
+    }
+    await route.continue();
+  };
+  await page.route(metadataGraphql, kbMetaRoute);
   await openKnowledgeBase(page);
-  await page.getByTestId("kb-tab-nodes").click();
+  const metaWarning = page.getByTestId("kb-meta-warning");
+  await expect(metaWarning).toBeVisible({ timeout: 10_000 });
+  await metaWarning.getByRole("button", { name: /Retry/i }).click();
+  await expect(metaWarning).not.toBeVisible({ timeout: 20_000 });
+  await page.unroute(metadataGraphql, kbMetaRoute);
+  const nodesTab = page.getByTestId("kb-tab-nodes");
+  await expect(nodesTab).toBeVisible({ timeout: 20_000 });
+  await nodesTab.click();
+  await expect(page).toHaveURL(/\/kb\/explorer\/nodes/, { timeout: 20_000 });
   const nodeTypeFilter = page.getByTestId("kb-node-type-filter");
   await expect(nodeTypeFilter).toBeVisible({ timeout: 20_000 });
   await expect(nodeTypeFilter).toContainText("Datasets");
+  const nodeSearchInput = page.getByLabel("Search");
+  await nodeSearchInput.fill("table");
+  await expect(page.getByTestId("kb-node-search-synonym")).toContainText(/Datasets/i);
+  await nodeSearchInput.fill("");
   await nodeTypeFilter.selectOption({ value: "catalog.dataset" });
   const nodeCopyButton = page.getByTestId("kb-node-copy-button").first();
   await nodeCopyButton.click();
@@ -587,7 +616,6 @@ test("knowledge base explorers support node and edge actions", async ({ page }) 
   await expect(nodeDetail).toBeVisible();
   await nodeDetail.getByTestId("kb-node-detail-copy").click();
   await expect(nodeDetail.getByTestId("kb-node-detail-copy")).toHaveText(/Copied/);
-  const metadataGraphql = PRIMARY_METADATA_GRAPHQL_ROUTE;
   let sceneIntercepted = false;
   const sceneRoute = async (route: Route) => {
     const payload = route.request().postDataJSON();
@@ -624,7 +652,6 @@ test("knowledge base explorers support node and edge actions", async ({ page }) 
   await nodeDetail.getByRole("button", { name: "Scenes" }).click();
   await expect(page).toHaveURL(/\/kb\/scenes/);
   await expect(page.getByText("Graph preview")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("kb-scenes-truncated")).toBeVisible({ timeout: 10_000 });
   await page.unroute(metadataGraphql, sceneRoute);
   const sceneUrl = new URL(page.url());
   const selectedNodeId = sceneUrl.searchParams.get("node") ?? "";

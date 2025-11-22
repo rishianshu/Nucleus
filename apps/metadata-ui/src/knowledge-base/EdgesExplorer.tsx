@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { LuCheck, LuClipboard, LuExternalLink, LuMap, LuRefreshCcw } from "react-icons/lu";
 import { useNavigate } from "react-router-dom";
-import { resolveKbLabel } from "@metadata/client";
 import { usePagedQuery, useToastQueue } from "../metadata/hooks";
 import type { KbEdge, KbScope } from "./types";
 import { KB_EDGES_QUERY } from "./queries";
@@ -10,6 +9,7 @@ import { useKbFacets } from "./useKbFacets";
 import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
 import { ViewToggle } from "./ViewToggle";
 import { copyTextToClipboard } from "./clipboard";
+import { useKbMetaRegistry } from "./useKbMeta";
 
 type EdgesExplorerProps = {
   metadataEndpoint: string | null;
@@ -59,6 +59,11 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
   }, [edgeType, scopeArgument, sourceId, targetId]);
 
   const { facets, loading: facetsLoading, error: facetsError, refresh: refreshFacets } = useKbFacets(
+    metadataEndpoint,
+    authToken ?? undefined,
+    normalizedScope,
+  );
+  const { getEdgeLabel, error: metaError, isFallback: metaFallback, refresh: refreshMeta } = useKbMetaRegistry(
     metadataEndpoint,
     authToken ?? undefined,
     normalizedScope,
@@ -177,7 +182,7 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
               <option value="">All</option>
               {(facets?.edgeTypes ?? []).map((facet) => (
                 <option key={facet.value} value={facet.value}>
-                  {facet.label} ({facet.count})
+                  {getEdgeLabel(facet.value)} ({facet.count})
                 </option>
               ))}
             </select>
@@ -202,14 +207,22 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
           />
           <TextInput label="Source node" value={sourceId} onChange={setSourceId} placeholder="Node ID" />
           <TextInput label="Target node" value={targetId} onChange={setTargetId} placeholder="Node ID" />
-          <button
-            type="button"
-            onClick={() => pagedQuery.refresh()}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-          >
-            <LuRefreshCcw className="h-4 w-4" /> Refresh
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => pagedQuery.refresh()}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+        >
+          <LuRefreshCcw className="h-4 w-4" /> Refresh
+        </button>
+      </div>
+        {metaError && metaFallback ? (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" data-testid="kb-meta-warning">
+            {metaError} — showing canonical values.{" "}
+            <button type="button" onClick={() => refreshMeta()} className="underline">
+              Retry
+            </button>
+          </p>
+        ) : null}
         {facetsError ? (
           <p className="mt-2 text-xs text-rose-500">
             Failed to load edge filters: {facetsError}{" "}
@@ -263,7 +276,7 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
                       const rowCopyKey = `edge-row-${index}`;
                       const isSelected = selectedEdge?.id === edge.id;
                       const isCopied = copiedEdgeId === rowCopyKey;
-                      const typeLabel = resolveKbLabel(edge.edgeType, "edgeType");
+                      const typeLabel = getEdgeLabel(edge.edgeType);
                       return (
                         <tr
                           key={edge.id}
@@ -344,6 +357,7 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
         {selectedEdge ? (
           <EdgeDetail
             edge={selectedEdge}
+            edgeLabel={getEdgeLabel(selectedEdge.edgeType)}
             onOpenSource={() => navigate(`/kb/explorer/nodes?node=${selectedEdge.sourceEntityId}`)}
             onOpenTarget={() => navigate(`/kb/explorer/nodes?node=${selectedEdge.targetEntityId}`)}
             onSourceScene={() => navigate(`/kb/scenes?node=${selectedEdge.sourceEntityId}`)}
@@ -416,6 +430,7 @@ function TextInput({ label, value, onChange, placeholder }: { label: string; val
 
 function EdgeDetail({
   edge,
+  edgeLabel,
   onOpenSource,
   onOpenTarget,
   onSourceScene,
@@ -424,6 +439,7 @@ function EdgeDetail({
   isCopied = false,
 }: {
   edge: KbEdge;
+  edgeLabel: string;
   onOpenSource: () => void;
   onOpenTarget: () => void;
   onSourceScene: () => void;
@@ -432,10 +448,11 @@ function EdgeDetail({
   isCopied?: boolean;
 }) {
   return (
-  <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
+    <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Edge type</p>
-        <p className="text-lg font-semibold text-slate-900 dark:text-white">{edge.edgeType}</p>
+        <p className="text-lg font-semibold text-slate-900 dark:text-white">{edgeLabel}</p>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">{edge.edgeType}</p>
       </div>
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Source</p>
