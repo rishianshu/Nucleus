@@ -89,6 +89,7 @@ type UsePagedQueryOptions<TResult> = {
 export type UsePagedQueryResult<TResult> = {
   items: TResult[];
   loading: boolean;
+  isRefetching: boolean;
   error: string | null;
   pageInfo: PageInfoState;
   fetchNext: () => Promise<void>;
@@ -99,22 +100,31 @@ export function usePagedQuery<TResult>(options: UsePagedQueryOptions<TResult>): 
   const { metadataEndpoint, token, query, variables, pageSize = 25, selectConnection, deps = [] } = options;
   const [items, setItems] = useState<TResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pageInfo, setPageInfo] = useState<PageInfoState>(() => ({ ...EMPTY_PAGE_INFO }));
   const abortRef = useRef(0);
+  const itemsRef = useRef<TResult[]>([]);
 
   const runQuery = useCallback(
     async (cursor: string | null, append: boolean) => {
       if (!metadataEndpoint || !token) {
         abortRef.current += 1;
+        itemsRef.current = [];
         setItems([]);
         setPageInfo(() => ({ ...EMPTY_PAGE_INFO }));
         setError(null);
         setLoading(false);
+        setIsRefetching(false);
         return;
       }
       const requestId = ++abortRef.current;
-      setLoading(true);
+      const hasItems = itemsRef.current.length > 0;
+      if (!append && hasItems) {
+        setIsRefetching(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       try {
         const payload = await fetchMetadataGraphQL<any>(
@@ -133,7 +143,9 @@ export function usePagedQuery<TResult>(options: UsePagedQueryOptions<TResult>): 
         }
         const connection = selectConnection(payload);
         const nodes = connection?.nodes ?? [];
-        setItems((prev) => (append ? [...prev, ...nodes] : nodes));
+        const nextItems = append ? [...itemsRef.current, ...nodes] : nodes;
+        itemsRef.current = nextItems;
+        setItems(nextItems);
         setPageInfo((prev) => {
           const raw = connection?.pageInfo ?? {};
           const derivedStart = append ? prev.startCursor : raw.startCursor ?? nodes[0]?.id ?? null;
@@ -151,11 +163,14 @@ export function usePagedQuery<TResult>(options: UsePagedQueryOptions<TResult>): 
         }
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
-        setItems([]);
-        setPageInfo(() => ({ ...EMPTY_PAGE_INFO }));
+        if (!itemsRef.current.length) {
+          setItems([]);
+          setPageInfo(() => ({ ...EMPTY_PAGE_INFO }));
+        }
       } finally {
         if (requestId === abortRef.current) {
           setLoading(false);
+          setIsRefetching(false);
         }
       }
     },
@@ -182,6 +197,7 @@ export function usePagedQuery<TResult>(options: UsePagedQueryOptions<TResult>): 
   return {
     items,
     loading,
+    isRefetching,
     error,
     pageInfo,
     fetchNext,

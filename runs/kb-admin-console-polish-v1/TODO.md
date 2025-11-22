@@ -9,3 +9,14 @@
 - [x] Add List|Graph toggle in Nodes/Edges with SVG force layout bound by limits; ensure toggling preserves filters/selection.
 - [x] Display truncation banner + gentle layout animation in Scenes view when caps hit.
 - [x] Extend Playwright coverage for facets, copy feedback, and graph toggle; rerun unit + e2e suites with console log capture.
+- [x] Smooth d3 force layout: single simulation stored in refs, preserve node positions between refetches, animate only on diffs, add zoom/pan without reruns.
+- [x] Implement label management in graph mode (hide until hover/selection, truncate with tooltips).
+- [x] Apply catalog-style “keep previous data” pattern for explorer tables/graph (cancel in-flight, SWR-style swap when resolved) to eliminate flicker.
+- [x] Ensure facet dropdowns submit canonical values sourced from `kbFacets` (multi-select semantics preserved).
+- [x] Ensure scene banner triggers exactly when caps hit and include explicit copy.
+- [x] Harden graph view labels: default zoom shows only selected/hovered labels, reveal more when zoom ≥ 1.6, run quadtree de-overlap, ellipsis + tooltip (<140px width).
+- [x] Deterministic layout + simulation: seed positions by node hash, preserve {x,y,vx,vy}, freeze after 60 ticks/≤1.2s, only reheat on drag or data deltas.
+- [x] Zoom semantics polish: apply d3-zoom to wrapper `<g>`, ensure vector-effect non-scaling strokes, clamp font sizes, add cap banner (≤200 nodes / ≤500 edges).
+- [x] Keep-previous-data for graph queries (debounce 250–400ms, cancel in-flight, preserve selection/scroll, skeleton overlay) so graph never flickers.
+- [x] Faceted filters alignment: fetch canonical value/label pairs via `kbFacets`, render labels but submit values consistently across nodes/edges explorers.
+- [x] Copy feedback micro-UX: success = ✓ “Copied” for ~1.2s + aria-live, failure = toast.

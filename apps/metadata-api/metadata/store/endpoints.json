@@ -62,5 +62,63 @@
     "deletionReason": null,
     "createdAt": "2025-11-11T20:33:32.781Z",
     "updatedAt": "2025-11-11T20:33:32.791Z"
+  },
+  {
+    "id": "9abcc826bc074cda9bf773257107cb35",
+    "sourceId": "global-placeholder-endpoint-1763786595420-66f11eb1665747498b2f7438eb537cb1",
+    "name": "Placeholder Endpoint 1763786595420",
+    "description": "Playwright seeded endpoint",
+    "verb": "POST",
+    "url": "https://placeholder.example.com/api/1763786595420",
+    "projectId": "global",
+    "labels": [
+      "playwright"
+    ],
+    "capabilities": [
+      "metadata"
+    ],
+    "deletedAt": "2025-11-22T04:43:15.747Z",
+    "deletionReason": null,
+    "createdAt": "2025-11-22T04:43:15.558Z",
+    "updatedAt": "2025-11-22T04:43:15.752Z"
+  },
+  {
+    "id": "db5f5ca5c0c54e3b9385bf61a7042760",
+    "sourceId": "global-smoke-endpoint-1763786626396-77c3f5dbb33d47c99ead4fe691890a62",
+    "name": "Smoke Endpoint 1763786626396",
+    "description": "Smoke test endpoint",
+    "verb": "GET",
+    "url": "https://metadata-smoke.example.com/api",
+    "projectId": "global",
+    "labels": [
+      "smoke",
+      "test"
+    ],
+    "capabilities": [
+      "metadata"
+    ],
+    "deletedAt": null,
+    "deletionReason": null,
+    "createdAt": "2025-11-22T04:43:46.400Z",
+    "updatedAt": "2025-11-22T04:43:46.400Z"
+  },
+  {
+    "id": "98304fd6541f466096b7a492ab08016b",
+    "sourceId": "global-collection-graphql-1763786627085-afbb7d8124fb49af9039849f5b9611aa",
+    "name": "Collection GraphQL 1763786627085",
+    "description": "Collection GraphQL test endpoint",
+    "verb": "POST",
+    "url": "https://metadata-collection-1763786627085.example.com/graphql",
+    "projectId": "global",
+    "labels": [
+      "collection-test"
+    ],
+    "capabilities": [
+      "metadata"
+    ],
+    "deletedAt": null,
+    "deletionReason": null,
+    "createdAt": "2025-11-22T04:43:47.088Z",
+    "updatedAt": "2025-11-22T04:43:47.088Z"
   }
 ]

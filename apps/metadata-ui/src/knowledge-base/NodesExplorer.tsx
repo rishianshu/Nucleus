@@ -11,6 +11,7 @@ import type { KbNode, KbScope } from "./types";
 import { useKbFacets } from "./useKbFacets";
 import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
 import { ViewToggle } from "./ViewToggle";
+import { copyTextToClipboard } from "./clipboard";
 
 type NodesExplorerProps = {
   metadataEndpoint: string | null;
@@ -97,23 +98,25 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
   });
 
   const handleCopy = useCallback(
-    (event: MouseEvent<HTMLButtonElement> | null, logicalKey: string | null | undefined, sourceId: string) => {
+    async (event: MouseEvent<HTMLButtonElement> | null, logicalKey: string | null | undefined, sourceId: string) => {
       event?.stopPropagation();
       if (!logicalKey) {
         toastQueue.pushToast({ title: "Logical key unavailable", intent: "error" });
         return;
       }
-      navigator.clipboard?.writeText(logicalKey).catch(() => {});
-      toastQueue.pushToast({ title: "Logical key copied", intent: "success" });
+      const copied = await copyTextToClipboard(logicalKey);
+      if (!copied) {
+        toastQueue.pushToast({ title: "Copy failed. Try again.", intent: "error" });
+      }
       setCopiedSourceId(sourceId);
-      setCopyAnnouncement("Logical key copied");
+      setCopyAnnouncement(copied ? "Logical key copied" : "");
       if (copyResetRef.current) {
         window.clearTimeout(copyResetRef.current);
       }
       copyResetRef.current = window.setTimeout(() => {
         setCopiedSourceId(null);
         setCopyAnnouncement("");
-      }, 1500);
+      }, 1200);
     },
     [toastQueue],
   );
@@ -266,6 +269,7 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
               edges={[]}
               selectedNodeId={selectedNodeId}
               onSelectNode={(id) => handleSelectNode(id)}
+              isRefreshing={pagedQuery.isRefetching}
             />
           ) : (
             <>
@@ -292,10 +296,11 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedQuery.items.map((node) => {
+                    {pagedQuery.items.map((node, index) => {
+                      const rowCopyKey = `node-row-${index}`;
                       const isSelected = node.id === selectedNodeId;
                       const typeLabel = resolveKbLabel(node.entityType, "nodeType");
-                      const isCopied = copiedSourceId === node.id;
+                      const isCopied = copiedSourceId === rowCopyKey;
                       return (
                         <tr
                           key={node.id}
@@ -328,7 +333,7 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
                                   ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400 dark:text-emerald-300"
                                   : "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
                               }`}
-                              onClick={(event) => handleCopy(event, node.identity.logicalKey ?? "", node.id)}
+                              onClick={(event) => handleCopy(event, node.identity.logicalKey ?? node.id, rowCopyKey)}
                               data-testid="kb-node-copy-button"
                             >
                               {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
@@ -364,7 +369,7 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
             onOpenScenes={() => navigate(`/kb/scenes?node=${selectedNode.id}`)}
             onOpenProvenance={() => navigate(`/kb/provenance?node=${selectedNode.id}`)}
             onOpenExplorer={() => navigate(`/kb/explorer/nodes?node=${selectedNode.id}`)}
-            onCopyLogicalKey={() => handleCopy(null, selectedNode.identity.logicalKey ?? "", `detail-${selectedNode.id}`)}
+            onCopyLogicalKey={() => handleCopy(null, selectedNode.identity.logicalKey ?? selectedNode.id, `detail-${selectedNode.id}`)}
             isCopied={copiedSourceId === `detail-${selectedNode.id}`}
           />
         ) : (
@@ -470,7 +475,7 @@ function NodeDetail({
             {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
           </button>
         </div>
-        <p className="break-all text-sm text-slate-900 dark:text-white">{node.identity.logicalKey}</p>
+        <p className="break-all text-sm text-slate-900 dark:text-white">{node.identity.logicalKey ?? node.id}</p>
       </div>
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Scope</p>

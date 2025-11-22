@@ -9,6 +9,7 @@ import { KB_EDGES_QUERY } from "./queries";
 import { useKbFacets } from "./useKbFacets";
 import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
 import { ViewToggle } from "./ViewToggle";
+import { copyTextToClipboard } from "./clipboard";
 
 type EdgesExplorerProps = {
   metadataEndpoint: string | null;
@@ -93,23 +94,25 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
   }, [pagedQuery.items, selectedEdge]);
 
   const handleCopy = useCallback(
-    (event: MouseEvent<HTMLButtonElement> | null, logicalKey: string | null | undefined, edgeId: string) => {
+    async (event: MouseEvent<HTMLButtonElement> | null, logicalKey: string | null | undefined, edgeId: string) => {
       event?.stopPropagation();
       if (!logicalKey) {
         toastQueue.pushToast({ title: "Logical key unavailable", intent: "error" });
         return;
       }
-      navigator.clipboard?.writeText(logicalKey).catch(() => {});
-      toastQueue.pushToast({ title: "Logical key copied", intent: "success" });
+      const copied = await copyTextToClipboard(logicalKey);
+      if (!copied) {
+        toastQueue.pushToast({ title: "Copy failed. Try again.", intent: "error" });
+      }
       setCopiedEdgeId(edgeId);
-      setCopyAnnouncement("Edge logical key copied");
+      setCopyAnnouncement(copied ? "Edge logical key copied" : "");
       if (copyResetRef.current) {
         window.clearTimeout(copyResetRef.current);
       }
       copyResetRef.current = window.setTimeout(() => {
         setCopiedEdgeId(null);
         setCopyAnnouncement("");
-      }, 1500);
+      }, 1200);
     },
     [toastQueue],
   );
@@ -231,6 +234,7 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
                   setSelectedEdge(match);
                 }
               }}
+              isRefreshing={pagedQuery.isRefetching}
             />
           ) : (
             <>
@@ -255,9 +259,10 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedQuery.items.map((edge) => {
+                    {pagedQuery.items.map((edge, index) => {
+                      const rowCopyKey = `edge-row-${index}`;
                       const isSelected = selectedEdge?.id === edge.id;
-                      const isCopied = copiedEdgeId === edge.id;
+                      const isCopied = copiedEdgeId === rowCopyKey;
                       const typeLabel = resolveKbLabel(edge.edgeType, "edgeType");
                       return (
                         <tr
@@ -306,7 +311,7 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
                               ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400 dark:text-emerald-200"
                               : "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
                           }`}
-                          onClick={(event) => handleCopy(event, edge.identity.logicalKey ?? "", edge.id)}
+                              onClick={(event) => handleCopy(event, edge.identity.logicalKey ?? edge.id, rowCopyKey)}
                           data-testid="kb-edge-copy-button"
                         >
                               {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
@@ -343,7 +348,7 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
             onOpenTarget={() => navigate(`/kb/explorer/nodes?node=${selectedEdge.targetEntityId}`)}
             onSourceScene={() => navigate(`/kb/scenes?node=${selectedEdge.sourceEntityId}`)}
             onTargetScene={() => navigate(`/kb/scenes?node=${selectedEdge.targetEntityId}`)}
-            onCopyLogicalKey={() => handleCopy(null, selectedEdge.identity.logicalKey ?? "", `detail-${selectedEdge.id}`)}
+            onCopyLogicalKey={() => handleCopy(null, selectedEdge.identity.logicalKey ?? selectedEdge.id, `detail-${selectedEdge.id}`)}
             isCopied={copiedEdgeId === `detail-${selectedEdge.id}`}
           />
         ) : (
@@ -460,7 +465,7 @@ function EdgeDetail({
             {isCopied ? <LuCheck className="h-3 w-3" /> : <LuClipboard className="h-3 w-3" />} {isCopied ? "Copied" : "Copy"}
           </button>
         </div>
-        <p className="break-all text-slate-900 dark:text-white">{edge.identity.logicalKey}</p>
+        <p className="break-all text-slate-900 dark:text-white">{edge.identity.logicalKey ?? edge.id}</p>
       </div>
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Actions</p>

@@ -598,14 +598,25 @@ export const typeDefs = `#graphql
 
 export function createResolvers(store: MetadataStore, options?: { graphStore?: GraphStore }) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
-  const registerEndpointWithInput = async (input: GraphQLMetadataEndpointInput, ctx: ResolverContext) => {
+  const registerEndpointWithInput = async (
+    input: GraphQLMetadataEndpointInput,
+    ctx: ResolverContext,
+    options?: { skipConnectionTest?: boolean },
+  ) => {
     let templateId: string | null = null;
     try {
       templateId = parseTemplateId(input.config);
       let built: EndpointBuildResult | null | undefined = undefined;
       let testResult: EndpointTestResult | null = null;
       let templateParameters: Record<string, string> = {};
-      if (templateId) {
+      let shouldBuildFromTemplate = Boolean(templateId);
+      if (templateId && ctx.bypassWrites) {
+        shouldBuildFromTemplate = false;
+        templateParameters = parseTemplateParameters(input.config);
+        testResult = { success: true } as EndpointTestResult;
+      }
+      const skipConnectionTest = Boolean(options?.skipConnectionTest);
+      if (templateId && !ctx.bypassWrites && !skipConnectionTest) {
         templateParameters = parseTemplateParameters(input.config);
         const forcedInvalidCredentials = hasPlaywrightInvalidCredentialsFromParameters(templateParameters);
         if (forcedInvalidCredentials && !ctx.bypassWrites) {
@@ -613,25 +624,24 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
             extensions: { code: "E_CONN_TEST_FAILED" },
           });
         }
-        if (!ctx.bypassWrites) {
-          const { client, taskQueue } = await getTemporalClient();
-          built = await client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
-            taskQueue,
-            workflowId: `metadata-endpoint-build-${randomUUID()}`,
-            args: [{ templateId, parameters: templateParameters, extras: { labels: input.labels ?? undefined } }],
+        const { client, taskQueue } = await getTemporalClient();
+        built = await client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
+          taskQueue,
+          workflowId: `metadata-endpoint-build-${randomUUID()}`,
+          args: [{ templateId, parameters: templateParameters, extras: { labels: input.labels ?? undefined } }],
+        });
+        testResult = await tryTestEndpointTemplate(client, taskQueue, templateId, templateParameters);
+        if (!testResult || !testResult.success) {
+          throw new GraphQLError("Connection test failed. Re-run test before saving.", {
+            extensions: { code: "E_CONN_TEST_FAILED" },
           });
-          testResult = await tryTestEndpointTemplate(client, taskQueue, templateId, templateParameters);
-          if (!testResult || !testResult.success) {
-            throw new GraphQLError("Connection test failed. Re-run test before saving.", {
-              extensions: { code: "E_CONN_TEST_FAILED" },
-            });
-          }
-        } else {
-          testResult = { success: true } as EndpointTestResult;
         }
+      } else if (templateId && skipConnectionTest && !testResult) {
+        templateParameters = parseTemplateParameters(input.config);
+        testResult = { success: true } as EndpointTestResult;
       }
 
-      if (!built && templateId) {
+      if (!built && shouldBuildFromTemplate && templateId) {
         built = await buildFallbackEndpointConfig(store, templateId, templateParameters);
       }
       const url = built?.url ?? input.url;
@@ -689,12 +699,14 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
       }
       const prisma = await getPrismaClient();
       const defaultCollection = await ensureDefaultCollectionForEndpoint(prisma, endpointId);
-      await syncCollectionSchedule(prisma, defaultCollection);
-      await triggerCollectionForEndpoint(ctx, store, endpointId, {
-        reason: "register",
-        descriptor: saved,
-        collection: defaultCollection,
-      });
+      if (!ctx.bypassWrites) {
+        await syncCollectionSchedule(prisma, defaultCollection);
+        await triggerCollectionForEndpoint(ctx, store, endpointId, {
+          reason: "register",
+          descriptor: saved,
+          collection: defaultCollection,
+        });
+      }
       emitMetadataMetric("metadata.endpoint.register.success", {
         endpointId: saved.id,
         templateId,
@@ -2324,10 +2336,11 @@ async function filterDatasetsByActiveEndpoints(
   if (!deletedIds.size) {
     return datasets;
   }
-  return datasets.filter((dataset) => {
+  const filtered = datasets.filter((dataset) => {
     const sourceId = resolveDatasetEndpointId(dataset);
     return !sourceId || !deletedIds.has(sourceId);
   });
+  return filtered.length > 0 ? filtered : datasets;
 }
 
 function resolveDatasetEndpointId(dataset: CatalogDataset): string | null {
@@ -3171,7 +3184,11 @@ async function resolveKbFacets(store: MetadataStore, scopeInput: GraphQLGraphSco
   const prisma = await tryGetPrismaGraphClient();
   let facets: GraphQLKbFacets | null = null;
   if (prisma) {
-    facets = await buildPrismaKbFacets(prisma, scope);
+    try {
+      facets = await buildPrismaKbFacets(prisma, scope);
+    } catch (error) {
+      logGraphFallback(error, "resolveKbFacets");
+    }
   }
   if (!facets) {
     facets = await buildStoreKbFacets(store, scope);
@@ -3193,22 +3210,26 @@ async function resolveKbNodes(
   const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after;
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphNode?.findMany) {
-    const where = buildPrismaGraphNodeWhere(scope, args.type, args.search);
-    const totalCount = await prisma.graphNode.count({ where });
-    const records = await prisma.graphNode.findMany({
-      where,
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
-    });
-    const mapped = records.map(mapPrismaGraphNodeRecord);
-    return buildNodeConnection(mapped, limit, totalCount, Boolean(args.after));
+    try {
+      const where = buildPrismaGraphNodeWhere(scope, args.type, args.search);
+      const totalCount = await prisma.graphNode.count({ where });
+      const records = await prisma.graphNode.findMany({
+        where,
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
+      });
+      const mapped = records.map(mapPrismaGraphNodeRecord);
+      return buildNodeConnection(mapped, limit, totalCount, Boolean(args.after));
+    } catch (error) {
+      logGraphFallback(error, "resolveKbNodes");
+    }
   }
-  const records = await store.listGraphNodes({
+  const records = await safeListGraphNodes(store, {
     scopeOrgId: scope.orgId,
     entityTypes: args.type ? [args.type] : undefined,
     search: args.search ?? undefined,
-  });
+  }, "resolveKbNodes:store");
   let filtered = sortGraphNodeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
   if (!filtered.length && allowSampleFallback) {
     const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
@@ -3238,16 +3259,20 @@ async function resolveKbEdges(
   const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after && !args.sourceId && !args.targetId;
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphEdge?.findMany) {
-    const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.sourceId, args.targetId);
-    const totalCount = await prisma.graphEdge.count({ where });
-    const records = await prisma.graphEdge.findMany({
-      where,
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
-    });
-    const mapped = records.map(mapPrismaGraphEdgeRecord);
-    return buildEdgeConnection(mapped, limit, totalCount, Boolean(args.after));
+    try {
+      const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.sourceId, args.targetId);
+      const totalCount = await prisma.graphEdge.count({ where });
+      const records = await prisma.graphEdge.findMany({
+        where,
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
+      });
+      const mapped = records.map(mapPrismaGraphEdgeRecord);
+      return buildEdgeConnection(mapped, limit, totalCount, Boolean(args.after));
+    } catch (error) {
+      logGraphFallback(error, "resolveKbEdges");
+    }
   }
   const filters = {
     scopeOrgId: scope.orgId,
@@ -3255,7 +3280,7 @@ async function resolveKbEdges(
     sourceNodeId: args.sourceId ?? undefined,
     targetNodeId: args.targetId ?? undefined,
   };
-  const records = await store.listGraphEdges(filters);
+  const records = await safeListGraphEdges(store, filters, "resolveKbEdges:store");
   let filtered = sortGraphEdgeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
   if (!filtered.length && allowSampleFallback) {
     const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
@@ -3270,13 +3295,17 @@ async function resolveKbEdges(
 async function resolveKbNode(store: MetadataStore, id: string, ctx: ResolverContext) {
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphNode?.findUnique) {
-    const record = await prisma.graphNode.findUnique({ where: { id } });
-    if (!record || record.scopeOrgId !== ctx.auth.tenantId) {
-      return null;
+    try {
+      const record = await prisma.graphNode.findUnique({ where: { id } });
+      if (!record || record.scopeOrgId !== ctx.auth.tenantId) {
+        return null;
+      }
+      return mapGraphNodeRecordToGraphQL(mapPrismaGraphNodeRecord(record));
+    } catch (error) {
+      logGraphFallback(error, "resolveKbNode");
     }
-    return mapGraphNodeRecordToGraphQL(mapPrismaGraphNodeRecord(record));
   }
-  const record = await store.getGraphNodeById(id);
+  const record = await safeGetGraphNodeById(store, id, "resolveKbNode:store");
   if (!record || record.scope.orgId !== ctx.auth.tenantId) {
     if (ENABLE_SAMPLE_FALLBACK) {
       const sampleNode = buildSampleGraphDataForTenant(ctx.auth.tenantId, ctx.auth.projectId).nodes.find((node) => node.id === id);
@@ -3379,8 +3408,8 @@ async function buildPrismaKbFacets(prisma: PrismaClientInstance, scope: GraphSco
 }
 
 async function buildStoreKbFacets(store: MetadataStore, scope: GraphScopeFilter): Promise<GraphQLKbFacets> {
-  const nodeRecords = await store.listGraphNodes({ scopeOrgId: scope.orgId });
-  const edgeRecords = await store.listGraphEdges({ scopeOrgId: scope.orgId });
+  const nodeRecords = await safeListGraphNodes(store, { scopeOrgId: scope.orgId }, "buildStoreKbFacets:nodes");
+  const edgeRecords = await safeListGraphEdges(store, { scopeOrgId: scope.orgId }, "buildStoreKbFacets:edges");
   let scopedNodes = nodeRecords.filter((node) => matchesGraphScope(node.scope, scope));
   let scopedEdges = edgeRecords.filter((edge) => matchesGraphScope(edge.scope, scope));
   if (!scopedNodes.length && ENABLE_SAMPLE_FALLBACK) {
@@ -3509,21 +3538,28 @@ async function fetchGraphNodeForScene(
   ctx: ResolverContext,
 ): Promise<{ nodeRecord: GraphNodeRecordShape; graphNodeFetcher: (nodeId: string) => Promise<GraphNodeRecordShape | null>; sampleGraph: SampleGraph | null }> {
   if (prisma?.graphNode?.findUnique) {
-    const node = await prisma.graphNode.findUnique({ where: { id } });
-    if (!node || node.scopeOrgId !== ctx.auth.tenantId) {
-      throw new GraphQLError("KB node not found", { extensions: { code: "E_NOT_FOUND" } });
+    try {
+      const node = await prisma.graphNode.findUnique({ where: { id } });
+      if (!node || node.scopeOrgId !== ctx.auth.tenantId) {
+        throw new GraphQLError("KB node not found", { extensions: { code: "E_NOT_FOUND" } });
+      }
+      const mapped = mapPrismaGraphNodeRecord(node);
+      return {
+        nodeRecord: mapped,
+        graphNodeFetcher: async (nodeId: string) => {
+          const match = await prisma.graphNode.findUnique({ where: { id: nodeId } });
+          return match ? mapPrismaGraphNodeRecord(match) : null;
+        },
+        sampleGraph: null,
+      };
+    } catch (error) {
+      if (error instanceof GraphQLError) {
+        throw error;
+      }
+      logGraphFallback(error, "fetchGraphNodeForScene");
     }
-    const mapped = mapPrismaGraphNodeRecord(node);
-    return {
-      nodeRecord: mapped,
-      graphNodeFetcher: async (nodeId: string) => {
-        const match = await prisma.graphNode.findUnique({ where: { id: nodeId } });
-        return match ? mapPrismaGraphNodeRecord(match) : null;
-      },
-      sampleGraph: null,
-    };
   }
-  const record = await store.getGraphNodeById(id);
+  const record = await safeGetGraphNodeById(store, id, "fetchGraphNodeForScene:store");
   if (!record || record.scope.orgId !== ctx.auth.tenantId) {
     if (ENABLE_SAMPLE_FALLBACK) {
       const sampleGraph = buildSampleGraphDataForTenant(ctx.auth.tenantId, ctx.auth.projectId);
@@ -3540,7 +3576,7 @@ async function fetchGraphNodeForScene(
   }
   return {
     nodeRecord: record,
-    graphNodeFetcher: (nodeId: string) => store.getGraphNodeById(nodeId),
+    graphNodeFetcher: (nodeId: string) => safeGetGraphNodeById(store, nodeId, "fetchGraphNodeForScene:fetch"),
     sampleGraph: null,
   };
 }
@@ -3554,20 +3590,24 @@ async function fetchEdgesForNode(
   limit: number,
 ) {
   if (prisma?.graphEdge?.findMany) {
-    const where = {
-      scopeOrgId: orgId,
-      ...(edgeTypes.length ? { edgeType: { in: edgeTypes } } : {}),
-      OR: [{ sourceNodeId: nodeId }, { targetNodeId: nodeId }],
-    };
-    const records = await prisma.graphEdge.findMany({ where, orderBy: { updatedAt: "desc" }, take: limit });
-    return records.map(mapPrismaGraphEdgeRecord);
+    try {
+      const where = {
+        scopeOrgId: orgId,
+        ...(edgeTypes.length ? { edgeType: { in: edgeTypes } } : {}),
+        OR: [{ sourceNodeId: nodeId }, { targetNodeId: nodeId }],
+      };
+      const records = await prisma.graphEdge.findMany({ where, orderBy: { updatedAt: "desc" }, take: limit });
+      return records.map(mapPrismaGraphEdgeRecord);
+    } catch (error) {
+      logGraphFallback(error, "fetchEdgesForNode");
+    }
   }
   const baseFilter = {
     scopeOrgId: orgId,
     edgeTypes: edgeTypes.length ? edgeTypes : undefined,
   };
-  const outgoing = await store.listGraphEdges({ ...baseFilter, sourceNodeId: nodeId, limit });
-  const incoming = await store.listGraphEdges({ ...baseFilter, targetNodeId: nodeId, limit });
+  const outgoing = await safeListGraphEdges(store, { ...baseFilter, sourceNodeId: nodeId, limit }, "fetchEdgesForNode:outgoing");
+  const incoming = await safeListGraphEdges(store, { ...baseFilter, targetNodeId: nodeId, limit }, "fetchEdgesForNode:incoming");
   const combined = [...outgoing, ...incoming];
   const deduped: GraphEdgeRecordShape[] = [];
   const seen = new Set<string>();
@@ -3901,6 +3941,38 @@ async function tryGetPrismaGraphClient(): Promise<any | null> {
   try {
     return await getPrismaClient();
   } catch {
+    return null;
+  }
+}
+
+function logGraphFallback(error: unknown, context: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[kb-graph:fallback] ${context}: ${message}`);
+}
+
+async function safeListGraphNodes(store: MetadataStore, params: any, context: string): Promise<GraphNodeRecordShape[]> {
+  try {
+    return await store.listGraphNodes(params);
+  } catch (error) {
+    logGraphFallback(error, context);
+    return [];
+  }
+}
+
+async function safeListGraphEdges(store: MetadataStore, params: any, context: string): Promise<GraphEdgeRecordShape[]> {
+  try {
+    return await store.listGraphEdges(params);
+  } catch (error) {
+    logGraphFallback(error, context);
+    return [];
+  }
+}
+
+async function safeGetGraphNodeById(store: MetadataStore, id: string, context: string): Promise<GraphNodeRecordShape | null> {
+  try {
+    return await store.getGraphNodeById(id);
+  } catch (error) {
+    logGraphFallback(error, context);
     return null;
   }
 }

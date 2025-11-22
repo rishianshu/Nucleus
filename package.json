@@ -16,6 +16,9 @@
     "dev:metadata-ui": "pnpm --filter @apps/metadata-ui dev",
     "metadata:worker": "pnpm --filter @apps/metadata-api temporal:worker",
     "dev:metadata-stack": "concurrently --kill-others --names 'metadata-api,metadata-worker,metadata-ui' \"pnpm --filter @apps/metadata-api dev\" \"pnpm --filter @apps/metadata-api temporal:worker\" \"pnpm --filter @apps/metadata-ui dev\"",
+    "dev:stack": "bash scripts/start-dev-stack.sh",
+    "dev:stack:no-stop": "SKIP_STOP=1 bash scripts/start-dev-stack.sh --no-stop",
+    "stop:stack": "bash scripts/stop-dev-stack.sh",
     "prisma:generate:metadata": "rm -rf apps/metadata-api/prisma && cp -R prisma/metadata apps/metadata-api/prisma && export METADATA_DATABASE_URL=$(dotenv -e .env -- node scripts/metadata/resolve-db-url.cjs) && PRISMA_GENERATE_SKIP_AUTOINSTALL=1 dotenv -e .env -- pnpm --dir apps/metadata-api prisma generate --schema prisma/schema.prisma",
     "migrate:metadata": "rm -rf apps/metadata-api/prisma && cp -R prisma/metadata apps/metadata-api/prisma && export METADATA_DATABASE_URL=$(dotenv -e .env -- node scripts/metadata/resolve-db-url.cjs) && dotenv -e .env -- pnpm --dir apps/metadata-api prisma migrate deploy --schema prisma/schema.prisma",
     "migrate:metadata:dev": "rm -rf apps/metadata-api/prisma && cp -R prisma/metadata apps/metadata-api/prisma && export METADATA_DATABASE_URL=$(dotenv -e .env -- node scripts/metadata/resolve-db-url.cjs) && dotenv -e .env -- pnpm --dir apps/metadata-api prisma migrate dev --schema prisma/schema.prisma",
@@ -28,6 +31,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
+    "@types/d3-drag": "^3.0.7",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-quadtree": "^3.0.6",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-transition": "^3.0.9",
+    "@types/d3-zoom": "^3.0.8",
     "@types/node": "^20.11.30",
     "concurrently": "^9.1.0",
     "dotenv-cli": "^7.3.0"

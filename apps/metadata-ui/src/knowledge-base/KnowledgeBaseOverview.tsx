@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LuArrowRight } from "react-icons/lu";
 import { useNavigate } from "react-router-dom";
+import { resolveKbValue } from "@metadata/client";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { KB_EDGES_QUERY, KB_NODES_QUERY } from "./queries";
 import type { KbNode, KbEdge } from "./types";
@@ -24,6 +25,11 @@ type OverviewState = {
 
 export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: KnowledgeBaseOverviewProps) {
   const navigate = useNavigate();
+  const DATASET_TYPE = useMemo(() => resolveKbValue("Datasets") ?? "catalog.dataset", []);
+  const ENDPOINT_TYPE = useMemo(() => resolveKbValue("Endpoints") ?? "metadata.endpoint", []);
+  const DOCPAGE_TYPE = useMemo(() => resolveKbValue("Doc pages") ?? "doc.page", []);
+  const DEPENDENCY_EDGE = useMemo(() => resolveKbValue("Dependency") ?? "DEPENDENCY_OF", []);
+  const DOCUMENTED_BY_EDGE = useMemo(() => resolveKbValue("Documented by") ?? "DOCUMENTED_BY", []);
   const [state, setState] = useState<OverviewState>({
     nodes: [],
     edges: [],
@@ -67,35 +73,35 @@ export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: Knowledge
       fetchMetadataGraphQL<{ kbNodes: { totalCount: number } }>(
         metadataEndpoint,
         KB_NODES_QUERY,
-        { first: 1, type: "Dataset" },
+        { first: 1, type: DATASET_TYPE },
         undefined,
         { token: authToken ?? undefined },
       ),
       fetchMetadataGraphQL<{ kbNodes: { totalCount: number } }>(
         metadataEndpoint,
         KB_NODES_QUERY,
-        { first: 1, type: "Endpoint" },
+        { first: 1, type: ENDPOINT_TYPE },
         undefined,
         { token: authToken ?? undefined },
       ),
       fetchMetadataGraphQL<{ kbNodes: { totalCount: number } }>(
         metadataEndpoint,
         KB_NODES_QUERY,
-        { first: 1, type: "DocPage" },
+        { first: 1, type: DOCPAGE_TYPE },
         undefined,
         { token: authToken ?? undefined },
       ),
       fetchMetadataGraphQL<{ kbEdges: { totalCount: number } }>(
         metadataEndpoint,
         KB_EDGES_QUERY,
-        { first: 1, edgeType: "DEPENDENCY_OF" },
+        { first: 1, edgeType: DEPENDENCY_EDGE },
         undefined,
         { token: authToken ?? undefined },
       ),
       fetchMetadataGraphQL<{ kbEdges: { totalCount: number } }>(
         metadataEndpoint,
         KB_EDGES_QUERY,
-        { first: 1, edgeType: "DOCUMENTED_BY" },
+        { first: 1, edgeType: DOCUMENTED_BY_EDGE },
         undefined,
         { token: authToken ?? undefined },
       ),
@@ -129,7 +135,7 @@ export function KnowledgeBaseOverview({ metadataEndpoint, authToken }: Knowledge
     return () => {
       cancelled = true;
     };
-  }, [authToken, metadataEndpoint]);
+  }, [authToken, metadataEndpoint, DATASET_TYPE, ENDPOINT_TYPE, DOCPAGE_TYPE, DEPENDENCY_EDGE, DOCUMENTED_BY_EDGE]);
 
   const scopeSummary = useMemo(() => {
     const buckets = new Map<string, { label: string; count: number }>();
