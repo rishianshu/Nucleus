@@ -17,5 +17,6 @@ stop_component() {
 stop_component "metadata ui" "$PROJECT_ROOT/scripts/stop-metadata-ui-bg.sh"
 stop_component "metadata api" "$PROJECT_ROOT/scripts/stop-metadata-api-bg.sh"
 stop_component "keycloak" "$PROJECT_ROOT/scripts/stop-keycloak.sh"
+stop_component "infra services" "$PROJECT_ROOT/scripts/stop-infra-services.sh"
 
 echo "[stop-dev-stack] all stop commands issued"

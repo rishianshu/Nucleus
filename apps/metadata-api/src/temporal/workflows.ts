@@ -22,7 +22,6 @@ const {
   buildEndpointConfig: buildEndpointConfigActivity,
   testEndpointConnection: testEndpointConnectionActivity,
   startIngestionRun: startIngestionRunActivity,
-  syncIngestionUnit: syncIngestionUnitActivity,
   completeIngestionRun: completeIngestionRunActivity,
   failIngestionRun: failIngestionRunActivity,
 } = proxyActivities<MetadataActivities>({
@@ -45,6 +44,7 @@ type PythonMetadataActivities = {
     limit?: number;
     connectionUrl: string;
   }): Promise<{ rows: unknown[]; sampledAt: string }>;
+  runIngestionUnit(input: PythonIngestionRequest): Promise<PythonIngestionResult>;
 };
 
 const PYTHON_ACTIVITY_TASK_QUEUE = "metadata-python";
@@ -53,6 +53,20 @@ const pythonActivities = proxyActivities<PythonMetadataActivities>({
   taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
   scheduleToCloseTimeout: "2 hours",
 });
+
+type PythonIngestionRequest = {
+  endpointId: string;
+  unitId: string;
+  sinkId?: string | null;
+  checkpoint?: unknown;
+  stagingProviderId?: string | null;
+  policy?: Record<string, unknown> | null;
+};
+
+type PythonIngestionResult = {
+  newCheckpoint: unknown;
+  stats?: Record<string, unknown> | null;
+};
 
 type CollectionRunWorkflowInput = {
   runId?: string;
@@ -155,14 +169,13 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
     sinkId: input.sinkId ?? null,
   });
   try {
-    const result = await syncIngestionUnitActivity({
+    const ingestionResult = await pythonActivities.runIngestionUnit({
       endpointId: input.endpointId,
       unitId: input.unitId,
-      sinkId: context.sinkId,
-      driverId: context.driverId,
-      runId: context.runId,
-      vendorKey: context.vendorKey,
+      sinkId: context.sinkId ?? null,
       checkpoint: context.checkpoint,
+      stagingProviderId: context.stagingProviderId ?? null,
+      policy: context.policy ?? null,
     });
     await completeIngestionRunActivity({
       endpointId: input.endpointId,
@@ -171,8 +184,8 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       vendorKey: context.vendorKey,
       runId: context.runId,
       checkpointVersion: context.checkpointVersion,
-      newCheckpoint: result.newCheckpoint,
-      stats: result.stats,
+      newCheckpoint: ingestionResult.newCheckpoint,
+      stats: ingestionResult.stats ?? null,
     });
   } catch (error) {
     await failIngestionRunActivity({

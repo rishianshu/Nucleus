@@ -120,5 +120,24 @@
     "deletionReason": null,
     "createdAt": "2025-11-22T04:43:47.088Z",
     "updatedAt": "2025-11-22T04:43:47.088Z"
+  },
+  {
+    "id": "1ef2b61775bd44c4a807ab8836118ceb",
+    "sourceId": "global-placeholder-endpoint-1763876739713-4e40bb77b69443f7aabc4998607ce263",
+    "name": "Placeholder Endpoint 1763876739713",
+    "description": "Playwright seeded endpoint",
+    "verb": "POST",
+    "url": "https://placeholder.example.com/api/1763876739713",
+    "projectId": "global",
+    "labels": [
+      "playwright"
+    ],
+    "capabilities": [
+      "metadata"
+    ],
+    "deletedAt": "2025-11-23T05:45:40.243Z",
+    "deletionReason": null,
+    "createdAt": "2025-11-23T05:45:39.821Z",
+    "updatedAt": "2025-11-23T05:45:40.249Z"
   }
 ]

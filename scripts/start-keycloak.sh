@@ -9,11 +9,12 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 export KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}"
 export KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-nucleus}"
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "Unable to find $COMPOSE_FILE" >&2
   exit 1
 fi
-DOCKER_BUILDKIT=1 docker compose -f "$COMPOSE_FILE" up -d
+DOCKER_BUILDKIT=1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d
 URL="${KEYCLOAK_BASE_URL:-http://localhost:8081}/realms/master/.well-known/openid-configuration"
 echo "Waiting for Keycloak at $URL ..."
 for attempt in {1..60}; do

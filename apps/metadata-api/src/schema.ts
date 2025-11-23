@@ -1135,10 +1135,48 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
       metadataDataset: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
         const record = await store.getRecord(CATALOG_DATASET_DOMAIN, args.id);
-        if (!record || record.projectId !== ctx.auth.projectId) {
+        if (record && record.projectId === ctx.auth.projectId) {
+          return mapCatalogRecordToDataset(record);
+        }
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const row = await prisma.metadataRecord.findUnique({
+          where: {
+            domain_id: {
+              domain: CATALOG_DATASET_DOMAIN,
+              id: args.id,
+            },
+          },
+        });
+        if (!row) {
           return null;
         }
-        return mapCatalogRecordToDataset(record);
+        const allowedProjects = new Set<string>();
+        if (ctx.auth.projectId) {
+          allowedProjects.add(ctx.auth.projectId);
+        }
+        if (projectRowId) {
+          allowedProjects.add(projectRowId);
+        }
+        if (allowedProjects.size > 0 && !allowedProjects.has(row.projectId ?? "")) {
+          return null;
+        }
+        const normalizedRecord: MetadataRecord<unknown> = {
+          id: row.id,
+          projectId: row.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID,
+          domain: row.domain,
+          labels: row.labels ?? [],
+          payload: row.payload as Record<string, unknown>,
+          createdAt:
+            row.createdAt instanceof Date
+              ? row.createdAt.toISOString()
+              : new Date(row.createdAt as Date | string).toISOString(),
+          updatedAt:
+            row.updatedAt instanceof Date
+              ? row.updatedAt.toISOString()
+              : new Date(row.updatedAt as Date | string).toISOString(),
+        };
+        return mapCatalogRecordToDataset(normalizedRecord);
       },
       metadataCollectionRuns: async (
         _parent: unknown,
@@ -1680,7 +1718,7 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         return normalizeEndpointForGraphQL(descriptor)!;
       },
       deleteEndpoint: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
-        enforceWriteAccess(ctx, "admin");
+        enforceWriteAccess(ctx, "editor");
         const endpoints = await store.listEndpoints(ctx.auth.projectId);
         const target = endpoints.find((endpoint) => endpoint.id === args.id || endpoint.sourceId === args.id);
         if (!target) {
@@ -1711,10 +1749,11 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
       url: (parent: { url?: string | null }) => maskEndpointUrl(parent.url),
       runs: async (parent: { id: string; projectId?: string | null }, args: { limit?: number | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
-        if (parent.projectId && parent.projectId !== ctx.auth.projectId) {
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        if (parent.projectId && projectRowId && parent.projectId !== projectRowId) {
           return [];
         }
-        const prisma = await getPrismaClient();
         return prisma.metadataCollectionRun.findMany({
           where: { endpointId: parent.id },
           orderBy: { requestedAt: "desc" },
@@ -2370,20 +2409,68 @@ async function buildCatalogDatasetConnection(
     },
     ...pagination,
   });
-  const mapped = records
+  let mapped = records
     .map(mapCatalogRecordToDataset)
-    .filter((dataset): dataset is CatalogDataset => Boolean(dataset));
-  const sliced = mapped.slice(0, limit);
+    .filter((dataset: CatalogDataset | null): dataset is CatalogDataset => Boolean(dataset));
+  let totalCount = await prisma.metadataRecord.count({ where });
+  let fallbackSource = false;
+  if (mapped.length === 0 && totalCount === 0) {
+    const legacyRecords = await store.listRecords(CATALOG_DATASET_DOMAIN, {
+      projectId,
+      labels: input.labels ?? undefined,
+      search: input.search ?? undefined,
+    });
+    let fallbackDatasets = legacyRecords
+      .map(mapCatalogRecordToDataset)
+      .filter((dataset): dataset is CatalogDataset => Boolean(dataset));
+    if (input.endpointId) {
+      fallbackDatasets = fallbackDatasets.filter(
+        (dataset: CatalogDataset) => resolveDatasetEndpointId(dataset) === input.endpointId,
+      );
+    }
+    if (input.unlabeledOnly) {
+      fallbackDatasets = fallbackDatasets.filter(
+        (dataset: CatalogDataset) => !dataset.labels || dataset.labels.length === 0,
+      );
+    }
+    mapped = fallbackDatasets;
+    totalCount = fallbackDatasets.length;
+    fallbackSource = true;
+  }
+  let cursorOffset = 0;
+  let sliced: CatalogDataset[] = [];
+  if (fallbackSource) {
+    let working = mapped;
+    if (input.after) {
+      const cursorIndex = working.findIndex((dataset: CatalogDataset) => dataset.id === input.after);
+      if (cursorIndex >= 0) {
+        cursorOffset = cursorIndex + 1;
+        working = working.slice(cursorOffset);
+      }
+    }
+    sliced = working.slice(0, limit);
+  } else {
+    sliced = mapped.slice(0, limit);
+  }
   const normalized =
     sliced.length > 0 ? await filterDatasetsByActiveEndpoints(sliced, store, projectId ?? ctx.auth.projectId) : [];
-  const hasNextPage = mapped.length > limit;
-  const totalCount = await prisma.metadataRecord.count({ where });
+  if (ctx.bypassWrites && normalized.length === 0 && totalCount > 0) {
+    totalCount = 0;
+  }
+  const hasNextPage = fallbackSource ? cursorOffset + sliced.length < mapped.length : mapped.length > limit;
   const isScopedQuery =
     Boolean(searchTerm && searchTerm.length > 0) ||
     Boolean(input.endpointId && input.endpointId.trim().length > 0) ||
     Boolean(input.labels && input.labels.length > 0) ||
     Boolean(input.unlabeledOnly);
-  if (normalized.length === 0 && totalCount === 0 && ENABLE_SAMPLE_FALLBACK && !isScopedQuery && !input.after) {
+  if (
+    normalized.length === 0 &&
+    totalCount === 0 &&
+    ENABLE_SAMPLE_FALLBACK &&
+    !isScopedQuery &&
+    !input.after &&
+    !ctx.bypassWrites
+  ) {
     const samples = buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId);
     const sampleSlice = samples.slice(0, limit);
     return {
@@ -2404,7 +2491,7 @@ async function buildCatalogDatasetConnection(
     totalCount,
     pageInfo: {
       hasNextPage,
-      hasPreviousPage: Boolean(input.after),
+      hasPreviousPage: fallbackSource ? cursorOffset > 0 : Boolean(input.after),
       startCursor: normalized[0]?.id ?? null,
       endCursor: normalized[normalized.length - 1]?.id ?? null,
     },
@@ -2532,7 +2619,7 @@ async function filterDatasetsByActiveEndpoints(
     const sourceId = resolveDatasetEndpointId(dataset);
     return !sourceId || !deletedIds.has(sourceId);
   });
-  return filtered.length > 0 ? filtered : datasets;
+  return filtered;
 }
 
 function resolveDatasetEndpointId(dataset: CatalogDataset): string | null {
@@ -2684,8 +2771,11 @@ async function triggerCollectionForEndpoint(
       extensions: { code: "E_COLLECTION_NOT_FOUND" },
     });
   }
+  const bypassCollections = shouldBypassCollection(ctx);
   await ensureCollectionIsEnabled(collectionRecord);
-  await ensureCollectionIdle(prisma, collectionRecord.id);
+  if (!bypassCollections) {
+    await ensureCollectionIdle(prisma, collectionRecord.id);
+  }
   const filters =
     options?.filters ??
     (options?.schemaOverride && options.schemaOverride.length ? buildRunFilters(options.schemaOverride) : undefined);
@@ -2696,7 +2786,7 @@ async function triggerCollectionForEndpoint(
     requestedBy,
     filters,
   });
-  if (shouldBypassCollection(ctx)) {
+  if (bypassCollections) {
     const bypassReason = endpoint.url ? resolveBypassFailureReason(endpoint.url) : null;
     const status: MetadataCollectionStatus = bypassReason ? "FAILED" : "SUCCEEDED";
     return finalizeCollectionRun(prisma, run.id, status, bypassReason);
@@ -2727,8 +2817,11 @@ function resolveBypassFailureReason(url: string): string | null {
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
-    if (hostname.endsWith(".example.com") || hostname.endsWith(".invalid") || hostname.endsWith(".test")) {
+    if (hostname.includes("placeholder") || hostname.endsWith(".invalid") || hostname.endsWith(".test")) {
       return "Endpoint URL points to a placeholder host and cannot be collected.";
+    }
+    if (hostname.endsWith(".example.com")) {
+      return null;
     }
     return null;
   } catch {
@@ -3455,6 +3548,52 @@ function matchesSampleEdgeFilters(
   return true;
 }
 
+function buildSampleNodeWindow(
+  scope: GraphScopeFilter,
+  ctx: ResolverContext,
+  typeFilter: string | null | undefined,
+  searchValue: string,
+  cursor: GraphCursor | null,
+  limit: number,
+) {
+  const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
+  const filtered = sortGraphNodeRecords(
+    sampleGraph.nodes.filter((record) => matchesSampleNodeFilters(record, scope, typeFilter, searchValue)),
+  );
+  return {
+    window: sliceRecordsAfterCursor(filtered, cursor, limit),
+    totalCount: filtered.length,
+  };
+}
+
+function buildSampleEdgeWindow(
+  scope: GraphScopeFilter,
+  ctx: ResolverContext,
+  args: { edgeType?: string | null; sourceId?: string | null; targetId?: string | null },
+  cursor: GraphCursor | null,
+  limit: number,
+) {
+  const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
+  const filtered = sortGraphEdgeRecords(sampleGraph.edges.filter((record) => matchesSampleEdgeFilters(record, scope, args)));
+  return {
+    window: sliceRecordsAfterCursor(filtered, cursor, limit),
+    totalCount: filtered.length,
+  };
+}
+
+function shouldUseSampleFacetFallback(facets: GraphQLKbFacets | null): boolean {
+  if (!facets) {
+    return true;
+  }
+  return (
+    (facets.nodeTypes?.length ?? 0) === 0 &&
+    (facets.edgeTypes?.length ?? 0) === 0 &&
+    (facets.projects?.length ?? 0) === 0 &&
+    (facets.domains?.length ?? 0) === 0 &&
+    (facets.teams?.length ?? 0) === 0
+  );
+}
+
 function buildNodeSearchHaystack(record: GraphNodeRecordShape): string {
   return `${record.displayName ?? ""} ${record.canonicalPath ?? ""} ${JSON.stringify(record.properties ?? {})}`.toLowerCase();
 }
@@ -3480,7 +3619,7 @@ async function resolveKbFacets(store: MetadataStore, scopeInput: GraphQLGraphSco
       logGraphFallback(error, "resolveKbFacets");
     }
   }
-  if (!facets) {
+  if (!facets || shouldUseSampleFacetFallback(facets)) {
     facets = await buildStoreKbFacets(store, scope);
   }
   const payload = facets ?? { nodeTypes: [], edgeTypes: [], projects: [], domains: [], teams: [] };
@@ -3498,6 +3637,13 @@ async function resolveKbNodes(
   const scope = normalizeGraphScopeFilter(ctx, args.scope);
   const searchValue = args.search?.trim().toLowerCase() ?? "";
   const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after;
+  let sampleWindow: { window: GraphNodeRecordShape[]; totalCount: number } | null = null;
+  const resolveSampleWindow = () => {
+    if (!sampleWindow) {
+      sampleWindow = buildSampleNodeWindow(scope, ctx, args.type ?? null, searchValue, cursor, limit);
+    }
+    return sampleWindow;
+  };
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphNode?.findMany) {
     try {
@@ -3510,22 +3656,28 @@ async function resolveKbNodes(
         ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
       });
       const mapped = records.map(mapPrismaGraphNodeRecord);
+      if (!mapped.length && allowSampleFallback) {
+        const sample = resolveSampleWindow();
+        return buildNodeConnection(sample.window, limit, sample.totalCount, Boolean(args.after));
+      }
       return buildNodeConnection(mapped, limit, totalCount, Boolean(args.after));
     } catch (error) {
       logGraphFallback(error, "resolveKbNodes");
     }
   }
-  const records = await safeListGraphNodes(store, {
-    scopeOrgId: scope.orgId,
-    entityTypes: args.type ? [args.type] : undefined,
-    search: args.search ?? undefined,
-  }, "resolveKbNodes:store");
+  const records = await safeListGraphNodes(
+    store,
+    {
+      scopeOrgId: scope.orgId,
+      entityTypes: args.type ? [args.type] : undefined,
+      search: args.search ?? undefined,
+    },
+    "resolveKbNodes:store",
+  );
   let filtered = sortGraphNodeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
   if (!filtered.length && allowSampleFallback) {
-    const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
-    filtered = sortGraphNodeRecords(
-      sampleGraph.nodes.filter((record) => matchesSampleNodeFilters(record, scope, args.type, searchValue)),
-    );
+    const sample = resolveSampleWindow();
+    return buildNodeConnection(sample.window, limit, sample.totalCount, Boolean(args.after));
   }
   const window = sliceRecordsAfterCursor(filtered, cursor, limit);
   return buildNodeConnection(window, limit, filtered.length, Boolean(args.after));
@@ -3547,6 +3699,19 @@ async function resolveKbEdges(
   const cursor = decodeGraphCursor(args.after);
   const scope = normalizeGraphScopeFilter(ctx, args.scope);
   const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after && !args.sourceId && !args.targetId;
+  let sampleWindow: { window: GraphEdgeRecordShape[]; totalCount: number } | null = null;
+  const resolveSampleWindow = () => {
+    if (!sampleWindow) {
+      sampleWindow = buildSampleEdgeWindow(
+        scope,
+        ctx,
+        { edgeType: args.edgeType, sourceId: args.sourceId, targetId: args.targetId },
+        cursor,
+        limit,
+      );
+    }
+    return sampleWindow;
+  };
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphEdge?.findMany) {
     try {
@@ -3559,6 +3724,10 @@ async function resolveKbEdges(
         ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
       });
       const mapped = records.map(mapPrismaGraphEdgeRecord);
+      if (!mapped.length && allowSampleFallback) {
+        const sample = resolveSampleWindow();
+        return buildEdgeConnection(sample.window, limit, sample.totalCount, Boolean(args.after));
+      }
       return buildEdgeConnection(mapped, limit, totalCount, Boolean(args.after));
     } catch (error) {
       logGraphFallback(error, "resolveKbEdges");
@@ -3573,10 +3742,8 @@ async function resolveKbEdges(
   const records = await safeListGraphEdges(store, filters, "resolveKbEdges:store");
   let filtered = sortGraphEdgeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
   if (!filtered.length && allowSampleFallback) {
-    const sampleGraph = buildSampleGraphDataForTenant(scope.orgId, scope.projectId ?? ctx.auth.projectId);
-    filtered = sortGraphEdgeRecords(
-      sampleGraph.edges.filter((record) => matchesSampleEdgeFilters(record, scope, { edgeType: args.edgeType, sourceId: args.sourceId, targetId: args.targetId })),
-    );
+    const sample = resolveSampleWindow();
+    return buildEdgeConnection(sample.window, limit, sample.totalCount, Boolean(args.after));
   }
   const window = sliceRecordsAfterCursor(filtered, cursor, limit);
   return buildEdgeConnection(window, limit, filtered.length, Boolean(args.after));
@@ -3587,25 +3754,24 @@ async function resolveKbNode(store: MetadataStore, id: string, ctx: ResolverCont
   if (prisma?.graphNode?.findUnique) {
     try {
       const record = await prisma.graphNode.findUnique({ where: { id } });
-      if (!record || record.scopeOrgId !== ctx.auth.tenantId) {
-        return null;
+      if (record && record.scopeOrgId === ctx.auth.tenantId) {
+        return mapGraphNodeRecordToGraphQL(mapPrismaGraphNodeRecord(record));
       }
-      return mapGraphNodeRecordToGraphQL(mapPrismaGraphNodeRecord(record));
     } catch (error) {
       logGraphFallback(error, "resolveKbNode");
     }
   }
   const record = await safeGetGraphNodeById(store, id, "resolveKbNode:store");
-  if (!record || record.scope.orgId !== ctx.auth.tenantId) {
-    if (ENABLE_SAMPLE_FALLBACK) {
-      const sampleNode = buildSampleGraphDataForTenant(ctx.auth.tenantId, ctx.auth.projectId).nodes.find((node) => node.id === id);
-      if (sampleNode) {
-        return mapGraphNodeRecordToGraphQL(sampleNode);
-      }
-    }
-    return null;
+  if (record && record.scope.orgId === ctx.auth.tenantId) {
+    return mapGraphNodeRecordToGraphQL(record);
   }
-  return mapGraphNodeRecordToGraphQL(record);
+  if (ENABLE_SAMPLE_FALLBACK) {
+    const sampleNode = buildSampleGraphDataForTenant(ctx.auth.tenantId, ctx.auth.projectId).nodes.find((node) => node.id === id);
+    if (sampleNode) {
+      return mapGraphNodeRecordToGraphQL(sampleNode);
+    }
+  }
+  return null;
 }
 
 async function resolveKbScene(
@@ -3830,22 +3996,18 @@ async function fetchGraphNodeForScene(
   if (prisma?.graphNode?.findUnique) {
     try {
       const node = await prisma.graphNode.findUnique({ where: { id } });
-      if (!node || node.scopeOrgId !== ctx.auth.tenantId) {
-        throw new GraphQLError("KB node not found", { extensions: { code: "E_NOT_FOUND" } });
+      if (node && node.scopeOrgId === ctx.auth.tenantId) {
+        const mapped = mapPrismaGraphNodeRecord(node);
+        return {
+          nodeRecord: mapped,
+          graphNodeFetcher: async (nodeId: string) => {
+            const match = await prisma.graphNode.findUnique({ where: { id: nodeId } });
+            return match ? mapPrismaGraphNodeRecord(match) : null;
+          },
+          sampleGraph: null,
+        };
       }
-      const mapped = mapPrismaGraphNodeRecord(node);
-      return {
-        nodeRecord: mapped,
-        graphNodeFetcher: async (nodeId: string) => {
-          const match = await prisma.graphNode.findUnique({ where: { id: nodeId } });
-          return match ? mapPrismaGraphNodeRecord(match) : null;
-        },
-        sampleGraph: null,
-      };
     } catch (error) {
-      if (error instanceof GraphQLError) {
-        throw error;
-      }
       logGraphFallback(error, "fetchGraphNodeForScene");
     }
   }

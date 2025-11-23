@@ -125,3 +125,83 @@ model MetadataEndpointTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model IngestionUnitState {
+  endpointId String
+  unitId     String
+  sinkId     String
+  state      String          @default("IDLE")
+  checkpoint Json?
+  lastRunId  String?
+  lastRunAt  DateTime?
+  lastError  String?
+  stats      Json?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@id([endpointId, unitId])
+  @@index([endpointId])
+}
+
+model GraphNode {
+  id              String   @id @default(uuid())
+  tenantId        String
+  projectId       String?
+  entityType      String
+  displayName     String
+  canonicalPath   String?
+  sourceSystem    String?
+  specRef         String?
+  properties      Json     @default("{}")
+  version         Int      @default(1)
+  scopeOrgId      String
+  scopeDomainId   String?
+  scopeProjectId  String?
+  scopeTeamId     String?
+  originEndpointId String?
+  originVendor    String?
+  logicalKey      String   @unique
+  externalId      Json?
+  phase           String?
+  provenance      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sourceEdges GraphEdge[] @relation("sourceEdges")
+  targetEdges GraphEdge[] @relation("targetEdges")
+
+  @@index([scopeOrgId, entityType])
+  @@index([scopeOrgId, scopeProjectId])
+}
+
+model GraphEdge {
+  id               String   @id @default(uuid())
+  tenantId         String
+  projectId        String?
+  edgeType         String
+  sourceNodeId     String
+  targetNodeId     String
+  sourceNode       GraphNode @relation("sourceEdges", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode       GraphNode @relation("targetEdges", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  sourceLogicalKey String
+  targetLogicalKey String
+  scopeOrgId       String
+  scopeDomainId    String?
+  scopeProjectId   String?
+  scopeTeamId      String?
+  originEndpointId String?
+  originVendor     String?
+  logicalKey       String   @unique
+  confidence       Float?
+  specRef          String?
+  metadata         Json     @default("{}")
+  externalId       Json?
+  phase            String?
+  provenance       Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([scopeOrgId, edgeType])
+  @@index([sourceLogicalKey])
+  @@index([targetLogicalKey])
+}

@@ -1,0 +1,5 @@
+- [ ] Survey endpoint + metadata plane (platform/spark-ingestion, prisma/metadata) and capture notes for MAP.md.
+- [ ] Document ingestion workflows & sinks (ingestion-core, Temporal, KB sink) for INGESTION_AND_SINKS.md.
+- [ ] Summarize endpoint families/capabilities for ENDPOINTS.md.
+- [ ] Draft MAP.md with diagrams/sections + drift notes.
+- [ ] Append run heartbeats to LOG.md and update STATE/stories when complete.

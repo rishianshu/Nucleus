@@ -1,0 +1,3 @@
+# Story — ingestion-source-staging-sink-v1
+
+- 2025-11-23: Codex updated ingestion docs (Source→Staging→Sink), wired Temporal workflows to the Python activity, and introduced `scripts/ci-check.sh` to boot the metadata stack (Keycloak, API/UI, Temporal dev server, TS/Python workers) before running builds + `pnpm check:metadata-auth`. Registry CLI paths and Prisma seeding toggles were added, but `make ci-check` remains blocked pending guidance on how to run the metadata-auth Playwright suite in CI (tests expect bypassed collection runs / preseeded catalog data). See `runs/ingestion-source-staging-sink-v1/QUESTIONS.md`.

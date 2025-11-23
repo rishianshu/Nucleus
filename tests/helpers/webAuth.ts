@@ -161,6 +161,7 @@ export async function ensureRealmUser(spec: RealmUserSpec) {
   if (!userId) {
     userId = await createRealmUser(spec, adminToken);
   }
+  await ensureUserPassword(userId, spec.password, adminToken);
   if (spec.roles.length > 0) {
     await ensureUserRoles(userId, spec.roles, adminToken);
   }
@@ -227,6 +228,27 @@ async function createRealmUser(spec: RealmUserSpec, adminToken: string): Promise
     throw new Error("Keycloak user creation did not return an id");
   }
   return existing;
+}
+
+async function ensureUserPassword(userId: string, password: string, adminToken: string) {
+  const response = await fetch(
+    `${keycloakBase}/admin/realms/${keycloakRealm}/users/${userId}/reset-password`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "password",
+        value: password,
+        temporary: false,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to reset Keycloak password (${response.status})`);
+  }
 }
 
 async function ensureUserRoles(userId: string, roles: string[], adminToken: string) {

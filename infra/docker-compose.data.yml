@@ -6,7 +6,6 @@ services:
 
   minio:
     image: minio/minio
-    container_name: jira_minio
     command: server /data
     environment:
       MINIO_ROOT_USER: admin
@@ -16,13 +15,11 @@ services:
 
   nats:
     image: nats:2
-    container_name: jira_nats
     ports:
       - "4222:4222"
 
   local-llm:
     image: ollama/ollama:latest
-    container_name: jira_local_llm
     command: ["serve"]
     environment:
       - OLLAMA_HOST=0.0.0.0

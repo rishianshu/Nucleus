@@ -1,0 +1,6 @@
+- [x] Capture architecture/implementation plan (PLAN.md) based on intents/spec + current code.
+- [x] Author `docs/meta/nucleus-architecture/INGESTION-SOURCE-STAGING-SINK-v1.md` describing SourceEndpoint → StagingProvider → SinkEndpoint flow.
+- [x] Update `docs/meta/nucleus-architecture/INGESTION_AND_SINKS.md` (and related MAP references if needed) to de-emphasize TS drivers/sinks and document Python worker/staging model.
+- [x] Rewire `ingestionRunWorkflow` + activities to invoke a Python ingestion unit activity (no TS driver streaming) while preserving KV/Prisma handling.
+- [x] Adjust/add tests + run `make ci-check`.
+- [x] Perform manual browser walkthrough per AGENT_CODEX (KB graph zoom/pan, ingestion console, copy UX) using headless Playwright and record results.

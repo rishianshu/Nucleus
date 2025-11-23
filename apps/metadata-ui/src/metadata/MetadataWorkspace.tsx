@@ -265,8 +265,13 @@ export function MetadataWorkspace({
   const [metadataCatalogPreviewRows, setMetadataCatalogPreviewRows] = useState<Record<string, DatasetPreviewResult>>({});
   const [metadataCatalogPreviewErrors, setMetadataCatalogPreviewErrors] = useState<Record<string, string>>({});
   const [metadataCatalogPreviewingId, setMetadataCatalogPreviewingId] = useState<string | null>(null);
+  const [metadataCollectionsEndpointFilter, setMetadataCollectionsEndpointFilter] = useState<string>("all");
+  const [metadataCollectionsStatusFilter, setMetadataCollectionsStatusFilter] = useState<string>("all");
+  const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
   const [metadataEndpointDetailId, setMetadataEndpointDetailId] = useState<string | null>(null);
   const [metadataDatasetDetailId, setMetadataDatasetDetailId] = useState<string | null>(datasetDetailRouteId ?? null);
+  const [catalogDatasetSnapshot, setCatalogDatasetSnapshot] = useState<CatalogDataset[]>([]);
+  const [catalogHiddenEndpointIds, setCatalogHiddenEndpointIds] = useState<string[]>([]);
   const [datasetDetailCache, setDatasetDetailCache] = useState<Record<string, CatalogDataset>>({});
   const [datasetDetailLoading, setDatasetDetailLoading] = useState(false);
   const [datasetDetailError, setDatasetDetailError] = useState<string | null>(null);
@@ -295,9 +300,35 @@ export function MetadataWorkspace({
         return {
           title: "Collection runs",
           subtitle: "Monitor recent metadata collections, drill into results, and navigate back to endpoints when needed.",
-        };
+      };
     }
   }, [metadataSection, metadataView]);
+  const normalizedCatalogSearch = metadataCatalogSearch.trim().toLowerCase();
+  const matchesCatalogSearch = useCallback((dataset: CatalogDataset, searchTerm: string) => {
+    if (!searchTerm.length) {
+      return true;
+    }
+    const haystack: Array<string | null | undefined> = [
+      dataset.displayName,
+      dataset.id,
+      dataset.schema,
+      dataset.entity,
+      dataset.sourceEndpoint?.name,
+      dataset.sourceEndpointId,
+      ...(dataset.labels ?? []),
+    ];
+    return haystack.some((value) => {
+      if (!value) {
+        return false;
+      }
+      try {
+        return value.toLowerCase().includes(searchTerm);
+      } catch {
+        return String(value).toLowerCase().includes(searchTerm);
+      }
+    });
+  }, []);
+  const sidebarOverlayWidth = sectionNavCollapsed ? "3.5rem" : "14rem";
   const detailRequestKeyRef = useRef(0);
   const inflightDatasetDetailIdRef = useRef<string | null>(null);
   const debouncedCatalogSearch = useDebouncedValue(metadataCatalogSearch, 300);
@@ -417,16 +448,43 @@ export function MetadataWorkspace({
     () => (metadataEditingEndpointId ? metadataEndpoints.find((endpoint) => endpoint.id === metadataEditingEndpointId) ?? null : null),
     [metadataEditingEndpointId, metadataEndpoints],
   );
-  const metadataCatalogFilteredDatasets = catalogDatasets;
+  const catalogDatasetBaseList = catalogDatasets.length > 0 ? catalogDatasets : catalogDatasetSnapshot;
+  const metadataCatalogFilteredDatasets = useMemo(() => {
+    let datasetList = catalogDatasetBaseList;
+    if (catalogHiddenEndpointIds.length > 0) {
+      const hiddenSet = new Set(catalogHiddenEndpointIds);
+      datasetList = datasetList.filter((dataset) => {
+        const endpointId = dataset.sourceEndpointId ?? null;
+        return !endpointId || !hiddenSet.has(endpointId);
+      });
+    }
+    if (
+      normalizedCatalogSearch.length > 0 &&
+      catalogDatasets.length === 0 &&
+      catalogDatasetSnapshot.length > 0
+    ) {
+      datasetList = datasetList.filter((dataset) => matchesCatalogSearch(dataset, normalizedCatalogSearch));
+    }
+    return datasetList;
+  }, [
+    catalogDatasetBaseList,
+    catalogDatasets.length,
+    catalogDatasetSnapshot.length,
+    catalogHiddenEndpointIds,
+    matchesCatalogSearch,
+    normalizedCatalogSearch,
+  ]);
+  const hasMetadataSnapshot =
+    metadataCollections.length > 0 || metadataEndpoints.length > 0 || metadataCatalogFilteredDatasets.length > 0;
   const metadataCatalogSelectedDataset = useMemo(() => {
     if (metadataCatalogSelection) {
-      const match = catalogDatasets.find((dataset) => dataset.id === metadataCatalogSelection);
+      const match = catalogDatasetBaseList.find((dataset) => dataset.id === metadataCatalogSelection);
       if (match) {
         return match;
       }
     }
-    return metadataCatalogFilteredDatasets[0] ?? catalogDatasets[0] ?? null;
-  }, [catalogDatasets, metadataCatalogFilteredDatasets, metadataCatalogSelection]);
+    return metadataCatalogFilteredDatasets[0] ?? catalogDatasetBaseList[0] ?? null;
+  }, [catalogDatasetBaseList, metadataCatalogFilteredDatasets, metadataCatalogSelection]);
   const metadataDatasetDetail = useMemo(() => {
     if (!metadataDatasetDetailId) {
       return null;
@@ -491,9 +549,6 @@ export function MetadataWorkspace({
   const [metadataRunsRequestKey, setMetadataRunsRequestKey] = useState(0);
   const [metadataRunsLoadedKey, setMetadataRunsLoadedKey] = useState<number | null>(null);
   const [metadataRunsLoaded, setMetadataRunsLoaded] = useState(false);
-  const [metadataCollectionsEndpointFilter, setMetadataCollectionsEndpointFilter] = useState<string>("all");
-  const [metadataCollectionsStatusFilter, setMetadataCollectionsStatusFilter] = useState<string>("all");
-  const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
   const [endpointDatasetRecords, setEndpointDatasetRecords] = useState<Record<string, EndpointDatasetRecord[]>>({});
   const [endpointDatasetErrors, setEndpointDatasetErrors] = useState<Record<string, string>>({});
   const [endpointDatasetLoading, setEndpointDatasetLoading] = useState<Record<string, boolean>>({});
@@ -514,6 +569,17 @@ export function MetadataWorkspace({
     [onDatasetDetailRouteChange],
   );
   useEffect(() => {
+    if (metadataView === "overview") {
+      return;
+    }
+    if (metadataDatasetDetailId) {
+      updateDatasetDetailId(null, { syncRoute: false });
+    }
+    if (metadataEndpointDetailId) {
+      setMetadataEndpointDetailId(null);
+    }
+  }, [metadataDatasetDetailId, metadataEndpointDetailId, metadataView, updateDatasetDetailId]);
+  useEffect(() => {
     if (!datasetDetailRouteId) {
       return;
     }
@@ -522,6 +588,11 @@ export function MetadataWorkspace({
       setMetadataCatalogSelection(datasetDetailRouteId);
     }
   }, [datasetDetailRouteId, catalogDatasets]);
+  useEffect(() => {
+    if (catalogDatasets.length > 0) {
+      setCatalogDatasetSnapshot(catalogDatasets);
+    }
+  }, [catalogDatasets]);
   const loadDatasetDetail = useCallback(
     async (datasetId: string, options?: { force?: boolean }) => {
       if (!datasetId) {
@@ -550,7 +621,10 @@ export function MetadataWorkspace({
           undefined,
           { token: authToken ?? undefined },
         );
-        const detail = payload.metadataDataset;
+        const detail =
+          payload.metadataDataset ??
+          catalogDatasets.find((dataset) => dataset.id === datasetId) ??
+          null;
         if (!detail) {
           throw new Error("Dataset not found in this project.");
         }
@@ -571,7 +645,7 @@ export function MetadataWorkspace({
         }
       }
     },
-    [authToken, datasetDetailCache, metadataEndpoint],
+    [authToken, catalogDatasets, datasetDetailCache, metadataEndpoint],
   );
 
   const openDatasetDetailAction = useAsyncAction(
@@ -775,9 +849,9 @@ export function MetadataWorkspace({
 
   const metadataCatalogLabelOptions = useMemo(() => {
     const labels = new Set<string>();
-    catalogDatasets.forEach((dataset) => dataset.labels?.forEach((label) => labels.add(label)));
+    catalogDatasetBaseList.forEach((dataset) => dataset.labels?.forEach((label) => labels.add(label)));
     return Array.from(labels).sort();
-  }, [catalogDatasets]);
+  }, [catalogDatasetBaseList]);
 
   const metadataEndpointDetail = useMemo(
     () => (metadataEndpointDetailId ? metadataEndpoints.find((endpoint) => endpoint.id === metadataEndpointDetailId) ?? null : null),
@@ -1021,7 +1095,7 @@ export function MetadataWorkspace({
   );
 
   const handleCloseRegistration = useCallback(() => {
-    const previousEditingId = metadataEditingEndpointId;
+    console.info("[metadata-ui] close registration");
     setMetadataView("overview");
     setMetadataMutationError(null);
     setMetadataTestResult(null);
@@ -1031,11 +1105,9 @@ export function MetadataWorkspace({
     setMetadataLastTestConfigSignature(null);
     setPendingTemplateSelection(null);
     setPendingEndpointEdit(null);
-    if (previousEditingId) {
-      setMetadataEndpointDetailId(previousEditingId);
-    }
+    setMetadataEndpointDetailId(null);
     updateDatasetDetailId(null);
-  }, [metadataEditingEndpointId]);
+  }, []);
   const handleCloseEndpointDetail = useCallback(() => {
     setMetadataEndpointDetailId(null);
     setMetadataMutationError(null);
@@ -1279,6 +1351,7 @@ export function MetadataWorkspace({
   const handleSubmitMetadataEndpoint = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      console.info("[metadata-ui] submit", { mode: metadataFormMode, editing: metadataEditingEndpointId });
       if (!selectedTemplate) {
         setMetadataMutationError("Select an endpoint template before continuing.");
         return;
@@ -1320,8 +1393,9 @@ export function MetadataWorkspace({
             undefined,
             { token: authToken ?? undefined },
           );
-          refreshMetadataWorkspace();
           handleCloseRegistration();
+          handleCloseEndpointDetail();
+          refreshMetadataWorkspace();
         } else {
           await fetchMetadataGraphQL(
             metadataEndpoint,
@@ -1347,6 +1421,8 @@ export function MetadataWorkspace({
           setMetadataEndpointDescription("");
           setMetadataEndpointLabels("");
           setMetadataTestResult(null);
+          handleCloseRegistration();
+          handleCloseEndpointDetail();
           refreshMetadataWorkspace();
         }
       } catch (error) {
@@ -1358,6 +1434,7 @@ export function MetadataWorkspace({
     [
       authToken,
       canModifyEndpoints,
+      handleCloseEndpointDetail,
       handleCloseRegistration,
       metadataEditingEndpointId,
       metadataEndpoint,
@@ -1549,6 +1626,7 @@ export function MetadataWorkspace({
         if (metadataEndpointDetailId === endpoint.id) {
           setMetadataEndpointDetailId(null);
         }
+        setCatalogHiddenEndpointIds((prev) => (prev.includes(endpoint.id) ? prev : [...prev, endpoint.id]));
         setMetadataRuns((prev) => prev.filter((run) => run.endpoint?.id !== endpoint.id));
         setMetadataCatalogEndpointFilter((prev) => {
           if (prev === endpoint.id) {
@@ -3249,8 +3327,9 @@ export function MetadataWorkspace({
     );
   };
 
+  const showOverviewLoading = metadataLoading && !hasMetadataSnapshot;
   const renderOverviewContent = () => {
-    if (metadataLoading) {
+    if (showOverviewLoading) {
       return (
         <p className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
           <LuHistory className="h-4 w-4 animate-spin" />
@@ -3348,7 +3427,7 @@ export function MetadataWorkspace({
       {toastPortal}
       <section className="flex h-full min-h-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
         <aside
-          className={`relative z-40 hidden h-full flex-none border-r border-slate-200 bg-white/80 py-5 transition-[width] dark:border-slate-800 dark:bg-slate-900/40 lg:flex lg:sticky lg:top-0 ${
+          className={`relative z-50 hidden h-full flex-none border-r border-slate-200 bg-white/80 py-5 transition-[width] dark:border-slate-800 dark:bg-slate-900/40 lg:flex lg:sticky lg:top-0 ${
             sectionNavCollapsed ? "w-14 px-1.5" : "w-56 px-3.5"
           }`}
         >
@@ -3484,9 +3563,12 @@ export function MetadataWorkspace({
         </div>
         </div>
       </section>
-      {metadataDatasetDetail && !isRouteDetail ? (
+      {metadataView === "overview" && metadataDatasetDetail && !isRouteDetail ? (
         <div className="fixed inset-0 z-40 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={() => updateDatasetDetailId(null)} />
+          <div className="absolute inset-0 flex">
+            <div className="hidden lg:block" style={{ width: sidebarOverlayWidth }} />
+            <div className="flex-1 bg-slate-900/40" onClick={() => updateDatasetDetailId(null)} />
+          </div>
           <section
             className="relative flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white px-6 py-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
             data-testid="metadata-dataset-detail-drawer"
@@ -3617,9 +3699,12 @@ export function MetadataWorkspace({
           </section>
         </div>
       ) : null}
-      {metadataEndpointDetail ? (
+      {metadataView === "overview" && metadataEndpointDetail ? (
         <div className="fixed inset-0 z-40 flex justify-end">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={handleCloseEndpointDetail} />
+          <div className="absolute inset-0 flex">
+            <div className="hidden lg:block" style={{ width: sidebarOverlayWidth }} />
+            <div className="flex-1 bg-slate-900/40" onClick={handleCloseEndpointDetail} />
+          </div>
           <section
             className="relative flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white px-6 py-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
             data-testid="metadata-endpoint-detail"

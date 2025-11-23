@@ -1,4 +1,4 @@
-.PHONY: promote start end summarize today lint-governance
+.PHONY: promote start end summarize today lint-governance ci-check
 
 promote:
 	@bash scripts/promote.sh $(slug)
@@ -23,3 +23,6 @@ lint-spec:
 
 prompt:
 	@bash scripts/mk_prompt.sh $(slug)
+
+ci-check:
+	@bash scripts/ci-check.sh

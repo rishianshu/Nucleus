@@ -490,10 +490,7 @@ test("metadata endpoint credential regression requires fix before trigger", asyn
   });
   await page.getByRole("button", { name: /Back to overview/i }).click();
   await ensureWorkspaceReady(page);
-  const detailPanel = page.getByTestId("metadata-endpoint-detail");
-  if (await detailPanel.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await detailPanel.getByRole("button", { name: "Close" }).click();
-  }
+  await closeEndpointDetailIfVisible(page);
   await updateEndpointPasswordViaApi(request, endpoint.id, PLAYWRIGHT_BAD_PASSWORD, { bypassWrites: true });
   await page.getByRole("button", { name: "Refresh" }).click();
   await ensureWorkspaceReady(page);
@@ -512,7 +509,7 @@ test("metadata endpoint credential regression requires fix before trigger", asyn
   });
   await page.getByRole("button", { name: /Back to overview/i }).click();
   await ensureWorkspaceReady(page);
-  await page.getByRole("button", { name: "Close" }).click();
+  await closeEndpointDetailIfVisible(page);
   await page.getByTestId(`metadata-endpoint-trigger-${endpoint.id}`).click();
   await triggerCollectionViaApi(request, endpoint.id);
   await waitForCollectionRunStatus(request, endpoint.id, "SUCCEEDED");
@@ -774,6 +771,18 @@ async function fillPostgresConnectionForm(page: Page, overrides: Partial<typeof 
 
 const KEYCLOAK_REALM = process.env.KEYCLOAK_REALM ?? process.env.VITE_KEYCLOAK_REALM ?? "nucleus";
 const ADMIN_CREDENTIALS = { username: "dev-admin", password: process.env.KEYCLOAK_ADMIN_PASSWORD ?? "password" };
+
+async function closeEndpointDetailIfVisible(page: Page): Promise<void> {
+  const detailPanel = page.getByTestId("metadata-endpoint-detail");
+  const panelVisible = await detailPanel.isVisible().catch(() => false);
+  if (!panelVisible) {
+    return;
+  }
+  const closeButton = detailPanel.getByRole("button", { name: "Close" });
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.click();
+  }
+}
 
 type RegisteredEndpoint = { id: string; name: string };
 type EndpointRef = RegisteredEndpoint | string;

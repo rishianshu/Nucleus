@@ -3,27 +3,11 @@ import { promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { execa } from "execa";
-import {
-  getIngestionDriver,
-  getIngestionSink,
-  type GraphStore,
-  type IngestionSink,
-  type IngestionSinkContext,
-  type MetadataRecord,
-  type NormalizedBatch,
-  type TenantContext,
-} from "@metadata/core";
+import { getIngestionSink, type GraphStore, type MetadataRecord, type TenantContext } from "@metadata/core";
 import { getPrismaClient } from "../prismaClient.js";
 import { getMetadataStore, getGraphStore } from "../context.js";
 import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
-import { resolveEndpointDriverId } from "../ingestion/helpers.js";
-import {
-  readCheckpoint,
-  updateCheckpoint,
-  writeCheckpoint,
-  type IngestionCheckpointRecord,
-  type IngestionCheckpointKey,
-} from "../ingestion/checkpoints.js";
+import { readCheckpoint, updateCheckpoint, writeCheckpoint, type IngestionCheckpointRecord, type IngestionCheckpointKey } from "../ingestion/checkpoints.js";
 import { markUnitState, upsertUnitState } from "../ingestion/stateStore.js";
 import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
 
@@ -39,10 +23,16 @@ const REGISTRY_SCRIPT_PATH = path.resolve(
   "scripts",
   "endpoint_registry_cli.py",
 );
+const SPARK_PACKAGES_ROOT = path.resolve(moduleDir, "..", "..", "..", "..", "platform", "spark-ingestion", "packages");
+const REGISTRY_PYTHONPATH_ENTRIES = [
+  path.join(SPARK_PACKAGES_ROOT, "runtime-common", "src"),
+  path.join(SPARK_PACKAGES_ROOT, "core", "src"),
+  path.join(SPARK_PACKAGES_ROOT, "metadata-service", "src"),
+  path.join(SPARK_PACKAGES_ROOT, "metadata-gateway", "src"),
+].filter((entry) => entry && entry.length > 0);
 
 const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "kb";
-const DEFAULT_DRIVER_ID = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
-const INGESTION_BATCH_LIMIT = Number(process.env.INGESTION_BATCH_LIMIT ?? "500");
+const DEFAULT_STAGING_PROVIDER = process.env.INGESTION_DEFAULT_STAGING_PROVIDER ?? "in_memory";
 
 export type MetadataActivities = {
   createCollectionRun(input: {
@@ -65,7 +55,6 @@ export type MetadataActivities = {
   }): Promise<EndpointBuildResult>;
   testEndpointConnection(input: { templateId: string; parameters: Record<string, string> }): Promise<EndpointTestResult>;
   startIngestionRun(input: StartIngestionRunInput): Promise<StartIngestionRunResult>;
-  syncIngestionUnit(input: SyncIngestionUnitInput): Promise<SyncIngestionUnitResult>;
   completeIngestionRun(input: CompleteIngestionRunInput): Promise<void>;
   failIngestionRun(input: FailIngestionRunInput): Promise<void>;
 };
@@ -105,26 +94,12 @@ type StartIngestionRunInput = {
 
 type StartIngestionRunResult = {
   runId: string;
-  driverId: string;
   sinkId: string;
   vendorKey: string;
   checkpoint: IngestionCheckpointRecord | null;
   checkpointVersion: string | null;
-};
-
-type SyncIngestionUnitInput = {
-  endpointId: string;
-  unitId: string;
-  sinkId: string;
-  driverId: string;
-  runId: string;
-  vendorKey: string;
-  checkpoint: IngestionCheckpointRecord | null;
-};
-
-type SyncIngestionUnitResult = {
-  newCheckpoint: unknown;
-  stats: Record<string, unknown> | null;
+  stagingProviderId: string;
+  policy: Record<string, unknown> | null;
 };
 
 type CompleteIngestionRunInput = {
@@ -389,11 +364,9 @@ export const activities: MetadataActivities = {
     if (!getIngestionSink(resolvedSinkId)) {
       throw new Error(`Ingestion sink "${resolvedSinkId}" is not registered`);
     }
-    const driverId = resolveEndpointDriverId(endpoint) ?? DEFAULT_DRIVER_ID;
-    if (!getIngestionDriver(driverId)) {
-      throw new Error(`Ingestion driver "${driverId}" is not registered`);
-    }
     const vendorKey = endpoint.domain ?? endpoint.sourceId ?? endpoint.id ?? endpointId;
+    const stagingProviderId = resolveStagingProvider(endpoint);
+    const policy = resolveIngestionPolicy(endpoint);
     const checkpointKey: IngestionCheckpointKey = {
       endpointId,
       unitId,
@@ -413,58 +386,13 @@ export const activities: MetadataActivities = {
     );
     return {
       runId,
-      driverId,
       sinkId: resolvedSinkId,
       vendorKey,
       checkpoint: checkpointState.checkpoint,
       checkpointVersion: checkpointState.version,
+      stagingProviderId,
+      policy,
     };
-  },
-  async syncIngestionUnit(input: SyncIngestionUnitInput): Promise<SyncIngestionUnitResult> {
-    const driver = getIngestionDriver(input.driverId);
-    if (!driver) {
-      throw new Error(`Ingestion driver "${input.driverId}" is not registered`);
-    }
-    const sink = getIngestionSink(input.sinkId);
-    if (!sink) {
-      throw new Error(`Ingestion sink "${input.sinkId}" is not registered`);
-    }
-    const sinkContext: IngestionSinkContext = {
-      endpointId: input.endpointId,
-      unitId: input.unitId,
-      sinkId: input.sinkId,
-      runId: input.runId,
-    };
-    await sink.begin(sinkContext);
-    try {
-      const result = await driver.syncUnit({
-        endpointId: input.endpointId,
-        unitId: input.unitId,
-        checkpoint: input.checkpoint?.cursor ?? undefined,
-        limit: INGESTION_BATCH_LIMIT,
-      });
-      const aggregate = await writeBatches(result.batches ?? [], sink, sinkContext);
-      if (typeof sink.commit === "function") {
-        await sink.commit(sinkContext, aggregate);
-      }
-      return {
-        newCheckpoint: result.newCheckpoint,
-        stats: {
-          ...aggregate,
-          driver: result.stats ?? null,
-          sourceEventIds: result.sourceEventIds ?? [],
-          errors: (result.errors ?? []).map((entry) => ({
-            code: entry.code ?? null,
-            message: entry.message,
-          })),
-        },
-      };
-    } catch (error) {
-      if (typeof sink.abort === "function") {
-        await sink.abort(sinkContext, error);
-      }
-      throw error;
-    }
   },
   async completeIngestionRun({
     endpointId,
@@ -542,9 +470,18 @@ function normalizeSchemas(input: unknown[]): string[] {
 }
 
 async function runRegistryCommand(args: string[]) {
+  const pythonPathParts = [...REGISTRY_PYTHONPATH_ENTRIES];
+  if (process.env.PYTHONPATH && process.env.PYTHONPATH.length > 0) {
+    pythonPathParts.push(process.env.PYTHONPATH);
+  }
+  const env = {
+    ...process.env,
+    PYTHONPATH: pythonPathParts.join(path.delimiter),
+  };
   const subprocess = await execa("python3", [REGISTRY_SCRIPT_PATH, ...args], {
     stdout: "pipe",
     stderr: "inherit",
+    env,
   });
   return subprocess.stdout.trim();
 }
@@ -649,30 +586,33 @@ async function deleteTempFile(recordsPath?: string | null) {
   }
 }
 
-async function writeBatches(batches: NormalizedBatch[], sink: IngestionSink, context: IngestionSinkContext) {
-  let totalRecords = 0;
-  let totalUpserts = 0;
-  let totalEdges = 0;
-  for (const batch of batches) {
-    const recordCount = batch.records?.length ?? 0;
-    totalRecords += recordCount;
-    const writeStats = await sink.writeBatch(batch, context);
-    totalUpserts += writeStats?.upserts ?? 0;
-    totalEdges += writeStats?.edges ?? 0;
-  }
-  return {
-    batches: batches.length,
-    records: totalRecords,
-    upserts: totalUpserts,
-    edges: totalEdges,
-  };
-}
-
 function resolveSinkId(candidate?: string | null): string {
   if (candidate && candidate.trim().length > 0) {
     return candidate.trim();
   }
   return DEFAULT_SINK_ID;
+}
+
+function resolveStagingProvider(endpoint?: { config?: unknown } | null): string {
+  const raw = endpoint && typeof endpoint === "object" ? (endpoint as Record<string, unknown>).config : null;
+  if (raw && typeof raw === "object" && raw !== null) {
+    const provider = (raw as Record<string, unknown>).stagingProvider;
+    if (typeof provider === "string" && provider.trim().length > 0) {
+      return provider.trim();
+    }
+  }
+  return DEFAULT_STAGING_PROVIDER;
+}
+
+function resolveIngestionPolicy(endpoint?: { config?: unknown } | null): Record<string, unknown> | null {
+  const raw = endpoint && typeof endpoint === "object" ? (endpoint as Record<string, unknown>).config : null;
+  if (raw && typeof raw === "object" && raw !== null) {
+    const policy = (raw as Record<string, unknown>).ingestionPolicy;
+    if (policy && typeof policy === "object") {
+      return policy as Record<string, unknown>;
+    }
+  }
+  return null;
 }
 
 function buildCheckpointKey({

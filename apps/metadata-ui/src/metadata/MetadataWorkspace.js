@@ -151,8 +151,13 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     const [metadataCatalogPreviewRows, setMetadataCatalogPreviewRows] = useState({});
     const [metadataCatalogPreviewErrors, setMetadataCatalogPreviewErrors] = useState({});
     const [metadataCatalogPreviewingId, setMetadataCatalogPreviewingId] = useState(null);
+    const [metadataCollectionsEndpointFilter, setMetadataCollectionsEndpointFilter] = useState("all");
+    const [metadataCollectionsStatusFilter, setMetadataCollectionsStatusFilter] = useState("all");
+    const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
     const [metadataEndpointDetailId, setMetadataEndpointDetailId] = useState(null);
     const [metadataDatasetDetailId, setMetadataDatasetDetailId] = useState(datasetDetailRouteId ?? null);
+    const [catalogDatasetSnapshot, setCatalogDatasetSnapshot] = useState([]);
+    const [catalogHiddenEndpointIds, setCatalogHiddenEndpointIds] = useState([]);
     const [datasetDetailCache, setDatasetDetailCache] = useState({});
     const [datasetDetailLoading, setDatasetDetailLoading] = useState(false);
     const [datasetDetailError, setDatasetDetailError] = useState(null);
@@ -184,6 +189,33 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                 };
         }
     }, [metadataSection, metadataView]);
+    const normalizedCatalogSearch = metadataCatalogSearch.trim().toLowerCase();
+    const matchesCatalogSearch = useCallback((dataset, searchTerm) => {
+        if (!searchTerm.length) {
+            return true;
+        }
+        const haystack = [
+            dataset.displayName,
+            dataset.id,
+            dataset.schema,
+            dataset.entity,
+            dataset.sourceEndpoint?.name,
+            dataset.sourceEndpointId,
+            ...(dataset.labels ?? []),
+        ];
+        return haystack.some((value) => {
+            if (!value) {
+                return false;
+            }
+            try {
+                return value.toLowerCase().includes(searchTerm);
+            }
+            catch {
+                return String(value).toLowerCase().includes(searchTerm);
+            }
+        });
+    }, []);
+    const sidebarOverlayWidth = sectionNavCollapsed ? "3.5rem" : "14rem";
     const detailRequestKeyRef = useRef(0);
     const inflightDatasetDetailIdRef = useRef(null);
     const debouncedCatalogSearch = useDebouncedValue(metadataCatalogSearch, 300);
@@ -276,16 +308,40 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     const canModifyEndpoints = resolvedRole === "ADMIN" || resolvedRole === "MANAGER";
     const canDeleteEndpoints = resolvedRole === "ADMIN";
     const metadataEditingEndpoint = useMemo(() => (metadataEditingEndpointId ? metadataEndpoints.find((endpoint) => endpoint.id === metadataEditingEndpointId) ?? null : null), [metadataEditingEndpointId, metadataEndpoints]);
-    const metadataCatalogFilteredDatasets = catalogDatasets;
+    const catalogDatasetBaseList = catalogDatasets.length > 0 ? catalogDatasets : catalogDatasetSnapshot;
+    const metadataCatalogFilteredDatasets = useMemo(() => {
+        let datasetList = catalogDatasetBaseList;
+        if (catalogHiddenEndpointIds.length > 0) {
+            const hiddenSet = new Set(catalogHiddenEndpointIds);
+            datasetList = datasetList.filter((dataset) => {
+                const endpointId = dataset.sourceEndpointId ?? null;
+                return !endpointId || !hiddenSet.has(endpointId);
+            });
+        }
+        if (normalizedCatalogSearch.length > 0 &&
+            catalogDatasets.length === 0 &&
+            catalogDatasetSnapshot.length > 0) {
+            datasetList = datasetList.filter((dataset) => matchesCatalogSearch(dataset, normalizedCatalogSearch));
+        }
+        return datasetList;
+    }, [
+        catalogDatasetBaseList,
+        catalogDatasets.length,
+        catalogDatasetSnapshot.length,
+        catalogHiddenEndpointIds,
+        matchesCatalogSearch,
+        normalizedCatalogSearch,
+    ]);
+    const hasMetadataSnapshot = metadataCollections.length > 0 || metadataEndpoints.length > 0 || metadataCatalogFilteredDatasets.length > 0;
     const metadataCatalogSelectedDataset = useMemo(() => {
         if (metadataCatalogSelection) {
-            const match = catalogDatasets.find((dataset) => dataset.id === metadataCatalogSelection);
+            const match = catalogDatasetBaseList.find((dataset) => dataset.id === metadataCatalogSelection);
             if (match) {
                 return match;
             }
         }
-        return metadataCatalogFilteredDatasets[0] ?? catalogDatasets[0] ?? null;
-    }, [catalogDatasets, metadataCatalogFilteredDatasets, metadataCatalogSelection]);
+        return metadataCatalogFilteredDatasets[0] ?? catalogDatasetBaseList[0] ?? null;
+    }, [catalogDatasetBaseList, metadataCatalogFilteredDatasets, metadataCatalogSelection]);
     const metadataDatasetDetail = useMemo(() => {
         if (!metadataDatasetDetailId) {
             return null;
@@ -346,9 +402,6 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     const [metadataRunsRequestKey, setMetadataRunsRequestKey] = useState(0);
     const [metadataRunsLoadedKey, setMetadataRunsLoadedKey] = useState(null);
     const [metadataRunsLoaded, setMetadataRunsLoaded] = useState(false);
-    const [metadataCollectionsEndpointFilter, setMetadataCollectionsEndpointFilter] = useState("all");
-    const [metadataCollectionsStatusFilter, setMetadataCollectionsStatusFilter] = useState("all");
-    const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
     const [endpointDatasetRecords, setEndpointDatasetRecords] = useState({});
     const [endpointDatasetErrors, setEndpointDatasetErrors] = useState({});
     const [endpointDatasetLoading, setEndpointDatasetLoading] = useState({});
@@ -366,6 +419,17 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         }
     }, [onDatasetDetailRouteChange]);
     useEffect(() => {
+        if (metadataView === "overview") {
+            return;
+        }
+        if (metadataDatasetDetailId) {
+            updateDatasetDetailId(null, { syncRoute: false });
+        }
+        if (metadataEndpointDetailId) {
+            setMetadataEndpointDetailId(null);
+        }
+    }, [metadataDatasetDetailId, metadataEndpointDetailId, metadataView, updateDatasetDetailId]);
+    useEffect(() => {
         if (!datasetDetailRouteId) {
             return;
         }
@@ -374,6 +438,11 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             setMetadataCatalogSelection(datasetDetailRouteId);
         }
     }, [datasetDetailRouteId, catalogDatasets]);
+    useEffect(() => {
+        if (catalogDatasets.length > 0) {
+            setCatalogDatasetSnapshot(catalogDatasets);
+        }
+    }, [catalogDatasets]);
     const loadDatasetDetail = useCallback(async (datasetId, options) => {
         if (!datasetId) {
             throw new Error("Dataset identifier missing.");
@@ -393,7 +462,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         setDatasetDetailError(null);
         try {
             const payload = await fetchMetadataGraphQL(metadataEndpoint, METADATA_CATALOG_DATASET_QUERY, { id: datasetId }, undefined, { token: authToken ?? undefined });
-            const detail = payload.metadataDataset;
+            const detail = payload.metadataDataset ??
+                catalogDatasets.find((dataset) => dataset.id === datasetId) ??
+                null;
             if (!detail) {
                 throw new Error("Dataset not found in this project.");
             }
@@ -415,7 +486,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                 inflightDatasetDetailIdRef.current = null;
             }
         }
-    }, [authToken, datasetDetailCache, metadataEndpoint]);
+    }, [authToken, catalogDatasets, datasetDetailCache, metadataEndpoint]);
     const openDatasetDetailAction = useAsyncAction(async (datasetId) => {
         const detail = await loadDatasetDetail(datasetId, { force: true });
         return detail;
@@ -597,9 +668,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     }, [catalogDatasets, datasetDetailRouteId, metadataCatalogFilteredDatasets, metadataCatalogSelectedDataset]);
     const metadataCatalogLabelOptions = useMemo(() => {
         const labels = new Set();
-        catalogDatasets.forEach((dataset) => dataset.labels?.forEach((label) => labels.add(label)));
+        catalogDatasetBaseList.forEach((dataset) => dataset.labels?.forEach((label) => labels.add(label)));
         return Array.from(labels).sort();
-    }, [catalogDatasets]);
+    }, [catalogDatasetBaseList]);
     const metadataEndpointDetail = useMemo(() => (metadataEndpointDetailId ? metadataEndpoints.find((endpoint) => endpoint.id === metadataEndpointDetailId) ?? null : null), [metadataEndpointDetailId, metadataEndpoints]);
     const metadataDatasetDetailFields = metadataDatasetDetail?.fields ?? [];
     const detailDataset = metadataDatasetDetail ?? metadataCatalogSelectedDataset ?? null;
@@ -790,7 +861,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         populateEndpointEditFields(endpoint);
     }, [ensureTemplatesLoaded, metadataTemplates.length, populateEndpointEditFields]);
     const handleCloseRegistration = useCallback(() => {
-        const previousEditingId = metadataEditingEndpointId;
+        console.info("[metadata-ui] close registration");
         setMetadataView("overview");
         setMetadataMutationError(null);
         setMetadataTestResult(null);
@@ -800,11 +871,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         setMetadataLastTestConfigSignature(null);
         setPendingTemplateSelection(null);
         setPendingEndpointEdit(null);
-        if (previousEditingId) {
-            setMetadataEndpointDetailId(previousEditingId);
-        }
+        setMetadataEndpointDetailId(null);
         updateDatasetDetailId(null);
-    }, [metadataEditingEndpointId]);
+    }, []);
     const handleCloseEndpointDetail = useCallback(() => {
         setMetadataEndpointDetailId(null);
         setMetadataMutationError(null);
@@ -1013,6 +1082,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     }, [authToken, metadataEndpoint]);
     const handleSubmitMetadataEndpoint = useCallback(async (event) => {
         event.preventDefault();
+        console.info("[metadata-ui] submit", { mode: metadataFormMode, editing: metadataEditingEndpointId });
         if (!selectedTemplate) {
             setMetadataMutationError("Select an endpoint template before continuing.");
             return;
@@ -1047,8 +1117,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                         config: configPayload,
                     },
                 }, undefined, { token: authToken ?? undefined });
-                refreshMetadataWorkspace();
                 handleCloseRegistration();
+                handleCloseEndpointDetail();
+                refreshMetadataWorkspace();
             }
             else {
                 await fetchMetadataGraphQL(metadataEndpoint, REGISTER_METADATA_ENDPOINT_MUTATION, {
@@ -1069,6 +1140,8 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                 setMetadataEndpointDescription("");
                 setMetadataEndpointLabels("");
                 setMetadataTestResult(null);
+                handleCloseRegistration();
+                handleCloseEndpointDetail();
                 refreshMetadataWorkspace();
             }
         }
@@ -1081,6 +1154,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     }, [
         authToken,
         canModifyEndpoints,
+        handleCloseEndpointDetail,
         handleCloseRegistration,
         metadataEditingEndpointId,
         metadataEndpoint,
@@ -1237,6 +1311,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             if (metadataEndpointDetailId === endpoint.id) {
                 setMetadataEndpointDetailId(null);
             }
+            setCatalogHiddenEndpointIds((prev) => (prev.includes(endpoint.id) ? prev : [...prev, endpoint.id]));
             setMetadataRuns((prev) => prev.filter((run) => run.endpoint?.id !== endpoint.id));
             setMetadataCatalogEndpointFilter((prev) => {
                 if (prev === endpoint.id) {
@@ -1678,8 +1753,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                                                 ? "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
                                                 : "border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600"}`, children: [detailPreviewing ? _jsx(LuHistory, { className: "h-3 w-3 animate-spin" }) : _jsx(LuTable, { className: "h-3 w-3" }), detailPreviewing ? "Fetching…" : "Preview dataset"] })] })] }), _jsxs("section", { className: "space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Profile" }), detailProfileBlockReason ? (_jsx("p", { className: "mt-2 text-xs text-slate-500", children: detailProfileBlockReason })) : detailDataset.profile ? (_jsxs("div", { className: "mt-3 space-y-2 text-xs text-slate-500 dark:text-slate-300", children: [_jsxs("p", { children: ["Record count \u00B7 ", detailDataset.profile.recordCount ?? "—"] }), _jsxs("p", { children: ["Sample size \u00B7 ", detailDataset.profile.sampleSize ?? "—"] }), _jsxs("p", { children: ["Last profiled \u00B7", " ", detailDataset.profile.lastProfiledAt ? formatDateTime(detailDataset.profile.lastProfiledAt) : "Not recorded"] })] })) : (_jsx("p", { className: "mt-2 text-xs text-slate-500", "data-testid": "metadata-profile-empty", children: "Profiling not run yet. Trigger a collection to refresh dataset insights." }))] }), _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Notes" }), _jsx("p", { className: "mt-2 text-xs text-slate-500", children: "Add dataset descriptions via ingestion payloads to help teammates understand lineage and usage." })] })] })] })] }));
     };
+    const showOverviewLoading = metadataLoading && !hasMetadataSnapshot;
     const renderOverviewContent = () => {
-        if (metadataLoading) {
+        if (showOverviewLoading) {
             return (_jsxs("p", { className: "flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300", children: [_jsx(LuHistory, { className: "h-4 w-4 animate-spin" }), "Loading metadata\u2026"] }));
         }
         if (metadataError) {
@@ -1717,7 +1793,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                 const ToneIcon = tone.icon;
                 return (_jsx("div", { role: "status", "aria-live": "assertive", className: `pointer-events-auto rounded-2xl border px-4 py-3 text-sm shadow-lg ${tone.className}`, children: _jsxs("div", { className: "flex items-start gap-3", children: [_jsx(ToneIcon, { className: "mt-0.5 h-4 w-4", "aria-hidden": "true" }), _jsxs("div", { className: "flex-1", children: [_jsx("p", { className: "font-semibold", children: toast.title }), toast.description ? _jsx("p", { className: "mt-1 text-xs", children: toast.description }) : null] }), _jsx("button", { type: "button", onClick: () => toastQueue.dismissToast(toast.id), className: "text-xs font-semibold uppercase tracking-[0.3em] text-current/70 transition hover:text-current", "aria-label": "Dismiss notification", children: "\u00D7" })] }) }, toast.id));
             }) }) })) : null;
-    return (_jsxs(_Fragment, { children: [toastPortal, _jsxs("section", { className: "flex h-full min-h-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950", children: [_jsx("aside", { className: `relative z-40 hidden h-full flex-none border-r border-slate-200 bg-white/80 py-5 transition-[width] dark:border-slate-800 dark:bg-slate-900/40 lg:flex lg:sticky lg:top-0 ${sectionNavCollapsed ? "w-14 px-1.5" : "w-56 px-3.5"}`, children: _jsxs("div", { className: "flex h-full w-full flex-col gap-5", children: [_jsxs("div", { className: "flex items-center justify-between px-1.5", children: [!sectionNavCollapsed && (_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Navigation" })), _jsx("button", { type: "button", onClick: () => setSectionNavCollapsed((prev) => !prev), className: "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300", children: sectionNavCollapsed ? "›" : "‹" })] }), _jsx("div", { className: "flex min-h-0 flex-1 flex-col", children: _jsx("div", { className: "space-y-1.5 overflow-y-auto pr-1 scrollbar-thin", children: metadataNavItems.map((entry) => {
+    return (_jsxs(_Fragment, { children: [toastPortal, _jsxs("section", { className: "flex h-full min-h-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950", children: [_jsx("aside", { className: `relative z-50 hidden h-full flex-none border-r border-slate-200 bg-white/80 py-5 transition-[width] dark:border-slate-800 dark:bg-slate-900/40 lg:flex lg:sticky lg:top-0 ${sectionNavCollapsed ? "w-14 px-1.5" : "w-56 px-3.5"}`, children: _jsxs("div", { className: "flex h-full w-full flex-col gap-5", children: [_jsxs("div", { className: "flex items-center justify-between px-1.5", children: [!sectionNavCollapsed && (_jsx("p", { className: "text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Navigation" })), _jsx("button", { type: "button", onClick: () => setSectionNavCollapsed((prev) => !prev), className: "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300", children: sectionNavCollapsed ? "›" : "‹" })] }), _jsx("div", { className: "flex min-h-0 flex-1 flex-col", children: _jsx("div", { className: "space-y-1.5 overflow-y-auto pr-1 scrollbar-thin", children: metadataNavItems.map((entry) => {
                                             const Icon = entry.icon;
                                             const isActive = metadataView === "overview" && metadataSection === entry.id;
                                             return (_jsxs("button", { type: "button", onClick: () => {
@@ -1734,9 +1810,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                                             setMetadataEndpointDetailId(null);
                                         }, className: `rounded-full px-4 py-1.5 text-sm font-semibold transition ${metadataSection === tab.id
                                             ? "bg-slate-900 text-white shadow dark:bg-slate-100 dark:text-slate-900"
-                                            : "border border-slate-300 text-slate-600 hover:border-slate-900 dark:border-slate-600 dark:text-slate-300"}`, children: tab.label }, tab.id))), _jsx("button", { type: "button", onClick: handleWorkspaceRefresh, className: "rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 dark:border-slate-600 dark:text-slate-300", children: "Refresh" }), _jsx("button", { type: "button", onClick: () => handleOpenRegistration(), className: "ml-auto rounded-full bg-slate-900 px-4 py-1.5 text-sm font-semibold uppercase tracking-[0.3em] text-white shadow transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-emerald-500 dark:text-slate-900", "data-testid": "metadata-register-open", "data-role": resolvedRole, disabled: !canModifyEndpoints, title: !canModifyEndpoints ? "Viewer access cannot register endpoints." : undefined, children: "Register endpoint" })] })) : null, _jsx("div", { className: "flex-1 overflow-y-auto px-8 pb-8", children: metadataView === "overview" ? renderOverviewContent() : renderEndpointRegistrationPage() })] })] }), metadataDatasetDetail && !isRouteDetail ? (_jsxs("div", { className: "fixed inset-0 z-40 flex justify-end", children: [_jsx("div", { className: "absolute inset-0 bg-slate-900/40", onClick: () => updateDatasetDetailId(null) }), _jsxs("section", { className: "relative flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white px-6 py-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950", "data-testid": "metadata-dataset-detail-drawer", children: [_jsxs("div", { className: "flex items-center justify-between border-b border-slate-200 pb-4 dark:border-slate-800", children: [_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500", children: "Dataset detail" }), _jsx("p", { className: "text-base font-semibold text-slate-900 dark:text-white", children: metadataDatasetDetail.displayName }), metadataDatasetDetailDisplayId ? (_jsx("p", { className: "text-xs uppercase tracking-[0.3em] text-slate-500", children: metadataDatasetDetailDisplayId })) : null] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("button", { type: "button", onClick: () => handleOpenDatasetDetailPage(metadataDatasetDetail.id), className: "rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 hover:border-slate-900 hover:text-slate-900 dark:border-slate-700", children: "Open full page" }), _jsx("button", { type: "button", onClick: () => updateDatasetDetailId(null), className: "rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:border-slate-700", children: "Close" })] })] }), _jsxs("div", { className: "scrollbar-thin flex-1 space-y-4 overflow-y-auto py-4 pr-1 text-sm text-slate-600 dark:text-slate-300", children: [datasetDetailLoading ? (_jsx("p", { className: "rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700", children: "Loading dataset metadata\u2026" })) : null, datasetDetailError ? (_jsx("p", { className: "rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200", children: datasetDetailError })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Description" }), _jsx("p", { className: "mt-1 text-sm", children: metadataDatasetDetail.description ?? "No description provided yet." })] }), _jsxs("div", { className: "grid gap-2 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2", children: [_jsxs("span", { children: ["Endpoint \u00B7 ", metadataEndpointLookup.get(metadataDatasetDetail.sourceEndpointId ?? "")?.name ?? "Unlinked"] }), _jsxs("span", { children: ["Collected \u00B7 ", metadataDatasetDetail.collectedAt ? formatDateTime(metadataDatasetDetail.collectedAt) : "—"] }), _jsxs("span", { children: ["Entity \u00B7 ", metadataDatasetDetail.entity ?? "—"] }), _jsxs("span", { children: ["Schema \u00B7 ", metadataDatasetDetail.schema ?? "—"] })] }), _jsxs("div", { children: [_jsxs("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Fields (", metadataDatasetDetailFields.length, ")"] }), _jsx("div", { className: "mt-2 space-y-2", children: metadataDatasetDetailFields.map((field) => (_jsxs("div", { className: "rounded-2xl border border-slate-200 px-3 py-2 dark:border-slate-700", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("span", { className: "font-medium text-slate-900 dark:text-slate-100", children: field.name }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.3em] text-slate-400", children: field.type })] }), field.description ? _jsx("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: field.description }) : null] }, field.name))) }), metadataDatasetDetailFields.length === 0 ? (_jsx("p", { className: "rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 dark:border-slate-700", children: "No field metadata discovered yet." })) : null] }), _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Recent preview" }), detailPreviewRows.length ? (_jsxs(_Fragment, { children: [detailSampledAt ? (_jsxs("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-300", children: ["Sampled ", formatRelativeTime(detailSampledAt)] })) : detailPreviewStatusMessage ? (_jsx("p", { className: `mt-1 text-xs ${detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, children: detailPreviewStatusMessage })) : null, _jsx("div", { className: "mt-2 max-h-48 overflow-auto rounded-2xl border border-slate-200 dark:border-slate-700", children: _jsxs("table", { className: "min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-800", children: [_jsx("thead", { className: "bg-slate-50 text-left font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300", children: _jsx("tr", { children: detailPreviewColumns.map((column) => (_jsx("th", { className: "px-3 py-2 uppercase tracking-[0.3em] text-[10px] text-slate-400", children: column }, column))) }) }), _jsx("tbody", { children: detailPreviewRows.map((row, index) => (_jsx("tr", { className: "border-t border-slate-100 dark:border-slate-800", children: detailPreviewColumns.map((column) => (_jsx("td", { className: "px-3 py-2 text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap", children: formatPreviewValue(row[column]) }, column))) }, index))) })] }) })] })) : (_jsx("p", { className: `mt-2 text-xs ${detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, children: detailPreviewing
+                                            : "border border-slate-300 text-slate-600 hover:border-slate-900 dark:border-slate-600 dark:text-slate-300"}`, children: tab.label }, tab.id))), _jsx("button", { type: "button", onClick: handleWorkspaceRefresh, className: "rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 dark:border-slate-600 dark:text-slate-300", children: "Refresh" }), _jsx("button", { type: "button", onClick: () => handleOpenRegistration(), className: "ml-auto rounded-full bg-slate-900 px-4 py-1.5 text-sm font-semibold uppercase tracking-[0.3em] text-white shadow transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-emerald-500 dark:text-slate-900", "data-testid": "metadata-register-open", "data-role": resolvedRole, disabled: !canModifyEndpoints, title: !canModifyEndpoints ? "Viewer access cannot register endpoints." : undefined, children: "Register endpoint" })] })) : null, _jsx("div", { className: "flex-1 overflow-y-auto px-8 pb-8", children: metadataView === "overview" ? renderOverviewContent() : renderEndpointRegistrationPage() })] })] }), metadataView === "overview" && metadataDatasetDetail && !isRouteDetail ? (_jsxs("div", { className: "fixed inset-0 z-40 flex justify-end", children: [_jsxs("div", { className: "absolute inset-0 flex", children: [_jsx("div", { className: "hidden lg:block", style: { width: sidebarOverlayWidth } }), _jsx("div", { className: "flex-1 bg-slate-900/40", onClick: () => updateDatasetDetailId(null) })] }), _jsxs("section", { className: "relative flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white px-6 py-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950", "data-testid": "metadata-dataset-detail-drawer", children: [_jsxs("div", { className: "flex items-center justify-between border-b border-slate-200 pb-4 dark:border-slate-800", children: [_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500", children: "Dataset detail" }), _jsx("p", { className: "text-base font-semibold text-slate-900 dark:text-white", children: metadataDatasetDetail.displayName }), metadataDatasetDetailDisplayId ? (_jsx("p", { className: "text-xs uppercase tracking-[0.3em] text-slate-500", children: metadataDatasetDetailDisplayId })) : null] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("button", { type: "button", onClick: () => handleOpenDatasetDetailPage(metadataDatasetDetail.id), className: "rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 hover:border-slate-900 hover:text-slate-900 dark:border-slate-700", children: "Open full page" }), _jsx("button", { type: "button", onClick: () => updateDatasetDetailId(null), className: "rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:border-slate-700", children: "Close" })] })] }), _jsxs("div", { className: "scrollbar-thin flex-1 space-y-4 overflow-y-auto py-4 pr-1 text-sm text-slate-600 dark:text-slate-300", children: [datasetDetailLoading ? (_jsx("p", { className: "rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700", children: "Loading dataset metadata\u2026" })) : null, datasetDetailError ? (_jsx("p", { className: "rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200", children: datasetDetailError })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Description" }), _jsx("p", { className: "mt-1 text-sm", children: metadataDatasetDetail.description ?? "No description provided yet." })] }), _jsxs("div", { className: "grid gap-2 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2", children: [_jsxs("span", { children: ["Endpoint \u00B7 ", metadataEndpointLookup.get(metadataDatasetDetail.sourceEndpointId ?? "")?.name ?? "Unlinked"] }), _jsxs("span", { children: ["Collected \u00B7 ", metadataDatasetDetail.collectedAt ? formatDateTime(metadataDatasetDetail.collectedAt) : "—"] }), _jsxs("span", { children: ["Entity \u00B7 ", metadataDatasetDetail.entity ?? "—"] }), _jsxs("span", { children: ["Schema \u00B7 ", metadataDatasetDetail.schema ?? "—"] })] }), _jsxs("div", { children: [_jsxs("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Fields (", metadataDatasetDetailFields.length, ")"] }), _jsx("div", { className: "mt-2 space-y-2", children: metadataDatasetDetailFields.map((field) => (_jsxs("div", { className: "rounded-2xl border border-slate-200 px-3 py-2 dark:border-slate-700", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("span", { className: "font-medium text-slate-900 dark:text-slate-100", children: field.name }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.3em] text-slate-400", children: field.type })] }), field.description ? _jsx("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: field.description }) : null] }, field.name))) }), metadataDatasetDetailFields.length === 0 ? (_jsx("p", { className: "rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 dark:border-slate-700", children: "No field metadata discovered yet." })) : null] }), _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Recent preview" }), detailPreviewRows.length ? (_jsxs(_Fragment, { children: [detailSampledAt ? (_jsxs("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-300", children: ["Sampled ", formatRelativeTime(detailSampledAt)] })) : detailPreviewStatusMessage ? (_jsx("p", { className: `mt-1 text-xs ${detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, children: detailPreviewStatusMessage })) : null, _jsx("div", { className: "mt-2 max-h-48 overflow-auto rounded-2xl border border-slate-200 dark:border-slate-700", children: _jsxs("table", { className: "min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-800", children: [_jsx("thead", { className: "bg-slate-50 text-left font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300", children: _jsx("tr", { children: detailPreviewColumns.map((column) => (_jsx("th", { className: "px-3 py-2 uppercase tracking-[0.3em] text-[10px] text-slate-400", children: column }, column))) }) }), _jsx("tbody", { children: detailPreviewRows.map((row, index) => (_jsx("tr", { className: "border-t border-slate-100 dark:border-slate-800", children: detailPreviewColumns.map((column) => (_jsx("td", { className: "px-3 py-2 text-slate-700 dark:text-slate-200 break-words whitespace-pre-wrap", children: formatPreviewValue(row[column]) }, column))) }, index))) })] }) })] })) : (_jsx("p", { className: `mt-2 text-xs ${detailPreviewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, children: detailPreviewing
                                                     ? "Collecting sample rows…"
-                                                    : detailPreviewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data." }))] })] })] })] })) : null, metadataEndpointDetail ? (_jsxs("div", { className: "fixed inset-0 z-40 flex justify-end", children: [_jsx("div", { className: "absolute inset-0 bg-slate-900/40", onClick: handleCloseEndpointDetail }), _jsxs("section", { className: "relative flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white px-6 py-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950", "data-testid": "metadata-endpoint-detail", children: [_jsxs("div", { className: "flex items-center justify-between border-b border-slate-200 pb-4 dark:border-slate-800", children: [_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500", children: "Endpoint detail" }), _jsx("p", { className: "text-base font-semibold text-slate-900 dark:text-white", children: metadataEndpointDetail.name }), _jsx("p", { className: "text-xs uppercase tracking-[0.3em] text-slate-500", children: metadataEndpointDetail.id })] }), _jsxs("div", { className: "flex items-center gap-2", children: [canModifyEndpoints ? (_jsx("button", { type: "button", onClick: () => handleOpenEndpointEdit(metadataEndpointDetail), className: "rounded-full border border-slate-300 px-3 py-1 text-sm text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300", children: "Edit" })) : null, canDeleteEndpoints ? (_jsx("button", { type: "button", onClick: () => handleDeleteMetadataEndpoint(metadataEndpointDetail), disabled: metadataDeletingEndpointId === metadataEndpointDetail.id || detailHasRunningRun, title: detailHasRunningRun
+                                                    : detailPreviewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data." }))] })] })] })] })) : null, metadataView === "overview" && metadataEndpointDetail ? (_jsxs("div", { className: "fixed inset-0 z-40 flex justify-end", children: [_jsxs("div", { className: "absolute inset-0 flex", children: [_jsx("div", { className: "hidden lg:block", style: { width: sidebarOverlayWidth } }), _jsx("div", { className: "flex-1 bg-slate-900/40", onClick: handleCloseEndpointDetail })] }), _jsxs("section", { className: "relative flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-white px-6 py-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950", "data-testid": "metadata-endpoint-detail", children: [_jsxs("div", { className: "flex items-center justify-between border-b border-slate-200 pb-4 dark:border-slate-800", children: [_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500", children: "Endpoint detail" }), _jsx("p", { className: "text-base font-semibold text-slate-900 dark:text-white", children: metadataEndpointDetail.name }), _jsx("p", { className: "text-xs uppercase tracking-[0.3em] text-slate-500", children: metadataEndpointDetail.id })] }), _jsxs("div", { className: "flex items-center gap-2", children: [canModifyEndpoints ? (_jsx("button", { type: "button", onClick: () => handleOpenEndpointEdit(metadataEndpointDetail), className: "rounded-full border border-slate-300 px-3 py-1 text-sm text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300", children: "Edit" })) : null, canDeleteEndpoints ? (_jsx("button", { type: "button", onClick: () => handleDeleteMetadataEndpoint(metadataEndpointDetail), disabled: metadataDeletingEndpointId === metadataEndpointDetail.id || detailHasRunningRun, title: detailHasRunningRun
                                                     ? "Cannot delete while a collection is running."
                                                     : undefined, className: "rounded-full border border-rose-200 px-3 py-1 text-sm text-rose-600 transition hover:border-rose-500 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/40 dark:text-rose-200", children: metadataDeletingEndpointId === metadataEndpointDetail.id ? "Deleting…" : "Delete" })) : null, _jsx("button", { type: "button", onClick: handleCloseEndpointDetail, className: "rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:border-slate-700", children: "Close" })] })] }), showDetailMutationError ? (_jsx("p", { className: "mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/50 dark:bg-rose-950/40 dark:text-rose-200", "data-testid": "metadata-mutation-error", children: metadataMutationError })) : null, _jsxs("div", { className: "scrollbar-thin flex-1 space-y-4 overflow-y-auto py-4 pr-1 text-sm text-slate-600 dark:text-slate-300", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Description" }), _jsx("p", { className: "mt-1 text-sm", children: metadataEndpointDetail.description ?? "No description provided yet." })] }), _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Connection" }), _jsx("p", { className: "mt-1 break-all font-mono text-xs text-slate-500 dark:text-slate-400", children: metadataEndpointDetail.url })] }), _jsxs("div", { className: "grid gap-2 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2", children: [_jsxs("span", { children: ["Detected version \u00B7 ", metadataEndpointDetail.detectedVersion ?? metadataEndpointDetail.versionHint ?? "—"] }), _jsxs("span", { children: ["Verb \u00B7 ", metadataEndpointDetail.verb] })] }), _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Config payload" }), _jsx("pre", { className: "mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-[12px] dark:bg-slate-900/40", children: JSON.stringify(metadataEndpointDetail.config, null, 2) })] }), metadataEndpointDetail.capabilities?.length ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Capabilities" }), _jsx("div", { className: "mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-400", children: metadataEndpointDetail.capabilities.map((capability) => (_jsx("span", { className: "rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700", children: capability }, capability))) })] })) : null, _jsxs("div", { "data-testid": "metadata-endpoint-datasets", children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Datasets (", endpointDatasets.length, ")"] }), _jsxs("button", { type: "button", onClick: () => metadataEndpointDetail?.id && loadEndpointDatasets(metadataEndpointDetail.id, { force: true }), className: "inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500 transition hover:border-slate-900 hover:text-slate-900 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300", disabled: isEndpointDatasetsLoading, "data-testid": "metadata-endpoint-datasets-refresh", children: [_jsx(LuRefreshCcw, { className: "h-3 w-3" }), "Refresh"] })] }), endpointDatasetsError ? (_jsx("p", { className: "mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200", "data-testid": "metadata-endpoint-datasets-error", children: endpointDatasetsError })) : isEndpointDatasetsLoading ? (_jsx("p", { className: "mt-2 text-xs text-slate-500", "data-testid": "metadata-endpoint-datasets-loading", children: "Loading datasets\u2026" })) : endpointDatasets.length === 0 ? (_jsxs("p", { className: "mt-2 text-xs text-slate-500", "data-testid": "metadata-endpoint-datasets-empty", children: ["No catalog entries linked yet. Tag catalog records with ", _jsxs("code", { children: ["endpoint:", metadataEndpointDetail.id] }), " once collections complete."] })) : (_jsx("ul", { className: "mt-2 space-y-2", "data-testid": "metadata-endpoint-datasets-list", children: endpointDatasets.map((dataset) => {
                                                     const datasetPayload = dataset.payload?.dataset ?? {};

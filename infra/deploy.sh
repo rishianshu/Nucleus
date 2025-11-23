@@ -3,6 +3,7 @@ set -euo pipefail
 
 ENV_FILE=${1:-.env.uat}
 STACK_NAME=jira-plus-plus
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-nucleus}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Environment file '$ENV_FILE' not found" >&2
@@ -22,13 +23,13 @@ COMPOSE_FILES=(
 [ -f "infra/docker-compose.override.uat.yml" ] && COMPOSE_FILES+=("-f" "infra/docker-compose.override.uat.yml")
 
 echo "[deploy] pulling latest images"
-docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" pull || true
+docker compose -p "$COMPOSE_PROJECT_NAME" "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" pull || true
 
 echo "[deploy] building application images"
-docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" build
+docker compose -p "$COMPOSE_PROJECT_NAME" "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" build
 
 echo "[deploy] applying stack"
-docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" up -d --remove-orphans
+docker compose -p "$COMPOSE_PROJECT_NAME" "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" up -d --remove-orphans
 
 echo "[deploy] pruning old images"
 docker image prune -f

@@ -25,7 +25,12 @@ start_component() {
   (cd "$PROJECT_ROOT" && "$script")
 }
 
+start_component "infra services" "$PROJECT_ROOT/scripts/start-infra-services.sh"
 start_component "keycloak" "$PROJECT_ROOT/scripts/start-keycloak.sh"
+HOST_TEMPORAL_PORT="${TEMPORAL_PORT:-7233}"
+if [[ -z "${TEMPORAL_ADDRESS:-}" ]]; then
+  export TEMPORAL_ADDRESS="127.0.0.1:${HOST_TEMPORAL_PORT}"
+fi
 KEYCLOAK_SYNC_SCRIPT="$PROJECT_ROOT/scripts/keycloak/sync-client.mjs"
 if [[ -f "$KEYCLOAK_SYNC_SCRIPT" ]]; then
   echo "[start-dev-stack] syncing Keycloak client defaults"

@@ -96,6 +96,22 @@ class PreviewRequest:
     limit: Optional[int] = 50
 
 
+@dataclass
+class IngestionUnitRequest:
+    endpointId: str
+    unitId: str
+    sinkId: Optional[str] = None
+    checkpoint: Optional[Dict[str, Any]] = None
+    stagingProviderId: Optional[str] = None
+    policy: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class IngestionUnitResult:
+    newCheckpoint: Optional[Dict[str, Any]]
+    stats: Dict[str, Any]
+
+
 class ActivityLogger:
     def __init__(self) -> None:
         self.entries: List[Dict[str, Any]] = []
@@ -283,6 +299,33 @@ def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, 
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
+    """
+    Placeholder ingestion worker that will call the Spark ingestion runtime in follow-up slugs.
+    For now it records telemetry and echoes the prior checkpoint so TS can persist run metadata.
+    """
+    logger = ActivityLogger()
+    logger.info(
+        event="ingestion_unit_start",
+        endpoint_id=request.endpointId,
+        unit_id=request.unitId,
+        sink_id=request.sinkId,
+        staging_provider=request.stagingProviderId or "in_memory",
+    )
+    completed_at = datetime.now(timezone.utc).isoformat()
+    stats = {
+        "note": "python_ingestion_worker_stub",
+        "stagingProviderId": request.stagingProviderId or "in_memory",
+        "unitId": request.unitId,
+        "completedAt": completed_at,
+    }
+    logger.info(event="ingestion_unit_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=stats)
+    return IngestionUnitResult(
+        newCheckpoint=request.checkpoint or {"lastRunAt": completed_at},
+        stats=stats,
+    ).__dict__
+
+
 @activity.defn(name="collectCatalogSnapshots")
 async def collect_catalog_snapshots(request: CollectionJobRequest) -> Dict[str, Any]:
     return await asyncio.to_thread(_collect_catalog_snapshots_sync, request)
@@ -320,6 +363,11 @@ async def preview_dataset(request: PreviewRequest) -> Dict[str, Any]:
     return await asyncio.to_thread(_preview_dataset_sync, request)
 
 
+@activity.defn(name="runIngestionUnit")
+async def run_ingestion_unit(request: IngestionUnitRequest) -> Dict[str, Any]:
+    return await asyncio.to_thread(_run_ingestion_unit_sync, request)
+
+
 async def main() -> None:
     temporal_address = os.getenv("TEMPORAL_ADDRESS", "127.0.0.1:7233")
     namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -328,7 +376,7 @@ async def main() -> None:
     worker_instance = worker.Worker(
         temporal_client,
         task_queue=task_queue,
-        activities=[collect_catalog_snapshots, preview_dataset],
+        activities=[collect_catalog_snapshots, preview_dataset, run_ingestion_unit],
     )
     await worker_instance.run()
 

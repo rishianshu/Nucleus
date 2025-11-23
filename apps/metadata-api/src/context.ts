@@ -49,7 +49,8 @@ async function createStore(): Promise<MetadataStore> {
 }
 
 async function trySeedStore(store: MetadataStore): Promise<void> {
-  if (!(store instanceof FileMetadataStore)) {
+  const allowSeed = store instanceof FileMetadataStore || process.env.METADATA_ALLOW_PRISMA_SEED === "1";
+  if (!allowSeed) {
     return;
   }
   try {

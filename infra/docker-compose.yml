@@ -3,7 +3,6 @@ version: "3.9"
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: jira_postgres
     restart: unless-stopped
     env_file:
       - ../.env
@@ -11,6 +10,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "$${POSTGRES_USER}"]
       interval: 10s
@@ -21,7 +21,6 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile.api
-    container_name: jira_api
     env_file:
       - ../.env
     environment:
@@ -43,7 +42,6 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile.worker
-    container_name: jira_worker
     env_file:
       - ../.env
     environment:
@@ -65,7 +63,6 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile.web
-    container_name: jira_web
     env_file:
       - ../.env
     depends_on:
@@ -76,8 +73,7 @@ services:
     restart: unless-stopped
 
   temporal:
-    image: temporalio/server:1.20.1
-    container_name: jira_temporal
+    image: temporalio/auto-setup:1.20.1
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,7 +89,7 @@ services:
     env_file:
       - ../.env
     ports:
-      - "7233:7233"
+      - "${TEMPORAL_PORT:-7233}:7233"
     healthcheck:
       test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
       interval: 30s
@@ -102,7 +98,6 @@ services:
 
   temporal-ui:
     image: temporalio/ui:2.21.2
-    container_name: jira_temporal_ui
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
     depends_on:
@@ -113,7 +108,6 @@ services:
 
   traefik:
     image: traefik:v2.11
-    container_name: jira_traefik
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
@@ -138,6 +132,4 @@ services:
 
 volumes:
   postgres_data:
-    name: jira_plus_plus_postgres_data
   traefik_letsencrypt:
-    name: jira_plus_plus_traefik_letsencrypt
