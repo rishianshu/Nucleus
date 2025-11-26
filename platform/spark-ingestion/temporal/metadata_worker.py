@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES_DIR = ROOT / "packages"
 
@@ -51,6 +52,7 @@ from metadata_service.utils import collect_rows, safe_upper, to_serializable
 from runtime_core import MetadataTarget
 from runtime_common.endpoints.base import MetadataCapableEndpoint  # type: ignore
 from runtime_common.endpoints.factory import EndpointFactory
+from runtime_common.endpoints.jira_http import run_jira_ingestion_unit
 from runtime_common.tools.sqlalchemy import SQLAlchemyTool
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
@@ -110,6 +112,7 @@ class IngestionUnitRequest:
 class IngestionUnitResult:
     newCheckpoint: Optional[Dict[str, Any]]
     stats: Dict[str, Any]
+    records: Optional[List[Dict[str, Any]]] = None
 
 
 class ActivityLogger:
@@ -313,6 +316,15 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         staging_provider=request.stagingProviderId or "in_memory",
     )
     completed_at = datetime.now(timezone.utc).isoformat()
+    if request.unitId.startswith("jira."):
+        result = run_jira_ingestion_unit(
+            request.unitId,
+            endpoint_id=request.endpointId,
+            policy=request.policy or {},
+            checkpoint=request.checkpoint,
+        )
+        logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
+        return IngestionUnitResult(newCheckpoint=result.cursor, stats=result.stats, records=result.records).__dict__
     stats = {
         "note": "python_ingestion_worker_stub",
         "stagingProviderId": request.stagingProviderId or "in_memory",

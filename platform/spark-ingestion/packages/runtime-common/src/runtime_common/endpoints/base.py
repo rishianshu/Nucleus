@@ -108,6 +108,7 @@ class EndpointDescriptor:
     min_version: Optional[str] = None
     max_version: Optional[str] = None
     probing: Optional[EndpointProbingPlan] = None
+    extras: Optional[Dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,19 @@ class SinkFinalizeResult:
 class IngestionSlice:
     lower: str
     upper: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class EndpointUnitDescriptor:
+    """Describes a logical ingestion unit (usually a dataset) exposed by a source endpoint."""
+
+    unit_id: str
+    kind: str = "dataset"
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    scope: Optional[Dict[str, Any]] = None
+    supports_incremental: bool = False
+    default_policy: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -317,6 +331,7 @@ class MetadataSubsystem(Protocol):
     ) -> "CatalogSnapshot": ...
 
     def capabilities(self) -> Dict[str, Any]: ...
+    def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]: ...
 
 
 @runtime_checkable
@@ -362,3 +377,30 @@ class EndpointRegistry:
 
 # global registry instance for convenience
 REGISTRY = EndpointRegistry()
+
+
+@runtime_checkable
+class SupportsIngestionUnits(Protocol):
+    """Endpoints that can enumerate logical ingestion units/datasets."""
+
+    def list_units(
+        self,
+        *,
+        checkpoint: Optional[Dict[str, Any]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[EndpointUnitDescriptor]:
+        ...
+
+
+@runtime_checkable
+class SupportsIncrementalPlanning(Protocol):
+    """Endpoints that can plan adaptive incremental slices for units."""
+
+    def plan_incremental_slices(
+        self,
+        *,
+        unit_id: str,
+        checkpoint: Optional[Dict[str, Any]],
+        limit: Optional[int] = None,
+    ) -> List[IngestionSlice]:
+        ...

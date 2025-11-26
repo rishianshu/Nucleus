@@ -8,10 +8,17 @@ The runtime endpoint abstractions live under `platform/spark-ingestion/packages/
 
 Endpoint descriptors are collected by `runtime_common/endpoints/registry.py` and exposed to the UI through `metadataEndpointTemplates` (GraphQL) → `MetadataWorkspace` (`apps/metadata-ui/src/metadata/MetadataWorkspace.tsx`).
 
+## Design References
+
+- **Core guidance**: see `docs/meta/nucleus-architecture/endpoint-HLD.md` (high-level workflow) and `endpoint-LLD.md` (implementation checklist). These documents describe how any new endpoint should be authored (descriptor → metadata subsystem → ingestion wiring) so connector-specific docs can stay lightweight.
+- **Unit planning**: Source endpoints are encouraged to implement `SupportsIngestionUnits` / `SupportsIncrementalPlanning` so ingestion workflows can enumerate datasets and request adaptive slices rather than re-deriving SQL/JQL in the orchestrator.
+- **Connector appendices**: per-endpoint HLD/LLD (e.g., `jira-metadata-HLD.md`) capture nuances without re-stating the core architecture.
+
 ## Registered Source Endpoints
 
 | Template ID | Family / Vendor | Location | Capabilities (descriptor) | Metadata subsystem / normalizer | Notes |
 |-------------|-----------------|----------|----------------------------|----------------------------------|-------|
+| `jira.http` | HTTP / Atlassian Jira | `runtime_common/endpoints/jira_http.py` | `ingest.incremental`, `ingest.full`, implicit `metadata` (semantic catalogs) | `metadata_service.adapters.JiraMetadataSubsystem` + `metadata_service/normalizers/jira.py` (dynamic dataset + API inventory) | Descriptor collects base URL/auth/project filters; subsystem discovers custom fields, issue types/statuses/priorities, and embeds REST API metadata so ingestion + KB share a single schema.|
 | `jdbc.postgres` | JDBC / Postgres | `runtime_common/endpoints/jdbc_postgres.py` | `metadata` (catalog harvest), inherits `preview`/`count_probe`/incremental flags from `JdbcEndpoint`. | `metadata_service.adapters.PostgresMetadataSubsystem`, normalizers in `metadata_service/normalizers/postgres.py`. | Adds SSL/role fields, Postgres probing methods, enables `supports_metadata=True`. |
 | `jdbc.oracle` | JDBC / Oracle | `runtime_common/endpoints/jdbc_oracle.py` | `metadata`, `preview`, Oracle-specific guardrails. | `metadata_service.adapters.OracleMetadataSubsystem`, normalizers `metadata_service/normalizers/oracle.py`. | Handles case-sensitive identifiers, partitioning, NUMBER guardrails. |
 | `jdbc.mssql` | JDBC / Microsoft SQL Server | `runtime_common/endpoints/jdbc_mssql.py` | `metadata`, `preview`, incremental. | Reuses SQL Server normalizer via metadata adapters (within metadata service). | Adds Windows auth + availability group options. |

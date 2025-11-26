@@ -1,0 +1,5 @@
+- [x] Re-read INTENT/SPEC/AC + endpoint docs to confirm Jira scope; capture any drift in QUESTIONS if discovered.
+- [x] Start the dev stack, run Prisma migrations, and seed/register a Jira endpoint with fake creds so ingestion units surface.
+- [x] Prove the Temporal workflow + Python worker consume catalog-defined units (no hard-coded defaults) via automated tests.
+- [x] Execute a Jira ingestion unit end-to-end, ensuring KV + `IngestionUnitState` + KB nodes update; capture evidence/logs.
+- [x] Add/extend automated coverage (unit/integration/Playwright) for the Jira flow and run `pnpm ci-check`.

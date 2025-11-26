@@ -1,5 +1,23 @@
-import type { IngestionDriver, IngestionDriverSyncArgs, IngestionDriverSyncResult, IngestionUnitDescriptor } from "@metadata/core";
+import type {
+  IngestionDriver,
+  IngestionDriverSyncArgs,
+  IngestionDriverSyncResult,
+  IngestionUnitDescriptor,
+  MetadataEndpointDescriptor,
+  MetadataEndpointTemplateDescriptor,
+} from "@metadata/core";
 import { getMetadataStore } from "../context.js";
+
+type RawUnit = {
+  unitId: string;
+  kind?: string;
+  displayName?: string;
+  stats?: Record<string, unknown> | null;
+  description?: string;
+  supportsIncremental?: boolean;
+  defaultPolicy?: unknown;
+  scope?: unknown;
+};
 
 export class StaticIngestionDriver implements IngestionDriver {
   async listUnits(endpointId: string): Promise<IngestionUnitDescriptor[]> {
@@ -7,17 +25,15 @@ export class StaticIngestionDriver implements IngestionDriver {
     if (!endpoint) {
       return [];
     }
-    const units = Array.isArray(endpoint.config?.ingestionUnits) ? endpoint.config?.ingestionUnits : [];
-    return units
-      .filter((entry: unknown): entry is { unitId: string; kind?: string; displayName?: string; stats?: Record<string, unknown> } => {
-        return Boolean(entry && typeof entry === "object" && typeof (entry as any).unitId === "string");
-      })
-      .map((entry) => ({
-        unitId: entry.unitId,
-        kind: entry.kind ?? "custom",
-        displayName: entry.displayName ?? entry.unitId,
-        stats: entry.stats ?? null,
-      }));
+    const configUnits = normalizeUnits(endpoint.config?.ingestionUnits);
+    if (configUnits.length > 0) {
+      return configUnits;
+    }
+    const templateUnits = await resolveTemplateUnits(endpoint);
+    if (templateUnits.length > 0) {
+      return templateUnits;
+    }
+    return [];
   }
 
   async estimateLag(): Promise<number | null> {
@@ -38,8 +54,73 @@ export class StaticIngestionDriver implements IngestionDriver {
   }
 }
 
-async function resolveEndpoint(endpointId: string) {
+async function resolveEndpoint(endpointId: string): Promise<MetadataEndpointDescriptor | null> {
   const store = await getMetadataStore();
   const endpoints = await store.listEndpoints();
   return endpoints.find((endpoint) => endpoint.id === endpointId) ?? null;
+}
+
+async function resolveTemplate(templateId: string): Promise<MetadataEndpointTemplateDescriptor | undefined> {
+  const store = await getMetadataStore();
+  const templates = await store.listEndpointTemplates();
+  return templates.find((template) => template.id === templateId);
+}
+
+function normalizeUnits(units: unknown): IngestionUnitDescriptor[] {
+  if (!Array.isArray(units)) {
+    return [];
+  }
+  return units
+    .filter((entry: unknown): entry is RawUnit => Boolean(entry && typeof entry === "object" && typeof (entry as any).unitId === "string"))
+    .map((entry) => ({
+      unitId: entry.unitId,
+      kind: entry.kind ?? "dataset",
+      displayName: entry.displayName ?? entry.unitId,
+      stats: buildUnitStats(entry),
+    }));
+}
+
+function buildUnitStats(entry: RawUnit): Record<string, unknown> | null {
+  const stats: Record<string, unknown> = {};
+  if (entry.description) {
+    stats.description = entry.description;
+  }
+  if (typeof entry.supportsIncremental === "boolean") {
+    stats.supportsIncremental = entry.supportsIncremental;
+  }
+  if (entry.defaultPolicy !== undefined) {
+    stats.defaultPolicy = entry.defaultPolicy;
+  }
+  if (entry.scope !== undefined) {
+    stats.scope = entry.scope;
+  }
+  if (Object.keys(stats).length > 0) {
+    return stats;
+  }
+  return entry.stats ?? null;
+}
+
+async function resolveTemplateUnits(endpoint: MetadataEndpointDescriptor): Promise<IngestionUnitDescriptor[]> {
+  const config = endpoint.config;
+  if (!config || typeof config !== "object") {
+    return [];
+  }
+  const templateId = extractTemplateId(config);
+  if (!templateId) {
+    return [];
+  }
+  const template = await resolveTemplate(templateId);
+  if (!template?.extras || typeof template.extras !== "object") {
+    return [];
+  }
+  const extrasUnits = (template.extras as Record<string, unknown>).ingestionUnits;
+  return normalizeUnits(extrasUnits);
+}
+
+function extractTemplateId(config: Record<string, unknown>): string | null {
+  const rawTemplateId = config.templateId;
+  if (typeof rawTemplateId === "string" && rawTemplateId.trim().length > 0) {
+    return rawTemplateId.trim();
+  }
+  return null;
 }

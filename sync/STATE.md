@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ingestion-source-staging-sink-v1 (success @ 2025-11-23T18:04Z)
+semantic-jira-source-v1 (success @ 2025-11-25T22:07Z)
 
 ## Last Run
-- slug: ingestion-source-staging-sink-v1
+- slug: semantic-jira-source-v1
 - status: success
-- duration: ~9h elapsed
-- tests: `pnpm ci-check`, targeted GraphQL smoke, Playwright headless KB scenario ✅
-- commits: none yet
+- duration: ~2h focus (multi-session)
+- tests: pnpm ci-check green (metadata-auth + metadata-lifecycle)
+- commits: none (test/log updates only)
 - decisions: 0 new
-- next_step: prep follow-on ingestion slug once review completes
+- next_step: hand off slug with ci harness green; future work can move to next feature
 
 ## Global Queue
 TODAY:
@@ -21,6 +21,24 @@ LATER:
 - 
 
 ## Events
+- 2025-11-25T22:07Z run success (semantic-jira-source-v1, pnpm ci-check green after Jira ingestion verification)
+- 2025-11-24T12:16Z run heartbeat (semantic-jira-source-v1, startIngestion resolver covered in bypass mode w/ mocked state store + Jira units)
+- 2025-11-24T12:02Z run heartbeat (semantic-jira-source-v1, ingestionUnits resolver now tested with Jira template extras)
+- 2025-11-24T11:53Z run heartbeat (semantic-jira-source-v1, queued next steps: GraphQL/Playwright integration + KB verification)
+- 2025-11-24T11:50Z run heartbeat (semantic-jira-source-v1, ingestion workflow now receives endpoint config policy fallback + TS/Py tests added)
+- 2025-11-24T10:05Z run heartbeat (semantic-jira-source-v1, catalog-driven ingestion now covered by Python tests + handler map)
+- 2025-11-24T09:30Z run heartbeat (semantic-jira-source-v1, static driver + Python handlers now consume shared catalog-driven units)
+- 2025-11-24T08:27Z run heartbeat (semantic-jira-source-v1, specs/docs updated to match shared dataset→unit/extra design)
+- 2025-11-24T08:24Z run heartbeat (semantic-jira-source-v1, shared Jira API catalog surfaced via descriptor extras + templates)
+- 2025-11-24T08:01Z run heartbeat (semantic-jira-source-v1, Jira units now derived from dataset catalog; shared spec lives in runtime_common)
+- 2025-11-24T06:59Z run heartbeat (semantic-jira-source-v1, endpoints expose unit planning + metadata capabilities per new HLD/LLD)
+- 2025-11-24T05:26Z run heartbeat (semantic-jira-source-v1, endpoint docs now cover normalizers + CatalogSnapshot/NormalizedRecord contract)
+- 2025-11-24T05:22Z run heartbeat (semantic-jira-source-v1, generic endpoint HLD/LLD documented + Jira comments/worklogs schema added)
+- 2025-11-24T05:12Z run heartbeat (semantic-jira-source-v1, dynamic custom-fields + API catalog recorded in new HLD/LLD + ENDPOINTS docs)
+- 2025-11-24T04:46Z run heartbeat (semantic-jira-source-v1, Jira metadata subsystem emitting catalog snapshots via new normalizer)
+- 2025-11-23T19:31Z run resumed (semantic-jira-source-v1, endpoint design aligned + KB contract clarified)
+- 2025-11-23T19:05Z run blocked (semantic-jira-source-v1, need KB persistence guidance for Python worker)
+- 2025-11-23T18:53Z run started (semantic-jira-source-v1, semantic Jira source bring-up)
 - 2025-11-23T04:27Z run started (ingestion-source-staging-sink-v1, ingestion staging sink work)
 - 2025-11-23T07:58Z run blocked (ingestion-source-staging-sink-v1, metadata-auth catalog filter spec still failing under ci-check)
 - 2025-11-23T15:22Z run success (ingestion-source-staging-sink-v1, Graph tables added + KB fallback + ci-check green)

@@ -24,6 +24,7 @@ const {
   startIngestionRun: startIngestionRunActivity,
   completeIngestionRun: completeIngestionRunActivity,
   failIngestionRun: failIngestionRunActivity,
+  persistIngestionBatches: persistIngestionBatchesActivity,
 } = proxyActivities<MetadataActivities>({
   startToCloseTimeout: "1 hour",
 });
@@ -66,6 +67,32 @@ type PythonIngestionRequest = {
 type PythonIngestionResult = {
   newCheckpoint: unknown;
   stats?: Record<string, unknown> | null;
+  records?: NormalizedRecordInput[] | null;
+};
+
+type NormalizedRecordInput = {
+  entityType: string;
+  logicalId?: string | null;
+  displayName?: string | null;
+  scope: {
+    orgId: string;
+    projectId?: string | null;
+    domainId?: string | null;
+    teamId?: string | null;
+  };
+  provenance: {
+    endpointId: string;
+    vendor?: string | null;
+    sourceEventId?: string | null;
+  };
+  payload: unknown;
+  phase?: string | null;
+  edges?: Array<{
+    type: string;
+    sourceLogicalId: string;
+    targetLogicalId: string;
+    properties?: Record<string, unknown> | null;
+  }>;
 };
 
 type CollectionRunWorkflowInput = {
@@ -177,6 +204,19 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       stagingProviderId: context.stagingProviderId ?? null,
       policy: context.policy ?? null,
     });
+    if (ingestionResult.records && ingestionResult.records.length > 0) {
+      if (!context.sinkId) {
+        throw new Error("Ingestion sink is not defined for this run.");
+      }
+      await persistIngestionBatchesActivity({
+        endpointId: input.endpointId,
+        unitId: input.unitId,
+        sinkId: context.sinkId,
+        runId: context.runId,
+        records: ingestionResult.records,
+        stats: ingestionResult.stats ?? null,
+      });
+    }
     await completeIngestionRunActivity({
       endpointId: input.endpointId,
       unitId: input.unitId,

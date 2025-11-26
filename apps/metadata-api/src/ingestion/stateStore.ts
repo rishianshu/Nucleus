@@ -77,7 +77,11 @@ export async function markUnitState(key: UnitKey, patch: StatePatch) {
 }
 
 export async function ensureUnitState(key: UnitKey) {
-  await upsertUnitState(key, { state: "IDLE" });
+  const existing = await getUnitState(key);
+  if (existing) {
+    return existing;
+  }
+  return upsertUnitState(key, { state: "IDLE" });
 }
 
 function normalizePatch(patch: StatePatch) {

@@ -3,7 +3,13 @@ import { promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { execa } from "execa";
-import { getIngestionSink, type GraphStore, type MetadataRecord, type TenantContext } from "@metadata/core";
+import {
+  getIngestionSink,
+  type GraphStore,
+  type MetadataRecord,
+  type TenantContext,
+  type IngestionSinkContext,
+} from "@metadata/core";
 import { getPrismaClient } from "../prismaClient.js";
 import { getMetadataStore, getGraphStore } from "../context.js";
 import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
@@ -57,6 +63,7 @@ export type MetadataActivities = {
   startIngestionRun(input: StartIngestionRunInput): Promise<StartIngestionRunResult>;
   completeIngestionRun(input: CompleteIngestionRunInput): Promise<void>;
   failIngestionRun(input: FailIngestionRunInput): Promise<void>;
+  persistIngestionBatches(input: PersistIngestionBatchesInput): Promise<void>;
 };
 
 const DEFAULT_METADATA_PROJECT = process.env.METADATA_DEFAULT_PROJECT ?? "global";
@@ -120,6 +127,40 @@ type FailIngestionRunInput = {
   vendorKey: string;
   runId: string;
   error: string;
+};
+
+type NormalizedRecordInput = {
+  entityType: string;
+  logicalId?: string | null;
+  displayName?: string | null;
+  scope: {
+    orgId: string;
+    projectId?: string | null;
+    domainId?: string | null;
+    teamId?: string | null;
+  };
+  provenance: {
+    endpointId: string;
+    vendor?: string | null;
+    sourceEventId?: string | null;
+  };
+  payload: Record<string, unknown> | unknown;
+  phase?: string | null;
+  edges?: Array<{
+    type: string;
+    sourceLogicalId: string;
+    targetLogicalId: string;
+    properties?: Record<string, unknown> | null;
+  }>;
+};
+
+type PersistIngestionBatchesInput = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string;
+  runId: string;
+  records: NormalizedRecordInput[];
+  stats?: Record<string, unknown> | null;
 };
 
 type PrismaClient = Awaited<ReturnType<typeof getPrismaClient>>;
@@ -449,6 +490,33 @@ export const activities: MetadataActivities = {
       lastError: sanitized,
     }));
   },
+  async persistIngestionBatches({
+    endpointId,
+    unitId,
+    sinkId,
+    runId,
+    records,
+    stats,
+  }: PersistIngestionBatchesInput): Promise<void> {
+    if (!records || records.length === 0) {
+      return;
+    }
+    const sink = getIngestionSink(sinkId);
+    if (!sink) {
+      throw new Error(`Ingestion sink "${sinkId}" is not registered`);
+    }
+    const context: IngestionSinkContext = {
+      endpointId,
+      unitId,
+      sinkId,
+      runId,
+    };
+    await sink.begin(context);
+    await sink.writeBatch({ records }, context);
+    if (sink.commit) {
+      await sink.commit(context, stats ?? null);
+    }
+  },
 };
 
 function resolveSchemas(run: any): string[] {
@@ -604,13 +672,14 @@ function resolveStagingProvider(endpoint?: { config?: unknown } | null): string 
   return DEFAULT_STAGING_PROVIDER;
 }
 
-function resolveIngestionPolicy(endpoint?: { config?: unknown } | null): Record<string, unknown> | null {
+export function resolveIngestionPolicy(endpoint?: { config?: unknown } | null): Record<string, unknown> | null {
   const raw = endpoint && typeof endpoint === "object" ? (endpoint as Record<string, unknown>).config : null;
   if (raw && typeof raw === "object" && raw !== null) {
     const policy = (raw as Record<string, unknown>).ingestionPolicy;
     if (policy && typeof policy === "object") {
       return policy as Record<string, unknown>;
     }
+    return raw as Record<string, unknown>;
   }
   return null;
 }

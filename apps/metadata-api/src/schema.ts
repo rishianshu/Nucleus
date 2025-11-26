@@ -560,6 +560,7 @@ export const typeDefs = `#graphql
     minVersion: String
     maxVersion: String
     probing: MetadataEndpointProbingPlan
+    extras: JSON
   }
 
   type MetadataEndpointProbingPlan {
@@ -760,6 +761,9 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         deletedAt: null,
         deletionReason: undefined,
       };
+      if (templateId === JIRA_TEMPLATE_ID) {
+        applyJiraEndpointDefaults(descriptor);
+      }
       if (descriptor.sourceId) {
         const existing = await store.listEndpoints(descriptor.projectId ?? ctx.auth.projectId ?? undefined);
         const duplicate = existing.find(
@@ -4527,6 +4531,38 @@ function sanitizeScheduleTimezone(value?: string | null): string {
   }
   const trimmed = value.trim();
   return trimmed.length ? trimmed : "UTC";
+}
+
+const JIRA_TEMPLATE_ID = "jira.http";
+const JIRA_DEFAULT_UNITS = [
+  { unitId: "jira.projects", kind: "semantic", displayName: "Jira Projects" },
+  { unitId: "jira.issues", kind: "semantic", displayName: "Jira Issues" },
+  { unitId: "jira.users", kind: "semantic", displayName: "Jira Users" },
+];
+
+function applyJiraEndpointDefaults(descriptor: MetadataEndpointDescriptor) {
+  const config: Record<string, unknown> =
+    descriptor.config && typeof descriptor.config === "object"
+      ? { ...(descriptor.config as Record<string, unknown>) }
+      : { templateId: JIRA_TEMPLATE_ID, parameters: {} };
+  if (!Array.isArray(config.ingestionUnits) || config.ingestionUnits.length === 0) {
+    config.ingestionUnits = JIRA_DEFAULT_UNITS;
+  }
+  const ingestionPolicy =
+    config.ingestionPolicy && typeof config.ingestionPolicy === "object"
+      ? { ...(config.ingestionPolicy as Record<string, unknown>) }
+      : {};
+  ingestionPolicy.parameters = (config.parameters && typeof config.parameters === "object"
+    ? { ...(config.parameters as Record<string, string>) }
+    : {}) as Record<string, string>;
+  ingestionPolicy.projectKeys = config.projectKeys ?? [];
+  ingestionPolicy.jqlFilter = config.jqlFilter ?? null;
+  ingestionPolicy.templateId = JIRA_TEMPLATE_ID;
+  config.ingestionPolicy = ingestionPolicy;
+  descriptor.config = config;
+  const labelSet = new Set(descriptor.labels ?? []);
+  labelSet.add("jira");
+  descriptor.labels = Array.from(labelSet);
 }
 
 function mapCollectionToGraphQL(collection: PrismaCollectionWithEndpoint) {

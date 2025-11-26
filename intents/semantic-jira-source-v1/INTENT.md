@@ -1,0 +1,41 @@
+- title: Semantic Jira source v1 (endpoint + ingestion units)
+- slug: semantic-jira-source-v1
+- type: feature
+- context:
+  - platform/spark-ingestion/runtime_common/endpoints (new Jira SourceEndpoint building on HTTP)
+  - metadata_service / runtime_common tools (HTTP client, paging helpers)
+  - apps/metadata-api ingestion core (GraphQL + Temporal workflows)
+  - KB / GraphStore (where Jira entities will land)
+  - docs/meta/nucleus-architecture/{MAP,ENDPOINTS,INGESTION_AND_SINKS}.md
+- why_now: The ingestion plane and UI shell exist, but no real source exposes ingestion units; the Ingestion console shows endpoints with empty detail. We want Jira to be the first semantic-aware source that defines ingestion units (projects, users, issues) and pushes connected metadata into the KB, exercising the Source→Staging→Sink pattern end-to-end.
+- scope_in:
+  - Define a Jira `SourceEndpoint` descriptor (template `jira.http` or similar) in Python, reusing the existing HTTP endpoint infrastructure.
+  - Define ingestion units for Jira (e.g. `jira.projects`, `jira.users`, `jira.issues`) that are discoverable via the existing ingestion GraphQL (`ingestionUnits`).
+  - Implement a Python ingestion worker path for Jira that:
+    - pages the Jira REST API (incremental on `updated` or equivalent),
+    - uses an in-memory staging provider for batches,
+    - writes normalized Jira entities into the KB (graph) as work items / projects / users.
+  - Wire Jira ingestion into the existing ingestion-core so that runs can be started/paused from the Ingestion console and surfaced in KB explorers.
+- scope_out:
+  - Full CDM table sinks for Jira (warehouse landing); this slug only lands into KB.
+  - Vector indexing and signals based on Jira content.
+  - Confluence and OneDrive semantic sources (separate slugs).
+- acceptance:
+  1. A Jira SourceEndpoint template appears in the endpoint templates list and can be registered via the existing UI, with Jira-specific fields (base URL, auth, project filter).
+  2. For a registered Jira endpoint, `ingestionUnits(endpointId)` returns at least `jira.projects` and `jira.issues`, and the Ingestion console shows these units.
+  3. Starting an ingestion run for `jira.projects` or `jira.issues` succeeds (or fails with a clear error if credentials are bad) and updates `IngestionUnitState` + KV checkpoint appropriately.
+  4. Successful Jira ingestion runs create KB nodes/edges representing projects and issues that are visible in the KB Admin console (Nodes tab).
+- constraints:
+  - Do not introduce a second endpoint abstraction in TypeScript; endpoint logic must live in the Python endpoint plane.
+  - Reuse the existing ingestion-core workflow wiring (GraphQL → Temporal → ingestion worker); no breaking GraphQL changes.
+  - Keep `make ci-check` under current bounds.
+- non_negotiables:
+  - Jira ingestion must not bypass the standard checkpointing flow; incremental runs must update and respect KV checkpoints.
+  - KB entities created from Jira must have stable logical keys and scopes so they can be re-ingested idempotently.
+- refs:
+  - docs/meta/nucleus-architecture/MAP.md  [oai_citation:0‡MAP.md](sediment://file_00000000dba0720695b929de072d9373)
+  - docs/meta/nucleus-architecture/ENDPOINTS.md  [oai_citation:1‡ENDPOINTS.md](sediment://file_000000009798720696613255fc75aad1)
+  - docs/meta/nucleus-architecture/INGESTION_AND_SINKS.md  [oai_citation:2‡INGESTION_AND_SINKS.md](sediment://file_00000000cce47206b81dfeff46c2a3f5)
+  - intents/semantic-sources-trio-story-v1/*
+  - intents/ingestion-source-staging-sink-v1/*
+- status: in-progress

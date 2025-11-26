@@ -125,6 +125,7 @@ export type MetadataEndpointTemplateDescriptor = {
   minVersion?: string;
   maxVersion?: string;
   probing?: MetadataEndpointProbingPlanDescriptor | null;
+  extras?: Record<string, unknown>;
 };
 
 export type MetadataEndpointTestResult = {

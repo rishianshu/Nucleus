@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from urllib.parse import quote_plus
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import (
     EndpointCapabilityDescriptor,
@@ -10,6 +10,7 @@ from .base import (
     EndpointFieldOption,
     EndpointProbingMethod,
     EndpointTestResult,
+    EndpointUnitDescriptor,
     MetadataSubsystem,
 )
 from .jdbc import JdbcEndpoint
@@ -79,6 +80,25 @@ class OracleEndpoint(JdbcEndpoint):
 
     def metadata_subsystem(self) -> MetadataSubsystem:
         return self._metadata
+
+    def list_units(
+        self,
+        *,
+        checkpoint: Optional[Dict[str, Any]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[EndpointUnitDescriptor]:
+        schema = (self.table_cfg.get("schema") or self.jdbc_cfg.get("schema") or "PUBLIC").upper()
+        table = (self.table_cfg.get("table") or self.jdbc_cfg.get("table") or "UNKNOWN").upper()
+        unit_id = f"{schema}.{table}"
+        descriptor = EndpointUnitDescriptor(
+            unit_id=unit_id,
+            kind="dataset",
+            display_name=f"{schema}.{table}",
+            description=f"{self.DISPLAY_NAME} dataset {schema}.{table}",
+            scope={"schema": schema, "table": table},
+            supports_incremental=bool(self.capabilities().supports_incremental),
+        )
+        return [descriptor]
 
     # --- Metadata collection ----------------------------------------------------
 

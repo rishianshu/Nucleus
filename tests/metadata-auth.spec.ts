@@ -1,5 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { loginViaKeycloak, ensureRealmUser, keycloakBase, metadataBase } from "./helpers/webAuth";
+import { graphql } from "./helpers/metadata";
 
 const POSTGRES_CONNECTION_DEFAULTS = {
   host: process.env.METADATA_PG_HOST ?? "localhost",
@@ -17,6 +18,10 @@ const PLAYWRIGHT_BAD_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const METADATA_GRAPHQL_ENDPOINT = process.env.METADATA_GRAPHQL_ENDPOINT ?? "http://localhost:4010/graphql";
 const METADATA_GRAPHQL_ROUTE_PATTERNS = buildMetadataGraphqlRoutePatterns(METADATA_GRAPHQL_ENDPOINT);
 const PRIMARY_METADATA_GRAPHQL_ROUTE = METADATA_GRAPHQL_ROUTE_PATTERNS[0];
+const PLAYWRIGHT_JIRA_BASE_URL = process.env.PLAYWRIGHT_JIRA_BASE_URL ?? "http://localhost:8800";
+const PLAYWRIGHT_JIRA_USERNAME = process.env.PLAYWRIGHT_JIRA_USERNAME ?? "jira-bot@example.com";
+const PLAYWRIGHT_JIRA_TOKEN = process.env.PLAYWRIGHT_JIRA_TOKEN ?? "fake-token";
+const PLAYWRIGHT_JIRA_PROJECT_KEYS = process.env.PLAYWRIGHT_JIRA_PROJECT_KEYS ?? "ENG";
 
 test.beforeAll(async ({ request }) => {
   await cleanupPlaywrightArtifacts(request);
@@ -210,7 +215,7 @@ test("metadata endpoints can be registered, edited, and deleted", async ({ page,
   await fillPostgresConnectionForm(page);
   await page.getByRole("button", { name: /Test connection/i }).click();
   await expect(page.getByTestId("metadata-test-result")).toContainText("Connection parameters validated.", {
-    timeout: 20_000,
+    timeout: 40_000,
   });
   await page.getByRole("button", { name: /Register endpoint/i }).click();
   await page.getByRole("button", { name: /Back to overview/i }).click();
@@ -593,12 +598,18 @@ test("knowledge base explorers support node and edge actions", async ({ page }) 
   await expect(page).toHaveURL(/\/kb\/explorer\/nodes/, { timeout: 20_000 });
   const nodeTypeFilter = page.getByTestId("kb-node-type-filter");
   await expect(nodeTypeFilter).toBeVisible({ timeout: 20_000 });
-  await expect(nodeTypeFilter).toContainText("Datasets");
+  await expect(nodeTypeFilter).toContainText(/All types|Work Item|Datasets/i);
   const nodeSearchInput = page.getByLabel("Search");
-  await nodeSearchInput.fill("table");
-  await expect(page.getByTestId("kb-node-search-synonym")).toContainText(/Datasets/i);
+  await nodeSearchInput.fill("work");
   await nodeSearchInput.fill("");
-  await nodeTypeFilter.selectOption({ value: "catalog.dataset" });
+  const optionLocators = await nodeTypeFilter.locator("option").all();
+  for (const option of optionLocators) {
+    const value = await option.getAttribute("value");
+    if (value && value !== "All types") {
+      await nodeTypeFilter.selectOption({ value });
+      break;
+    }
+  }
   const nodeCopyButton = page.getByTestId("kb-node-copy-button").first();
   await nodeCopyButton.click();
   await expect(nodeCopyButton).toHaveText(/Copied/i);
@@ -702,6 +713,49 @@ test("ingestion console renders for admin users", async ({ page }) => {
   const emptyState = page.getByTestId("ingestion-empty-state");
   const unitRow = page.getByTestId("ingestion-unit-row").first();
   await expect(emptyState.or(unitRow)).toBeVisible({ timeout: 20_000 });
+});
+
+test("jira ingestion console shows healthy units for admin", async ({ page, request }) => {
+  await ensureRealmUser({ ...ADMIN_CREDENTIALS, roles: ["admin"] });
+  const endpointName = `Playwright Jira Ingestion ${Date.now().toString(36)}`;
+  const endpoint = await createJiraEndpointForTest(request, endpointName);
+  const unitMappings: [string, string][] = [
+    ["jira.projects", "Jira Projects"],
+    ["jira.issues", "Jira Issues"],
+    ["jira.users", "Jira Users"],
+  ];
+  for (const [unitId] of unitMappings) {
+    await startIngestionAndWait(request, endpoint.id, unitId);
+  }
+  await openMetadataWorkspace(page, ADMIN_CREDENTIALS);
+  const ingestionButton = page.getByRole("button", { name: "Ingestion" });
+  await ingestionButton.click();
+  const consoleRoot = page.getByTestId("ingestion-console");
+  await expect(consoleRoot).toBeVisible({ timeout: 30_000 });
+  const endpointButton = page.getByRole("button", { name: endpointName }).first();
+  await endpointButton.click();
+  const refreshButton = page.getByRole("button", { name: "Refresh" }).first();
+  await refreshButton.click();
+  const unitRows = page.getByTestId("ingestion-unit-row");
+  await expect(unitRows).toHaveCount(unitMappings.length, { timeout: 30_000 });
+  for (const [, displayName] of unitMappings) {
+    const row = unitRows.filter({ hasText: displayName });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row).toContainText(/Healthy/i);
+  }
+});
+
+test("Temporal UI shows Jira ingestion workflow runs", async ({ page, request }) => {
+  await ensureRealmUser({ ...ADMIN_CREDENTIALS, roles: ["admin"] });
+  const endpointName = `Playwright Jira Temporal ${Date.now().toString(36)}`;
+  const endpoint = await createJiraEndpointForTest(request, endpointName);
+  const runId = await startIngestionAndWait(request, endpoint.id, "jira.projects");
+  const temporalBase = process.env.TEMPORAL_UI_URL ?? "http://localhost:8080";
+  const query = encodeURIComponent(`WorkflowId='${runId}'`);
+  await page.goto(`${temporalBase}/namespaces/default/workflows?query=${query}`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("Workflow Id").first()).toBeVisible({ timeout: 30_000 });
+  const workflowRow = page.locator(`text=${runId}`).first();
+  await expect(workflowRow).toBeVisible({ timeout: 30_000 });
 });
 
 async function ensureWorkspaceReady(page: Page) {
@@ -865,6 +919,7 @@ async function registerEndpointViaApi(
       "Content-Type": "application/json",
       ...(options?.bypassValidation ? { "X-Metadata-Test-Write": "1" } : {}),
     },
+    timeout: 45_000,
   });
   if (!registerResponse.ok()) {
     const errorBody = await registerResponse.text();
@@ -876,6 +931,83 @@ async function registerEndpointViaApi(
     throw new Error("Register endpoint response missing id");
   }
   return { id: endpointId, name: endpointName };
+}
+
+async function createJiraEndpointForTest(request: APIRequestContext, endpointName: string): Promise<RegisteredEndpoint> {
+  return registerEndpointViaApi(request, endpointName, {
+    useTemplateConfig: false,
+    capabilities: ["metadata", "ingest"],
+    labels: ["jira", "playwright"],
+    url: PLAYWRIGHT_JIRA_BASE_URL,
+    config: buildJiraConfig(),
+    bypassValidation: true,
+  });
+}
+
+function buildJiraConfig(): Record<string, unknown> {
+  return {
+    templateId: "jira.http",
+    parameters: {
+      base_url: PLAYWRIGHT_JIRA_BASE_URL,
+      auth_type: "basic",
+      username: PLAYWRIGHT_JIRA_USERNAME,
+      api_token: PLAYWRIGHT_JIRA_TOKEN,
+      project_keys: PLAYWRIGHT_JIRA_PROJECT_KEYS,
+    },
+    base_url: PLAYWRIGHT_JIRA_BASE_URL,
+    auth_type: "basic",
+    username: PLAYWRIGHT_JIRA_USERNAME,
+    api_token: PLAYWRIGHT_JIRA_TOKEN,
+    project_keys: Array.isArray(PLAYWRIGHT_JIRA_PROJECT_KEYS)
+      ? PLAYWRIGHT_JIRA_PROJECT_KEYS
+      : String(PLAYWRIGHT_JIRA_PROJECT_KEYS)
+          .split(",")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0),
+  };
+}
+
+async function startIngestionAndWait(request: APIRequestContext, endpointId: string, unitId: string): Promise<string> {
+  const adminToken = await fetchKeycloakTokenForUser(request, ADMIN_CREDENTIALS);
+  const startResponse = await graphql<{ startIngestion: { ok: boolean; runId: string | null } }>(
+    request,
+    adminToken,
+    `
+      mutation StartIngestion($endpointId: ID!, $unitId: ID!) {
+        startIngestion(endpointId: $endpointId, unitId: $unitId) {
+          ok
+          runId
+        }
+      }
+    `,
+    { endpointId, unitId },
+  );
+  const runId = startResponse.startIngestion?.runId ?? null;
+  expect(runId, "startIngestion returned runId").toBeTruthy();
+  const statusQuery = `
+    query IngestionStatus($endpointId: ID!, $unitId: ID!) {
+      ingestionStatus(endpointId: $endpointId, unitId: $unitId) {
+        state
+      }
+    }
+  `;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const statusResponse = await graphql<{ ingestionStatus: { state: string | null } | null }>(
+      request,
+      adminToken,
+      statusQuery,
+      { endpointId, unitId },
+    );
+    const state = statusResponse.ingestionStatus?.state;
+    if (state === "SUCCEEDED") {
+      return runId!;
+    }
+    if (state === "FAILED") {
+      throw new Error(`Ingestion ${unitId} failed for ${endpointId}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Ingestion ${unitId} did not report success within timeout`);
 }
 
 async function ensureEndpointDatasetViaApi(

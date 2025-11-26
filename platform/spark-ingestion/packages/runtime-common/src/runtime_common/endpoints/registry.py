@@ -8,6 +8,7 @@ from runtime_common.endpoints.jdbc_mssql import MSSQLEndpoint
 from runtime_common.endpoints.jdbc_oracle import OracleEndpoint
 from runtime_common.endpoints.jdbc_postgres import PostgresEndpoint
 from runtime_common.endpoints.http_rest import HttpApiEndpoint
+from runtime_common.endpoints.jira_http import JiraEndpoint
 from runtime_common.endpoints.stream_kafka import KafkaStreamEndpoint
 
 
@@ -17,6 +18,7 @@ REGISTERED_ENDPOINTS: List[Type[DescribedEndpoint]] = [
     MSSQLEndpoint,
     JdbcEndpoint,
     HttpApiEndpoint,
+    JiraEndpoint,
     KafkaStreamEndpoint,
 ]
 

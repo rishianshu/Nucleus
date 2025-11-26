@@ -78,6 +78,7 @@ export type EndpointTemplate = {
   minVersion?: string | null;
   maxVersion?: string | null;
   probing?: EndpointProbingPlan | null;
+  extras?: Record<string, unknown> | null;
 };
 
 export type EndpointBuildResult = {

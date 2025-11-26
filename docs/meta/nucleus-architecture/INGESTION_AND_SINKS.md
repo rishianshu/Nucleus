@@ -9,7 +9,7 @@ This file complements `docs/meta/nucleus-architecture/INGESTION-SOURCE-STAGING-S
 - Sink endpoints persist rows to external systems (HDFS, Iceberg, JDBC/CDM).
 - The TypeScript side **does not** implement a second endpoint registry. Instead, it orchestrates runs and updates KV/Prisma/KB.
 
-See the dedicated Source–Staging–Sink spec for diagrams and code pointers.
+See the dedicated Source–Staging–Sink spec for diagrams and code pointers. Endpoints now expose logical units (`EndpointUnitDescriptor`) and optional incremental planning helpers (`SupportsIncrementalPlanning`) so the worker can request slices directly from the source rather than re-implementing planning inside workflows.
 
 ## Control-Plane (TypeScript)
 
@@ -20,7 +20,7 @@ See the dedicated Source–Staging–Sink spec for diagrams and code pointers.
 
 2. **Temporal workflow** (`apps/metadata-api/src/temporal/workflows.ts`):
    - `startIngestionRun` (TS activity) → loads KV checkpoint (`apps/metadata-api/src/ingestion/checkpoints.ts`), marks Prisma state, resolves sink/staging defaults.
-   - `pythonActivities.runIngestionUnit` (new) → hands `{ endpointId, unitId, sinkId?, stagingProviderId?, checkpoint, policy }` to the Python worker (`platform/spark-ingestion/temporal/metadata_worker.py`), which will invoke Source→Staging→Sink logic.
+   - `pythonActivities.runIngestionUnit` (new) → hands `{ endpointId, unitId, sinkId?, stagingProviderId?, checkpoint, policy }` to the Python worker (`platform/spark-ingestion/temporal/metadata_worker.py`), which will invoke Source→Staging→Sink logic. Workers can call `list_units` / `plan_incremental_slices` on the endpoint to break the run into adaptive slices and publish intermediate updates.
    - `completeIngestionRun` / `failIngestionRun` (TS activities) → write checkpoint back to KV, update `IngestionUnitState`, persist run stats.
    - TypeScript no longer streams `NormalizedBatch` payloads; bulk data stays in Python.
 
@@ -28,6 +28,16 @@ See the dedicated Source–Staging–Sink spec for diagrams and code pointers.
    - Lists endpoints/units using GraphQL.
    - Triggers mutations with ADR-compliant feedback (toast + inline cues).
    - Shows status info sourced from Prisma + KV stats.
+
+## Metadata-first contract
+
+Ingestion is grounded in the metadata catalog. Before a unit can appear in the console or be enqueued via GraphQL:
+
+- The endpoint must be registered (descriptor + config stored via `MetadataEndpoint`).
+- The metadata subsystem must have produced catalog datasets for that endpoint (`CatalogSnapshot` emitted via `collectCatalogSnapshots`). Only datasets that exist in `catalog.dataset` may expose ingestion units.
+- `listUnits` implementations must simply reflect the dataset catalog; if the catalog is empty (e.g., collection never ran) the API returns no units and the UI shows the empty state.
+
+This ensures orchestration never targets phantom datasets and keeps ingestion policies in sync with what the metadata workspace knows about the source.
 
 ## Python Worker Highlights
 
@@ -52,6 +62,10 @@ See the dedicated Source–Staging–Sink spec for diagrams and code pointers.
 - **KV store** – checkpoint + run stats; default file-backed driver under `metadata/kv-store.json`, configurable via `INGESTION_KV_FILE`.
 - **Prisma** – `IngestionUnitState` rows track state, last run IDs, timestamps.
 - **KB** – Graph metadata for console explorers (`apps/metadata-api/src/schema.ts` KB queries).
+
+## KB scope vs. data views
+
+The Knowledge Base stores semantic entities (projects, issues, users, lineage edges). It is *not* the final repository for bulk ingested data. When an ingestion unit publishes KB nodes, that is purely for context/reasoning, not for row-level storage. The underlying Source→Staging→Sink pipeline continues to land data in the configured sink (lakehouse, CDM, etc.). A future UI will expose that ingested data; in the meantime dataset detail panes can display ingestion stats/checkpoints to tie catalog entries to ingestion runs.
 
 ## Remaining Gaps
 

@@ -93,6 +93,7 @@ def serialize_descriptor(descriptor) -> Dict[str, Any]:
         "minVersion": getattr(descriptor, "min_version", None),
         "maxVersion": getattr(descriptor, "max_version", None),
         "probing": serialize_probing_plan(getattr(descriptor, "probing", None)),
+        "extras": getattr(descriptor, "extras", None),
     }
 
 
