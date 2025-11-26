@@ -28,6 +28,9 @@ See the dedicated Source–Staging–Sink spec for diagrams and code pointers. E
    - Lists endpoints/units using GraphQL.
    - Triggers mutations with ADR-compliant feedback (toast + inline cues).
    - Shows status info sourced from Prisma + KV stats.
+4. **Metadata planner** (`metadata_service/planning.py`):
+   - Centralized helper that inspects endpoint config/capabilities and returns planned `MetadataJob`s.
+   - Python worker simply calls `plan_metadata_jobs(request, logger)` instead of branching on template ids.
 
 ## Metadata-first contract
 
@@ -66,6 +69,13 @@ This ensures orchestration never targets phantom datasets and keeps ingestion po
 ## KB scope vs. data views
 
 The Knowledge Base stores semantic entities (projects, issues, users, lineage edges). It is *not* the final repository for bulk ingested data. When an ingestion unit publishes KB nodes, that is purely for context/reasoning, not for row-level storage. The underlying Source→Staging→Sink pipeline continues to land data in the configured sink (lakehouse, CDM, etc.). A future UI will expose that ingested data; in the meantime dataset detail panes can display ingestion stats/checkpoints to tie catalog entries to ingestion runs.
+
+## Preview workflow
+
+- GraphQL’s `previewMetadataDataset` looks up the catalog record + endpoint config, enforces the `preview` capability, and passes the request to Temporal.
+- To avoid changing activity signatures, HTTP/semantic endpoints encode their template id + parameters + dataset metadata as JSON inside the `connectionUrl` field. JDBC endpoints continue to send the raw JDBC URL.
+- The Python worker decodes the JSON payload (if present) and delegates to the endpoint’s metadata subsystem `preview_dataset` helper. Otherwise it falls back to the SQLAlchemy/JDBC preview path.
+- Jira’s metadata subsystem implements `preview_dataset`, reusing the `_sync_jira_*` helpers to return small batches of normalized payloads.
 
 ## Remaining Gaps
 

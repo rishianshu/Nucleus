@@ -849,17 +849,18 @@
       "cursor": {
         "lastUpdated": "2025-11-26T18:43:16.665+0530"
       },
-      "lastRunId": "fb893d75-6207-439b-9189-f8a920110f56",
+      "lastRunId": "c808d999-a83e-4b51-82f0-bede3730092e",
       "stats": {
         "issuesSynced": 5,
         "lastUpdated": "2025-11-26T18:43:16.665+0530",
         "recordCount": 5,
         "unitId": "jira.issues"
       },
-      "lastUpdatedAt": "2025-11-26T14:48:51.554Z"
+      "lastUpdatedAt": "2025-11-26T16:37:22.399Z",
+      "lastError": "Activity task failed"
     },
-    "version": "019b23ea88664a94a93381d369dfc4d1",
-    "updatedAt": "2025-11-26T14:48:51.555Z"
+    "version": "cc3f218a031d4828a53ade11e706624c",
+    "updatedAt": "2025-11-26T16:37:22.403Z"
   },
   "ingest::work.jira::endpoint::eaac00ee50f148af9e738b0277b71360::unit::jira.issues::sink::kb": {
     "value": {

@@ -104,6 +104,42 @@ class JiraMetadataSubsystem(MetadataSubsystem):
     def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:  # pragma: no cover - future use
         raise NotImplementedError("Jira ingestion is handled via the ingestion workflow pipeline.")
 
+    def preview_dataset(
+        self,
+        dataset_id: str,
+        *,
+        limit: int = 25,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = self._resolved_parameters(config or {})
+        base_url = params.get("base_url") or self.endpoint.endpoint_cfg.get("base_url")
+        if not base_url:
+            raise ValueError("Jira base_url is required for dataset preview")
+        if jira_runtime is None:
+            raise RuntimeError("runtime_common endpoints package is required for Jira dataset preview")
+        host = urlparse(base_url).hostname or "jira.local"
+        org_id = params.get("scope_org_id") or "jira-preview"
+        scope_project = params.get("scope_project_id")
+        endpoint_id = self.endpoint.table_cfg.get("endpoint_id") or self.endpoint.table_cfg.get("endpointId") or "jira-preview"
+        dataset_name = dataset_id or self.endpoint.table_cfg.get("dataset") or self.endpoint.table_cfg.get("table") or "jira.issues"
+        preview_limit = max(1, min(int(limit or 25), 200))
+        session = jira_runtime._build_jira_session(params)  # type: ignore[attr-defined]
+        try:
+            rows = _collect_preview_rows(
+                dataset_name,
+                session,
+                base_url,
+                host,
+                org_id,
+                scope_project,
+                endpoint_id,
+                params,
+                preview_limit,
+            )
+        finally:
+            session.close()
+        return rows
+
     # ------------------------------------------------------------------ helpers -------------------------------------------------
     def _resolved_parameters(self, overrides: Dict[str, Any]) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
@@ -213,6 +249,43 @@ class JiraMetadataSubsystem(MetadataSubsystem):
 
 
 # ---------------------------------------------------------------------- helper utilities ------------------------------------------
+
+
+def _collect_preview_rows(
+    dataset_id: str,
+    session,
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+    params: Dict[str, Any],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    if jira_runtime is None:  # pragma: no cover - defensive
+        return []
+    normalized = dataset_id if dataset_id in DATASET_DEFINITIONS else f"jira.{dataset_id}" if not dataset_id.startswith("jira.") else dataset_id
+    records: List[Dict[str, Any]] = []
+    if normalized == "jira.projects":
+        records, _ = jira_runtime._sync_jira_projects(session, base_url, host, org_id, scope_project, endpoint_id, params, max_records=limit)  # type: ignore[attr-defined]
+    elif normalized == "jira.issues":
+        records, _ = jira_runtime._sync_jira_issues(session, base_url, host, org_id, scope_project, endpoint_id, params, None, max_records=limit)  # type: ignore[attr-defined]
+    elif normalized == "jira.users":
+        records, _ = jira_runtime._sync_jira_users(session, base_url, host, org_id, scope_project, endpoint_id, params, max_records=limit)  # type: ignore[attr-defined]
+    elif normalized == "jira.comments":
+        records, _ = jira_runtime._sync_jira_comments(session, base_url, host, org_id, scope_project, endpoint_id, params, None, max_records=limit)  # type: ignore[attr-defined]
+    elif normalized == "jira.worklogs":
+        records, _ = jira_runtime._sync_jira_worklogs(session, base_url, host, org_id, scope_project, endpoint_id, params, None, max_records=limit)  # type: ignore[attr-defined]
+    else:
+        raise ValueError(f"Preview is not supported for dataset '{dataset_id}'")
+    rows: List[Dict[str, Any]] = []
+    for record in records[:limit]:
+        payload = record.get("payload") if isinstance(record, dict) else None
+        if isinstance(payload, dict):
+            rows.append(payload)
+        else:
+            rows.append(record)
+    return rows
 
 def _safe_fetch(session, base_url: str, path: str):
     if jira_runtime is None:

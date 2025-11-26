@@ -1,13 +1,13 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ingestion-config-and-jira-units-v1 (success @ 2025-11-26T19:35Z)
+metadata-worker-capabilities-and-preview-v1 (success @ 2025-11-26T19:40Z)
 
 ## Last Run
-- slug: ingestion-config-and-jira-units-v1
+- slug: metadata-worker-capabilities-and-preview-v1
 - status: success
-- duration: ~4h (full-stack ingestion config + Jira live verification)
-- tests: pnpm check:metadata-auth; pnpm check:metadata-lifecycle; pnpm ci-check; node --test apps/metadata-api/src/ingestion/ingestionCatalogGate.test.ts; pytest platform/spark-ingestion/tests/test_jira_ingestion.py
+- duration: ~1.5h (planner refactor + HTTP preview wiring + docs/tests)
+- tests: pytest platform/spark-ingestion/tests/test_metadata_planning.py; pytest platform/spark-ingestion/tests/test_metadata_preview.py; pnpm check:metadata-auth; pnpm check:metadata-lifecycle; pnpm ci-check
 - commits: not yet
 - decisions: 0
 - next_step: none (slug closed)
@@ -21,7 +21,9 @@ LATER:
 - 
 
 ## Events
+- 2025-11-26T19:40Z run success (metadata-worker-capabilities-and-preview-v1, planner refactor + Jira preview + ci-check green)
 - 2025-11-26T19:35Z run success (ingestion-config-and-jira-units-v1, Jira issue ingestion via /search/jql + ingestion config UI + ci-check green)
+- 2025-11-26T19:14Z run started (metadata-worker-capabilities-and-preview-v1, boot + artifact sync)
 - 2025-11-26T09:53Z run started (ingestion-config-and-jira-units-v1, boot + context sync)
 - 2025-11-25T22:07Z run success (semantic-jira-source-v1, pnpm ci-check green after Jira ingestion verification)
 - 2025-11-24T12:16Z run heartbeat (semantic-jira-source-v1, startIngestion resolver covered in bypass mode w/ mocked state store + Jira units)

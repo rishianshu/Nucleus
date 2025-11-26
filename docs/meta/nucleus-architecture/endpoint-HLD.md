@@ -55,8 +55,8 @@
      - `DataSourceMetadata` – identifies the upstream system (id/name/system/version/properties).
      - `DatasetMetadata` – describes the logical entity (name/type/location/properties/tags).
      - `SchemaField`/`SchemaFieldStatistics` – column-level definitions and profiling stats.
-     - `DatasetStatistics` and `DatasetConstraint` – table-level stats & constraints.
-   - Normalizers convert vendor-specific payloads into these models so downstream services (metadata cache, GraphQL, KB) speak a consistent language regardless of source.
+   - `DatasetStatistics` and `DatasetConstraint` – table-level stats & constraints.
+   - Normalizers convert vendor-specific payloads into these models so downstream services (metadata cache, GraphQL, KB) speak a consistent language regardless of source. When preview support is enabled, subsystems reuse the same normalization helpers to produce representative rows.
    - Ingestion subsystems operate on `NormalizedRecord` objects (`packages/metadata-core`) that describe KB/semantic entities (`entityType`, `logicalId`, `scope`, `payload`, `edges`). Drivers return batches of these records, and sinks (e.g., `KnowledgeBaseSink`) apply them uniformly.
    - By funneling both catalog metadata and ingestion data through these canonical models, the system stays balanced: endpoints expose vendor details, but the rest of the platform (GraphQL, UI, agents) interacts only with normalized structures. Remember that KB persists semantic knowledge, not raw data; ingested rows continue to live in the configured sinks and will be surfaced by dedicated data views.
 
@@ -72,7 +72,7 @@
    - Create adapter in `metadata_service.adapters`.
    - Implement environment probing, dataset manifests, API catalogs, and reuse/extend normalizers.
    - Export adapter via `metadata_service.adapters.__init__`.
-   - The subsystem is the canonical place to describe datasets; ingestion units later reuse these manifests. Run collection at least once in dev/tests before enabling ingestion so catalog state exists.
+   - The subsystem is the canonical place to describe datasets; ingestion units later reuse these manifests. Subsystems may also expose optional helpers such as `preview_dataset` so the worker can delegate HTTP/semantic previews. Run collection at least once in dev/tests before enabling ingestion so catalog state exists.
 4. **Wire Ingestion**
    - Extend ingestion registry (TS) if new driver/sink combos needed.
    - Implement Python worker helpers to fetch data (Source → Staging → Sink), returning normalized records/batches and leveraging the endpoint’s unit/slice planning.

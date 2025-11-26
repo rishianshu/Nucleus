@@ -178,6 +178,11 @@ class JiraEndpoint(SourceEndpoint):
                 description="Exposes semantic datasets (projects/issues/users) via metadata subsystem.",
             ),
             EndpointCapabilityDescriptor(
+                key="preview",
+                label="Dataset preview",
+                description="Supports lightweight dataset previews via Jira REST APIs.",
+            ),
+            EndpointCapabilityDescriptor(
                 key="ingest.incremental",
                 label="Incremental ingestion",
                 description="Supports updated-since pagination for issues.",
@@ -565,6 +570,7 @@ def _sync_jira_projects(
     scope_project: Optional[str],
     endpoint_id: str,
     params: Dict[str, Any],
+    max_records: int = 500,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     keys = params.get("project_keys") or []
     key_filter = set(keys) if keys else None
@@ -594,7 +600,7 @@ def _sync_jira_projects(
         start_at += len(projects)
         if len(projects) < page_size:
             break
-        if len(records) >= 500:
+        if len(records) >= max_records:
             break
     return records, {"projectsSynced": len(records)}
 
@@ -608,6 +614,7 @@ def _sync_jira_issues(
     endpoint_id: str,
     params: Dict[str, Any],
     since: Optional[str],
+    max_records: int = 500,
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     records: List[Dict[str, Any]] = []
     latest = since
@@ -624,7 +631,7 @@ def _sync_jira_issues(
         updated = issue.get("fields", {}).get("updated")
         if updated and _is_after(updated, latest):
             latest = updated
-        if len(records) >= 500:
+        if len(records) >= max_records:
             break
     return records, latest
 
@@ -637,6 +644,7 @@ def _sync_jira_users(
     scope_project: Optional[str],
     endpoint_id: str,
     params: Dict[str, Any],
+    max_records: int = 500,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     start_at = 0
@@ -666,7 +674,7 @@ def _sync_jira_users(
             records.append(record)
         if len(payload) < page_size:
             break
-        if len(records) >= 200:
+        if len(records) >= max_records:
             break
         start_at += len(payload)
     return records, {"usersSynced": len(records)}
@@ -681,6 +689,7 @@ def _sync_jira_comments(
     endpoint_id: str,
     params: Dict[str, Any],
     since: Optional[str],
+    max_records: int = 500,
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     records: List[Dict[str, Any]] = []
     latest = since
@@ -717,11 +726,13 @@ def _sync_jira_comments(
                 records.append(record)
                 if updated and _is_after(updated, latest):
                     latest = updated
-                if len(records) >= 500:
+                if len(records) >= max_records:
                     return records, latest
             start_at += len(comments)
             if len(comments) < page_size:
                 break
+        if len(records) >= max_records:
+            break
     return records, latest
 
 
@@ -734,6 +745,7 @@ def _sync_jira_worklogs(
     endpoint_id: str,
     params: Dict[str, Any],
     since: Optional[str],
+    max_records: int = 500,
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     records: List[Dict[str, Any]] = []
     latest = since
@@ -770,11 +782,13 @@ def _sync_jira_worklogs(
                 records.append(record)
                 if started and _is_after(started, latest):
                     latest = started
-                if len(records) >= 500:
+                if len(records) >= max_records:
                     return records, latest
             start_at += len(worklogs)
             if len(worklogs) < page_size:
                 break
+        if len(records) >= max_records:
+            break
     return records, latest
 
 

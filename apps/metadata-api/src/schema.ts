@@ -1717,6 +1717,8 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
             extensions: { code: "E_CAPABILITY_MISSING" },
           });
         }
+        const encodedPreviewPayload = buildPreviewConnectionPayload(endpoint, record.id, schema, table);
+        const connectionTarget = encodedPreviewPayload ?? endpoint.url;
         const { client, taskQueue } = await getTemporalClient();
         return client.workflow.execute(WORKFLOW_NAMES.previewDataset, {
           taskQueue,
@@ -1727,7 +1729,7 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
               schema,
               table,
               limit: args.limit ?? 50,
-              connectionUrl: endpoint.url,
+              connectionUrl: connectionTarget,
             },
           ],
         });
@@ -3319,6 +3321,29 @@ function normalizePayload(value: unknown): Record<string, any> | null {
     return null;
   }
   return value as Record<string, any>;
+}
+
+function buildPreviewConnectionPayload(
+  endpoint: { url: string; config: unknown },
+  datasetId: string,
+  schema: string,
+  table: string,
+): string | null {
+  const endpointConfig = normalizePayload(endpoint.config);
+  const rawTemplateId = endpointConfig?.templateId;
+  const templateId = typeof rawTemplateId === "string" ? rawTemplateId : null;
+  if (!templateId || templateId.startsWith("jdbc.")) {
+    return null;
+  }
+  const parameters = normalizePayload(endpointConfig?.parameters) ?? {};
+  return JSON.stringify({
+    templateId,
+    parameters,
+    datasetId,
+    schema,
+    table,
+    connectionUrl: endpoint.url,
+  });
 }
 
 function mergeStrings(

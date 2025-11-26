@@ -10,7 +10,7 @@ import shutil
 import sys
 import tempfile
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
@@ -47,14 +47,13 @@ for module_name in ["runtime_common", "runtime_core", "metadata_service", "metad
 from temporalio import activity, client, worker  # type: ignore
 from metadata_service import __file__ as _metadata_service_file
 from metadata_service.cache.manager import MetadataCacheConfig, MetadataCacheManager
-from metadata_service.collector import MetadataCollectionService, MetadataJob, MetadataServiceConfig
+from metadata_service.collector import MetadataCollectionService, MetadataServiceConfig
+from metadata_service.planning import plan_metadata_jobs
 from metadata_service.repository import CacheMetadataRepository
-from metadata_service.utils import collect_rows, safe_upper, to_serializable
-from runtime_core import MetadataTarget
-from runtime_common.endpoints.base import MetadataCapableEndpoint  # type: ignore
+from metadata_service.utils import collect_rows, to_serializable
 from runtime_common.endpoints.factory import EndpointFactory
-from runtime_common.endpoints.jira_http import JiraEndpoint, run_jira_ingestion_unit
-from runtime_common.endpoints.jira_catalog import JIRA_DATASET_DEFINITIONS
+from runtime_common.endpoints.registry import get_endpoint_class
+from runtime_common.endpoints.jira_http import run_jira_ingestion_unit
 from runtime_common.tools.sqlalchemy import SQLAlchemyTool
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
@@ -213,91 +212,6 @@ def _write_records_manifest(records: List[CatalogRecordOutput], run_id: str) -> 
     return path
 
 
-def _should_use_http_metadata(request: CollectionJobRequest) -> bool:
-    if not request.config:
-        return False
-    template_id = (
-        str(
-            request.config.get("templateId")
-            or request.config.get("template_id")
-            or request.config.get("template")
-            or "",
-        ).lower()
-    )
-    return template_id == "jira.http"
-
-
-def _collect_http_metadata_records(request: CollectionJobRequest, logger: ActivityLogger) -> List[CatalogRecordOutput]:
-    config = request.config or {}
-    parameters = dict(config.get("parameters") or {})
-    parameters.setdefault("base_url", request.connectionUrl)
-    temp_dir = tempfile.mkdtemp(prefix=f"metadata-collect-{request.runId}-http-")
-    cache_cfg = MetadataCacheConfig(
-        cache_path=temp_dir,
-        ttl_hours=1,
-        enabled=True,
-        source_id=request.sourceId or request.endpointId or "metadata-endpoint",
-    )
-    cache_manager = MetadataCacheManager(cache_cfg, logger, spark=None)
-    service_cfg = MetadataServiceConfig(endpoint_defaults={})
-    metadata_service = MetadataCollectionService(service_cfg, cache_manager, logger, emitter=None)
-    jobs: List[MetadataJob] = []
-    for dataset_id in sorted(JIRA_DATASET_DEFINITIONS.keys()):
-        table_cfg = {
-            "schema": "jira",
-            "table": dataset_id,
-            "dataset": dataset_id,
-            "mode": "full",
-            "metadata_project_id": request.projectId,
-        }
-        endpoint = JiraEndpoint(
-            tool=None,
-            endpoint_cfg=parameters,
-            table_cfg=table_cfg,
-        )
-        target = MetadataTarget(
-            source_id=request.sourceId or request.endpointId,
-            namespace="JIRA",
-            entity=safe_upper(dataset_id.replace(".", "_")),
-        )
-        jobs.append(MetadataJob(target=target, artifact=table_cfg, endpoint=endpoint))
-
-    if not jobs:
-        logger.warn(event="metadata_no_jobs_ready")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return []
-
-    metadata_service.run(jobs)
-    repository = CacheMetadataRepository(cache_manager)
-    records: List[CatalogRecordOutput] = []
-    try:
-        for job in jobs:
-            record = repository.latest(job.target)
-            if not record:
-                continue
-            payload = record.payload if isinstance(record.payload, dict) else {}
-            payload = dict(payload)
-            payload["metadata_endpoint_id"] = request.endpointId
-            metadata_block = dict(payload.get("_metadata") or {})
-            metadata_block["source_endpoint_id"] = request.endpointId
-            metadata_block["source_id"] = request.sourceId or request.endpointId
-            payload["_metadata"] = metadata_block
-            dataset_id = str(payload.get("id") or job.artifact.get("dataset") or job.target.entity.lower())
-            labels = sorted({*(request.labels or []), *(payload.get("labels") or [])})
-            records.append(
-                CatalogRecordOutput(
-                    id=dataset_id,
-                    projectId=request.projectId,
-                    domain="catalog.dataset",
-                    labels=labels,
-                    payload=payload,
-                )
-            )
-        return records
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-
 def _finalize_collection_result(
     request: CollectionJobRequest,
     logger: ActivityLogger,
@@ -312,14 +226,49 @@ def _finalize_collection_result(
     ).__dict__
 
 
+def _cleanup_plan_resources(plan) -> None:
+    for callback in getattr(plan, "cleanup_callbacks", []) or []:
+        try:
+            callback()
+        except Exception:  # pragma: no cover - defensive cleanup
+            continue
+
+
+def _collect_catalog_records(jobs, repository: CacheMetadataRepository, request: CollectionJobRequest) -> List[CatalogRecordOutput]:
+    records: List[CatalogRecordOutput] = []
+    for job in jobs:
+        record = repository.latest(job.target)
+        if not record:
+            continue
+        payload = record.payload if isinstance(record.payload, dict) else {}
+        payload = dict(payload)
+        payload["metadata_endpoint_id"] = request.endpointId
+        metadata_block = dict(payload.get("_metadata") or {})
+        metadata_block["source_endpoint_id"] = request.endpointId
+        metadata_block["source_id"] = request.sourceId or request.endpointId
+        payload["_metadata"] = metadata_block
+        dataset_id = str(
+            payload.get("id")
+            or job.artifact.get("dataset")
+            or job.artifact.get("table")
+            or f"{job.target.namespace.lower()}_{job.target.entity.lower()}"
+        )
+        labels = sorted({*(request.labels or []), *(payload.get("labels") or [])})
+        records.append(
+            CatalogRecordOutput(
+                id=dataset_id,
+                projectId=request.projectId,
+                domain="catalog.dataset",
+                labels=labels,
+                payload=payload,
+            )
+        )
+    return records
+
+
 def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, Any]:
     logger = ActivityLogger()
     logger.info(event="metadata_collect_start", run_id=request.runId, endpoint=request.endpointName)
-    if _should_use_http_metadata(request):
-        records = _collect_http_metadata_records(request, logger)
-        return _finalize_collection_result(request, logger, records)
-
-    tool = _build_sqlalchemy_tool(request.connectionUrl)
     temp_dir = tempfile.mkdtemp(prefix=f"metadata-collect-{request.runId}-")
     cache_cfg = MetadataCacheConfig(
         cache_path=temp_dir,
@@ -331,73 +280,19 @@ def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, 
     service_cfg = MetadataServiceConfig(endpoint_defaults={})
     metadata_service = MetadataCollectionService(service_cfg, cache_manager, logger, emitter=None)
 
-    tables = _expand_tables(tool, request.schemas or ["public"])
-    if not tables:
-        logger.warn(event="metadata_no_tables", schemas=request.schemas)
+    plan = plan_metadata_jobs(request, logger)
+    if not plan.jobs:
+        _cleanup_plan_resources(plan)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         return {"records": [], "logs": logger.entries}
 
-    jdbc_cfg = _build_jdbc_config(request.connectionUrl)
-    cfg = {"jdbc": jdbc_cfg}
-    jobs: List[MetadataJob] = []
-    for table in tables:
-        table_cfg = {
-            "schema": table["schema"],
-            "table": table["table"],
-            "mode": "full",
-        }
-        try:
-            endpoint = EndpointFactory.build_source(cfg, table_cfg, tool)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warn(
-                event="metadata_endpoint_build_failed",
-                schema=table["schema"],
-                dataset=table["table"],
-                error=str(exc),
-            )
-            continue
-        if not isinstance(endpoint, MetadataCapableEndpoint):
-            logger.info(event="metadata_capability_missing", schema=table["schema"], dataset=table["table"])
-            continue
-        target = MetadataTarget(
-            source_id=request.sourceId or request.endpointId,
-            namespace=safe_upper(table["schema"]),
-            entity=safe_upper(table["table"]),
-        )
-        jobs.append(MetadataJob(target=target, artifact=table_cfg, endpoint=endpoint))
-
-    if not jobs:
-        logger.warn(event="metadata_no_jobs_ready")
-        return {"records": [], "logs": logger.entries}
-
-    metadata_service.run(jobs)
-    repository = CacheMetadataRepository(cache_manager)
     try:
-        records: List[CatalogRecordOutput] = []
-        for job in jobs:
-            record = repository.latest(job.target)
-            if not record:
-                continue
-            payload = record.payload if isinstance(record.payload, dict) else {}
-            payload = dict(payload)
-            payload["metadata_endpoint_id"] = request.endpointId
-            metadata_block = dict(payload.get("_metadata") or {})
-            metadata_block["source_endpoint_id"] = request.endpointId
-            metadata_block["source_id"] = request.sourceId or request.endpointId
-            payload["_metadata"] = metadata_block
-            dataset_id = str(payload.get("id") or f"{job.target.namespace.lower()}_{job.target.entity.lower()}")
-            labels = sorted({*(request.labels or []), *(payload.get("labels") or [])})
-            records.append(
-                CatalogRecordOutput(
-                    id=dataset_id,
-                    projectId=request.projectId,
-                    domain="catalog.dataset",
-                    labels=labels,
-                    payload=payload,
-                )
-            )
+        metadata_service.run(plan.jobs)
+        repository = CacheMetadataRepository(cache_manager)
+        records = _collect_catalog_records(plan.jobs, repository, request)
         return _finalize_collection_result(request, logger, records)
     finally:
-        tool.stop()
+        _cleanup_plan_resources(plan)
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -446,6 +341,13 @@ async def collect_catalog_snapshots(request: CollectionJobRequest) -> Dict[str, 
 
 
 def _preview_dataset_sync(request: PreviewRequest) -> Dict[str, Any]:
+    payload = _decode_preview_payload(request.connectionUrl)
+    if payload:
+        return _preview_endpoint_dataset(request, payload)
+    return _preview_jdbc_dataset(request)
+
+
+def _preview_jdbc_dataset(request: PreviewRequest) -> Dict[str, Any]:
     if not request.connectionUrl:
         raise ValueError("connectionUrl is required for dataset preview")
     tool = _build_sqlalchemy_tool(request.connectionUrl)
@@ -470,6 +372,48 @@ def _preview_dataset_sync(request: PreviewRequest) -> Dict[str, Any]:
         }
     finally:
         tool.stop()
+
+
+def _preview_endpoint_dataset(request: PreviewRequest, payload: Dict[str, Any]) -> Dict[str, Any]:
+    template_id = payload.get("templateId")
+    if not template_id:
+        raise ValueError("Preview payload is missing templateId")
+    endpoint_cls = get_endpoint_class(template_id)
+    if not endpoint_cls:
+        raise ValueError(f"Unknown endpoint template '{template_id}' for preview")
+    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+    dataset_id = payload.get("datasetId") or request.datasetId
+    table_cfg = {
+        "schema": payload.get("schema") or request.schema or "default",
+        "table": payload.get("table") or request.table or dataset_id,
+        "dataset": dataset_id,
+    }
+    endpoint = endpoint_cls(tool=None, endpoint_cfg=parameters, table_cfg=table_cfg)
+    metadata_subsystem = getattr(endpoint, "metadata_subsystem", None)
+    subsystem = metadata_subsystem() if callable(metadata_subsystem) else metadata_subsystem
+    if subsystem is None or not hasattr(subsystem, "preview_dataset"):
+        raise ValueError(f"Endpoint template '{template_id}' does not expose preview capabilities")
+    limit = max(1, min(int(request.limit or 50), 200))
+    rows = subsystem.preview_dataset(dataset_id=dataset_id, limit=limit, config=parameters)
+    return {
+        "rows": rows,
+        "sampledAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _decode_preview_payload(connection_url: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not connection_url:
+        return None
+    trimmed = connection_url.strip()
+    if not trimmed.startswith("{"):
+        return None
+    try:
+        payload = json.loads(trimmed)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, dict) and payload.get("templateId"):
+        return payload
+    return None
 
 
 @activity.defn(name="previewDataset")
