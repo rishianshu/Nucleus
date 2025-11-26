@@ -1,0 +1,58 @@
+- title: Ingestion configuration console & Jira units v1
+- slug: ingestion-config-and-jira-units-v1
+- type: feature
+- context:
+  - apps/metadata-api (ingestion GraphQL, Temporal workflows, Prisma `IngestionUnitState`)
+  - apps/metadata-ui (Ingestion console)
+  - platform/spark-ingestion (Jira endpoint + metadata subsystem)
+  - docs/meta/nucleus-architecture/{endpoint-HLD.md, INGESTION_AND_SINKS.md, INGESTION-SOURCE-STAGING-SINK-v1.md}
+  - intents/semantic-jira-source-v1/*
+- why_now: We now have metadata-driven datasets for Jira, a canonical Source→Staging→Sink pipeline, and a basic ingestion console. But there is no way to **configure** ingestion (mode, schedule, sink) or to enable it per dataset. Jira only exposes a few hard-coded units, and ingestion config is not being captured as metadata. This blocks realistic ingestion for Jira and future semantic sources (Confluence, OneDrive).
+- scope_in:
+  - Introduce an ingestion unit configuration model (GraphQL + Prisma) that binds:
+    - endpointId
+    - datasetId (from the catalog)
+    - unitId
+    - enabled flag
+    - ingestion mode (full/incremental/scd1 where supported)
+    - schedule (manual only vs interval/cron)
+    - sink id
+    - policy JSON (pk, cursor fields, filters).
+  - Update Jira endpoint / metadata subsystem so ingestion units are **derived from catalog datasets** (no orphan units) and cover the intended Jira datasets (issues, comments, worklogs; projects/users as dimensions). 
+  - Extend ingestion GraphQL schema and workflow wiring so:
+    - units are discoverable per endpoint with their config and last status;
+    - enabling a unit optionally creates/updates a Temporal schedule;
+    - “Start now” runs honor the saved config (mode, sink, policy).
+  - Evolve the Ingestion console from a static list to a **configuration surface**:
+    - endpoint list (left) → units table (right);
+    - per-unit enable/disable toggle;
+    - “Configure” drawer for mode/schedule/policy;
+    - “Run now” action per enabled unit.
+  - Treat ingestion config itself as metadata:
+    - surface it via dataset GraphQL (`dataset.ingestionConfig` or similar);
+    - optionally emit KB nodes/edges so the KB console can show which datasets are ingestion-enabled.
+- scope_out:
+  - Non-Jira semantic sources (Confluence, OneDrive) implementations; they will reuse this pattern later.
+  - Advanced scheduling UX (calendars, blackout windows, dependency graphs).
+  - A generic SCD engine; for v1 we only model **policies** (e.g. `mode: "SCD1"` + `primaryKeys`, `cursorField`) and let endpoints interpret them.
+- acceptance:
+  1. Jira endpoints with catalog metadata show ingestion units bound 1:1 to Jira datasets; no units for endpoints that have never been collected.
+  2. Ingestion unit configuration (mode/schedule/sink/policy) is persisted and can be read back via GraphQL.
+  3. Enabling/disabling a unit updates both the DB state and the UI; “Run now” triggers an ingestion run that uses the saved config.
+  4. Simple schedules (manual vs fixed interval) can be configured and result in repeated ingestion runs without manual clicks.
+  5. Dataset detail queries expose ingestion config/last run info, keeping ingestion metadata discoverable from the catalog.
+- constraints:
+  - Keep the single-endpoint-plane design: Source/Sink endpoints continue to live only in Python; TS only orchestrates. 
+  - Changes to existing GraphQL types must be additive.
+  - Respect ADR-UI-Actions-and-States for async feedback in the console.
+  - `pnpm ci-check` must remain within current time budget.
+- non_negotiables:
+  - No ingestion unit may exist for an endpoint/dataset that is not present in the catalog.
+  - KB must not be treated as a bulk data sink; ingestion config may enrich KB, but rows still land in proper sinks.
+- refs:
+  - docs/meta/nucleus-architecture/{endpoint-HLD.md, endpoint-LLD.md, INGESTION_AND_SINKS.md, INGESTION-SOURCE-STAGING-SINK-v1.md}
+  - docs/meta/nucleus-architecture/ENDPOINTS.md
+  - docs/meta/nucleus-architecture/jira-metadata-{HLD,LLD}.md
+  - intents/ingestion-core-v1/*
+  - intents/semantic-sources-trio-story-v1/*
+- status: in-progress

@@ -27,6 +27,21 @@ export type CatalogDataset = BaseMetadataDataset & {
     requestedAt?: string | null;
     completedAt?: string | null;
   } | null;
+  ingestionConfig?: {
+    id: string;
+    unitId: string;
+    enabled: boolean;
+    mode: string;
+    sinkId: string;
+    scheduleKind: string;
+    scheduleIntervalMinutes?: number | null;
+    lastStatus?: {
+      state: IngestionState;
+      lastRunAt?: string | null;
+      lastRunId?: string | null;
+      lastError?: string | null;
+    } | null;
+  } | null;
 };
 
 export type DatasetPreviewResult = {
@@ -220,14 +235,39 @@ export type MetadataEndpointTestResult = {
 
 export type IngestionState = "IDLE" | "RUNNING" | "PAUSED" | "FAILED" | "SUCCEEDED";
 
+export type IngestionUnitConfigSummary = {
+  id: string;
+  endpointId: string;
+  datasetId: string;
+  unitId: string;
+  enabled: boolean;
+  mode: string;
+  sinkId: string;
+  scheduleKind: string;
+  scheduleIntervalMinutes?: number | null;
+  policy?: Record<string, unknown> | null;
+  lastStatus?: {
+    state: IngestionState;
+    lastRunAt?: string | null;
+    lastRunId?: string | null;
+    lastError?: string | null;
+  } | null;
+};
+
 export type IngestionUnitSummary = {
   endpointId: string;
   unitId: string;
+  datasetId?: string | null;
   kind: string;
   displayName: string;
   stats?: Record<string, unknown> | null;
   driverId: string;
   sinkId: string;
+  defaultMode?: string | null;
+  supportedModes?: string[] | null;
+  defaultPolicy?: Record<string, unknown> | null;
+  defaultScheduleKind?: string | null;
+  defaultScheduleIntervalMinutes?: number | null;
 };
 
 export type IngestionStatusSummary = {

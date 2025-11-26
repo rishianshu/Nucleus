@@ -88,7 +88,7 @@ def run_jira_ingestion_unit(
     - Creates an in-memory staging session (rows kept as Python dicts or Arrow).
     - Runs source-specific export logic:
       - projects: GET /rest/api/3/project/search
-      - issues: GET /rest/api/3/search with JQL and updated>=checkpoint
+      - issues: GET /rest/api/3/search/jql with JQL and updated>=checkpoint
     - For each page, writes normalized records into staging.
     - Flushes staging to KB by calling a KB writer helper.
     - Returns { newCheckpoint, stats, errors } to the TS ingestion core.

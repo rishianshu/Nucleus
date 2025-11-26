@@ -62,6 +62,7 @@ type PythonIngestionRequest = {
   checkpoint?: unknown;
   stagingProviderId?: string | null;
   policy?: Record<string, unknown> | null;
+  mode?: string | null;
 };
 
 type PythonIngestionResult = {
@@ -196,6 +197,12 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
     sinkId: input.sinkId ?? null,
   });
   try {
+    log.info("ingestion-policy", {
+      endpointId: input.endpointId,
+      unitId: input.unitId,
+      policyKeys: context.policy ? Object.keys(context.policy) : [],
+      hasParameters: Boolean(context.policy && (context.policy as Record<string, unknown>).parameters),
+    });
     const ingestionResult = await pythonActivities.runIngestionUnit({
       endpointId: input.endpointId,
       unitId: input.unitId,
@@ -203,6 +210,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       checkpoint: context.checkpoint,
       stagingProviderId: context.stagingProviderId ?? null,
       policy: context.policy ?? null,
+      mode: context.mode ?? null,
     });
     if (ingestionResult.records && ingestionResult.records.length > 0) {
       if (!context.sinkId) {

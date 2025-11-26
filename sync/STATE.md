@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-semantic-jira-source-v1 (success @ 2025-11-25T22:07Z)
+ingestion-config-and-jira-units-v1 (success @ 2025-11-26T19:35Z)
 
 ## Last Run
-- slug: semantic-jira-source-v1
+- slug: ingestion-config-and-jira-units-v1
 - status: success
-- duration: ~2h focus (multi-session)
-- tests: pnpm ci-check green (metadata-auth + metadata-lifecycle)
-- commits: none (test/log updates only)
-- decisions: 0 new
-- next_step: hand off slug with ci harness green; future work can move to next feature
+- duration: ~4h (full-stack ingestion config + Jira live verification)
+- tests: pnpm check:metadata-auth; pnpm check:metadata-lifecycle; pnpm ci-check; node --test apps/metadata-api/src/ingestion/ingestionCatalogGate.test.ts; pytest platform/spark-ingestion/tests/test_jira_ingestion.py
+- commits: not yet
+- decisions: 0
+- next_step: none (slug closed)
 
 ## Global Queue
 TODAY:
@@ -21,6 +21,8 @@ LATER:
 - 
 
 ## Events
+- 2025-11-26T19:35Z run success (ingestion-config-and-jira-units-v1, Jira issue ingestion via /search/jql + ingestion config UI + ci-check green)
+- 2025-11-26T09:53Z run started (ingestion-config-and-jira-units-v1, boot + context sync)
 - 2025-11-25T22:07Z run success (semantic-jira-source-v1, pnpm ci-check green after Jira ingestion verification)
 - 2025-11-24T12:16Z run heartbeat (semantic-jira-source-v1, startIngestion resolver covered in bypass mode w/ mocked state store + Jira units)
 - 2025-11-24T12:02Z run heartbeat (semantic-jira-source-v1, ingestionUnits resolver now tested with Jira template extras)

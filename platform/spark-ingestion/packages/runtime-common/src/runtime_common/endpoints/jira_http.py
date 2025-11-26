@@ -17,11 +17,13 @@ from .base import (
     EndpointCapabilities,
     EndpointCapabilityDescriptor,
     EndpointConnectionTemplate,
+    EndpointConnectionResult,
     EndpointDescriptor,
     EndpointFieldDescriptor,
     EndpointFieldOption,
     EndpointProbingMethod,
     EndpointProbingPlan,
+    EndpointTestResult,
     EndpointUnitDescriptor,
     MetadataSubsystem,
     SourceEndpoint,
@@ -187,6 +189,58 @@ class JiraEndpoint(SourceEndpoint):
             ),
         )
 
+    @classmethod
+    def build_connection(cls, parameters: Dict[str, Any]) -> EndpointConnectionResult:
+        normalized = _normalize_jira_parameters(parameters)
+        base_url = normalized.get("base_url")
+        if not base_url:
+            raise ValueError("Jira base_url is required.")
+        descriptor = cls.descriptor()
+        config = {
+            "templateId": cls.TEMPLATE_ID,
+            "parameters": normalized,
+        }
+        return EndpointConnectionResult(
+            url=base_url.rstrip("/"),
+            config=config,
+            labels=descriptor.default_labels,
+            domain=descriptor.domain,
+            verb=descriptor.connection.default_verb if descriptor.connection else None,
+        )
+
+    @classmethod
+    def test_connection(cls, parameters: Dict[str, Any]) -> EndpointTestResult:
+        normalized = _normalize_jira_parameters(parameters)
+        base_url = normalized.get("base_url")
+        if not base_url:
+            return EndpointTestResult(success=False, message="Base URL is required.")
+        try:
+            session = _build_jira_session(normalized)
+        except Exception as exc:  # pragma: no cover - runtime validation
+            return EndpointTestResult(success=False, message=str(exc))
+        try:
+            server_info = _jira_get(session, base_url, "/rest/api/3/serverInfo") or {}
+            user_info = _jira_get(session, base_url, "/rest/api/3/myself") or {}
+        except Exception as exc:
+            session.close()
+            return EndpointTestResult(success=False, message=str(exc))
+        finally:
+            try:
+                session.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
+        detected_version = server_info.get("version")
+        capabilities = tuple(capability.key for capability in cls.descriptor_capabilities())
+        details = {
+            "deploymentType": server_info.get("deploymentType"),
+            "authenticatedUser": {
+                "accountId": user_info.get("accountId"),
+                "displayName": user_info.get("displayName"),
+                "emailAddress": user_info.get("emailAddress"),
+            },
+        }
+        return EndpointTestResult(success=True, message="Connection successful.", detected_version=detected_version, capabilities=capabilities, details=details)
+
     # --- SourceEndpoint protocol -------------------------------------------------
     def __init__(
         self,
@@ -281,6 +335,7 @@ def run_jira_ingestion_unit(
     endpoint_id: str,
     policy: Dict[str, Any],
     checkpoint: Optional[Dict[str, Any]] = None,
+    mode: Optional[str] = None,
 ) -> JiraIngestionResult:
     definition = JIRA_DATASET_DEFINITIONS.get(unit_id)
     ingestion_meta = definition.get("ingestion") if definition else None
@@ -297,7 +352,7 @@ def run_jira_ingestion_unit(
     host = urlparse(base_url).hostname or "jira.local"
     org_id = params.get("scope_org_id") or "dev"
     scope_project = params.get("scope_project_id")
-    cursor = _extract_jira_cursor(checkpoint)
+    cursor = {} if str(mode or "").upper() == "FULL" else _extract_jira_cursor(checkpoint)
     session = _build_jira_session(params)
     try:
         records, new_cursor, stats = handler(
@@ -354,6 +409,56 @@ def _build_static_unit_overview() -> List[Dict[str, Any]]:
         )
     return units
 
+
+def _build_issue_jql(params: Dict[str, Any], since: Optional[str]) -> str:
+    clauses: List[str] = []
+    keys = params.get("project_keys") or []
+    if keys:
+        clauses.append(f"project in ({','.join(keys)})")
+    jql_filter = params.get("jql_filter")
+    if jql_filter:
+        clauses.append(f"({jql_filter})")
+    if since:
+        clauses.append(f'updated >= "{_format_timestamp(since)}"')
+    return " AND ".join(clauses)
+
+
+def _iter_issue_search(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    since: Optional[str],
+    fields: str,
+) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    jql = _build_issue_jql(params, since)
+    page_token: Optional[str] = None
+    fetched = 0
+    page_size = 50
+    max_records = 2000
+    while fetched < max_records:
+        query: Dict[str, Any] = {
+            "jql": jql,
+            "maxResults": min(page_size, max_records - fetched),
+            "fields": fields,
+        }
+        if page_token:
+            query["pageToken"] = page_token
+        payload = _jira_get(
+            session,
+            base_url,
+            "/rest/api/3/search/jql",
+            query,
+        )
+        issues = payload.get("issues", [])
+        if not issues:
+            break
+        results.extend(issues)
+        fetched += len(issues)
+        page_token = payload.get("nextPageToken")
+        if not page_token or payload.get("isLast"):
+            break
+    return results
 
 
 # --- Internal helpers -------------------------------------------------------
@@ -504,43 +609,21 @@ def _sync_jira_issues(
     params: Dict[str, Any],
     since: Optional[str],
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    jql_parts: List[str] = []
-    keys = params.get("project_keys") or []
-    if keys:
-        jql_parts.append(f"project in ({','.join(keys)})")
-    if params.get("jql_filter"):
-        jql_parts.append(f"({params['jql_filter']})")
-    if since:
-        jql_parts.append(f'updated >= "{_format_timestamp(since)}"')
-    jql = " AND ".join(part for part in jql_parts if part)
     records: List[Dict[str, Any]] = []
     latest = since
-    start_at = 0
-    page_size = 50
-    while start_at < 2000:
-        payload = _jira_get(
-            session,
-            base_url,
-            "/rest/api/3/search",
-            {
-                "jql": jql,
-                "startAt": start_at,
-                "maxResults": page_size,
-                "fields": "summary,updated,status,assignee,reporter,project",
-            },
-        )
-        issues = payload.get("issues", [])
-        if not issues:
-            break
-        for issue in issues:
-            record = _build_issue_record(issue, base_url, host, org_id, scope_project, endpoint_id)
-            records.append(record)
-            updated = issue.get("fields", {}).get("updated")
-            if updated and _is_after(updated, latest):
-                latest = updated
-        start_at += len(issues)
-        if len(issues) < page_size:
-            break
+    issues = _iter_issue_search(
+        session,
+        base_url,
+        params,
+        since,
+        fields="summary,updated,status,assignee,reporter,project",
+    )
+    for issue in issues:
+        record = _build_issue_record(issue, base_url, host, org_id, scope_project, endpoint_id)
+        records.append(record)
+        updated = issue.get("fields", {}).get("updated")
+        if updated and _is_after(updated, latest):
+            latest = updated
         if len(records) >= 500:
             break
     return records, latest
@@ -587,6 +670,112 @@ def _sync_jira_users(
             break
         start_at += len(payload)
     return records, {"usersSynced": len(records)}
+
+
+def _sync_jira_comments(
+    session: requests.Session,
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+    params: Dict[str, Any],
+    since: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    records: List[Dict[str, Any]] = []
+    latest = since
+    issues = _iter_issue_search(session, base_url, params, since, fields="project,updated")
+    page_size = 50
+    for issue in issues:
+        issue_key = issue.get("key") or issue.get("id")
+        if not issue_key:
+            continue
+        start_at = 0
+        while start_at < 1000:
+            payload = _jira_get(
+                session,
+                base_url,
+                f"/rest/api/3/issue/{issue_key}/comment",
+                {"startAt": start_at, "maxResults": page_size},
+            )
+            comments = payload.get("comments") or []
+            if not comments:
+                break
+            for comment in comments:
+                updated = comment.get("updated") or comment.get("created")
+                if since and updated and not _is_after(updated, since):
+                    continue
+                record = _build_comment_record(
+                    comment,
+                    issue,
+                    base_url,
+                    host,
+                    org_id,
+                    scope_project,
+                    endpoint_id,
+                )
+                records.append(record)
+                if updated and _is_after(updated, latest):
+                    latest = updated
+                if len(records) >= 500:
+                    return records, latest
+            start_at += len(comments)
+            if len(comments) < page_size:
+                break
+    return records, latest
+
+
+def _sync_jira_worklogs(
+    session: requests.Session,
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+    params: Dict[str, Any],
+    since: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    records: List[Dict[str, Any]] = []
+    latest = since
+    issues = _iter_issue_search(session, base_url, params, since, fields="project,updated")
+    page_size = 50
+    for issue in issues:
+        issue_key = issue.get("key") or issue.get("id")
+        if not issue_key:
+            continue
+        start_at = 0
+        while start_at < 1000:
+            payload = _jira_get(
+                session,
+                base_url,
+                f"/rest/api/3/issue/{issue_key}/worklog",
+                {"startAt": start_at, "maxResults": page_size},
+            )
+            worklogs = payload.get("worklogs") or []
+            if not worklogs:
+                break
+            for worklog in worklogs:
+                started = worklog.get("started") or worklog.get("updated")
+                if since and started and not _is_after(started, since):
+                    continue
+                record = _build_worklog_record(
+                    worklog,
+                    issue,
+                    base_url,
+                    host,
+                    org_id,
+                    scope_project,
+                    endpoint_id,
+                )
+                records.append(record)
+                if started and _is_after(started, latest):
+                    latest = started
+                if len(records) >= 500:
+                    return records, latest
+            start_at += len(worklogs)
+            if len(worklogs) < page_size:
+                break
+    return records, latest
 
 
 def _format_timestamp(value: str) -> str:
@@ -705,6 +894,45 @@ def _build_issue_payload(issue: Dict[str, Any], base_url: str) -> Dict[str, Any]
     }
 
 
+def _build_comment_record(
+    comment: Dict[str, Any],
+    issue: Dict[str, Any],
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+) -> Dict[str, Any]:
+    issue_key = issue.get("key") or issue.get("id")
+    project = (issue.get("fields") or {}).get("project") or {}
+    scope_value = scope_project or project.get("key") or None
+    payload = _build_comment_payload(comment, issue_key, base_url)
+    edges = [{"type": "ANNOTATES", "target": f"jira::{host}::issue::{issue_key}"}] if issue_key else None
+    return _build_normalized_record(
+        entity_type="work.comment",
+        logical_id=f"jira::{host}::comment::{comment.get('id') or comment.get('commentId')}",
+        display_name=f"Comment on {issue_key}",
+        scope_org=org_id,
+        scope_project=scope_value,
+        endpoint_id=endpoint_id,
+        payload=payload,
+        edges=edges,
+    )
+
+
+def _build_comment_payload(comment: Dict[str, Any], issue_key: Optional[str], base_url: str) -> Dict[str, Any]:
+    return {
+        "id": comment.get("id"),
+        "issueKey": issue_key,
+        "body": comment.get("body"),
+        "created": comment.get("created"),
+        "updated": comment.get("updated"),
+        "author": _extract_account(comment.get("author")),
+        "url": f"{base_url.rstrip('/')}/browse/{issue_key}" if issue_key else base_url,
+        "raw": comment,
+    }
+
+
 def _build_user_payload(user: Dict[str, Any], base_url: str) -> Dict[str, Any]:
     return {
         "accountId": user.get("accountId"),
@@ -715,6 +943,45 @@ def _build_user_payload(user: Dict[str, Any], base_url: str) -> Dict[str, Any]:
         "avatar": user.get("avatarUrls"),
         "profileUrl": f"{base_url.rstrip('/')}/people/{user.get('accountId')}" if user.get("accountId") else None,
         "raw": user,
+    }
+
+
+def _build_worklog_record(
+    worklog: Dict[str, Any],
+    issue: Dict[str, Any],
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+) -> Dict[str, Any]:
+    issue_key = issue.get("key") or issue.get("id")
+    project = (issue.get("fields") or {}).get("project") or {}
+    scope_value = scope_project or project.get("key") or None
+    payload = _build_worklog_payload(worklog, issue_key, base_url)
+    edges = [{"type": "TRACKS", "target": f"jira::{host}::issue::{issue_key}"}] if issue_key else None
+    return _build_normalized_record(
+        entity_type="work.worklog",
+        logical_id=f"jira::{host}::worklog::{worklog.get('id') or worklog.get('worklogId')}",
+        display_name=f"Worklog for {issue_key}",
+        scope_org=org_id,
+        scope_project=scope_value,
+        endpoint_id=endpoint_id,
+        payload=payload,
+        edges=edges,
+    )
+
+
+def _build_worklog_payload(worklog: Dict[str, Any], issue_key: Optional[str], base_url: str) -> Dict[str, Any]:
+    return {
+        "id": worklog.get("id"),
+        "issueKey": issue_key,
+        "timeSpentSeconds": worklog.get("timeSpentSeconds"),
+        "started": worklog.get("started"),
+        "updated": worklog.get("updated"),
+        "author": _extract_account(worklog.get("author")),
+        "url": f"{base_url.rstrip('/')}/browse/{issue_key}" if issue_key else base_url,
+        "raw": worklog,
     }
 
 
@@ -787,8 +1054,64 @@ def _run_users_unit(
     return records, new_cursor, stats
 
 
+def _run_comments_unit(
+    *,
+    session: requests.Session,
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+    params: Dict[str, Any],
+    cursor: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    since = cursor.get("lastUpdated")
+    records, latest = _sync_jira_comments(
+        session,
+        base_url,
+        host,
+        org_id,
+        scope_project,
+        endpoint_id,
+        params,
+        since,
+    )
+    new_cursor = {"lastUpdated": latest or since}
+    stats = {"commentsSynced": len(records), "lastUpdated": new_cursor["lastUpdated"]}
+    return records, new_cursor, stats
+
+
+def _run_worklogs_unit(
+    *,
+    session: requests.Session,
+    base_url: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+    params: Dict[str, Any],
+    cursor: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    since = cursor.get("lastStarted")
+    records, latest = _sync_jira_worklogs(
+        session,
+        base_url,
+        host,
+        org_id,
+        scope_project,
+        endpoint_id,
+        params,
+        since,
+    )
+    new_cursor = {"lastStarted": latest or since}
+    stats = {"worklogsSynced": len(records), "lastStarted": new_cursor["lastStarted"]}
+    return records, new_cursor, stats
+
+
 JIRA_INGESTION_HANDLERS: Dict[str, Any] = {
     "projects": _run_projects_unit,
     "issues": _run_issues_unit,
     "users": _run_users_unit,
+    "comments": _run_comments_unit,
+    "worklogs": _run_worklogs_unit,
 }

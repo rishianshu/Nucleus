@@ -305,6 +305,13 @@ export type IngestionUnitDescriptor = {
   unitId: string;
   kind: string;
   displayName: string;
+  datasetId?: string;
+  defaultMode?: string;
+  supportedModes?: string[];
+  defaultSinkId?: string;
+  defaultScheduleKind?: string;
+  defaultScheduleIntervalMinutes?: number | null;
+  defaultPolicy?: Record<string, unknown> | null;
   stats?: Record<string, unknown> | null;
 };
 

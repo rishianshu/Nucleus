@@ -258,13 +258,53 @@ class _EndpointProducerAdapter(MetadataProducer):
         return {}
 
     def supports(self, request: MetadataRequest) -> bool:
-        desc = self.endpoint.describe()
-        schema = (desc.get("schema") or "").lower()
-        table = (desc.get("table") or "").lower()
-        return (
-            request.target.namespace.lower() == schema
-            and request.target.entity.lower() == table
-        )
+        def _normalize_namespace(value: Any) -> str:
+            return str(value or "").strip().lower()
+
+        def _normalize_entity(value: Any) -> str:
+            normalized = str(value or "").strip().lower().replace(".", "_")
+            return normalized
+
+        desc = self.endpoint.describe() if hasattr(self.endpoint, "describe") else {}
+        table_cfg = getattr(self.endpoint, "table_cfg", {}) or {}
+        artifact_cfg = getattr(request, "artifact", {}) or {}
+
+        schema_candidates = [
+            desc.get("schema"),
+            getattr(self.endpoint, "schema", None),
+            table_cfg.get("schema"),
+            artifact_cfg.get("schema"),
+            artifact_cfg.get("namespace"),
+        ]
+        normalized_schemas: set[str] = set()
+        for candidate in schema_candidates:
+            normalized = _normalize_namespace(candidate)
+            if normalized:
+                normalized_schemas.add(normalized)
+
+        table_candidates = [
+            desc.get("table"),
+            getattr(self.endpoint, "table", None),
+            table_cfg.get("table"),
+            table_cfg.get("dataset"),
+            artifact_cfg.get("table"),
+            artifact_cfg.get("dataset"),
+            artifact_cfg.get("entity"),
+        ]
+        normalized_tables: set[str] = set()
+        for candidate in table_candidates:
+            normalized = _normalize_entity(candidate)
+            if normalized:
+                normalized_tables.add(normalized)
+
+        target_schema = _normalize_namespace(request.target.namespace)
+        target_entity = _normalize_entity(request.target.entity)
+
+        schema_matches = True
+        if normalized_schemas:
+            schema_matches = target_schema in normalized_schemas
+
+        return schema_matches and target_entity in normalized_tables
 
     def produce(self, request: MetadataRequest) -> Iterable[MetadataRecord]:
         config = dict(request.config or {})

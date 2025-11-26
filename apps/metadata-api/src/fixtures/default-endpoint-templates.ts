@@ -298,7 +298,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
     extras: {
       apiCatalog: [
         { key: "project_search", method: "GET", path: "/rest/api/3/project/search", description: "List accessible projects", docUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-projects/#api-rest-api-3-project-search-get", scope: "projects" },
-        { key: "issue_search", method: "GET", path: "/rest/api/3/search", description: "Search issues via JQL", docUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-get", scope: "issues" },
+        { key: "issue_search", method: "GET", path: "/rest/api/3/search/jql", description: "Search issues via JQL", docUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-post", scope: "issues" },
         { key: "user_search", method: "GET", path: "/rest/api/3/user/search", description: "Search users by query", docUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-search-get", scope: "users" },
       ],
       ingestionUnits: [
@@ -326,6 +326,24 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
           displayName: "Users",
           description: "Directory of Jira users referenced by work items.",
           supportsIncremental: false,
+        },
+        {
+          unitId: "jira.comments",
+          datasetId: "jira.comments",
+          kind: "dataset",
+          displayName: "Comments",
+          description: "Issue comments with incremental sync on updated timestamp.",
+          supportsIncremental: true,
+          defaultPolicy: { cursor: "updated" },
+        },
+        {
+          unitId: "jira.worklogs",
+          datasetId: "jira.worklogs",
+          kind: "dataset",
+          displayName: "Worklogs",
+          description: "Time tracking entries recorded against issues.",
+          supportsIncremental: true,
+          defaultPolicy: { cursor: "started" },
         },
       ],
     },

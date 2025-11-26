@@ -33,9 +33,9 @@ JIRA_API_LIBRARY: Dict[str, Dict[str, str]] = {
     },
     "issue_search": {
         "method": "GET",
-        "path": "/rest/api/3/search",
+        "path": "/rest/api/3/search/jql",
         "description": "Search issues via JQL with pagination",
-        "docs": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-get",
+        "docs": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-post",
         "scope": "issues",
     },
     "issue_detail": {
@@ -286,6 +286,15 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             {"name": "updatedAt", "data_type": "TIMESTAMP", "nullable": True},
         ],
         "api_keys": ["issue_comments"],
+        "ingestion": {
+            "enabled": True,
+            "unit_id": "jira.comments",
+            "display_name": "Comments",
+            "description": "Incremental sync of Jira issue comments.",
+            "supports_incremental": True,
+            "default_policy": {"cursor": "updated"},
+            "handler": "comments",
+        },
     },
     "jira.worklogs": {
         "name": "Jira Worklogs",
@@ -300,6 +309,15 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             {"name": "updatedAt", "data_type": "TIMESTAMP", "nullable": True},
         ],
         "api_keys": ["issue_worklogs"],
+        "ingestion": {
+            "enabled": True,
+            "unit_id": "jira.worklogs",
+            "display_name": "Worklogs",
+            "description": "Incremental sync of Jira worklog entries.",
+            "supports_incremental": True,
+            "default_policy": {"cursor": "started"},
+            "handler": "worklogs",
+        },
     },
 }
 

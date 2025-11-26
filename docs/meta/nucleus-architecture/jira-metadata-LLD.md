@@ -70,7 +70,7 @@ Schema describing each Jira dataset. Key fields:
     "reference": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
     "datasets": {
       "jira.issues": [
-        { "key": "issue_search", "method": "GET", "path": "/rest/api/3/search", ... },
+        { "key": "issue_search", "method": "GET", "path": "/rest/api/3/search/jql", ... },
         ...
       ],
       "jira.api_surface": [... all APIs ...]

@@ -843,5 +843,39 @@
     },
     "version": "bf370712e2f1469e8a56fc878a870894",
     "updatedAt": "2025-11-25T22:06:40.732Z"
+  },
+  "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastUpdated": "2025-11-26T18:43:16.665+0530"
+      },
+      "lastRunId": "fb893d75-6207-439b-9189-f8a920110f56",
+      "stats": {
+        "issuesSynced": 5,
+        "lastUpdated": "2025-11-26T18:43:16.665+0530",
+        "recordCount": 5,
+        "unitId": "jira.issues"
+      },
+      "lastUpdatedAt": "2025-11-26T14:48:51.554Z"
+    },
+    "version": "019b23ea88664a94a93381d369dfc4d1",
+    "updatedAt": "2025-11-26T14:48:51.555Z"
+  },
+  "ingest::work.jira::endpoint::eaac00ee50f148af9e738b0277b71360::unit::jira.issues::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastUpdated": "2025-11-26T20:32:17.992+0530"
+      },
+      "lastRunId": "41165d63-1e3b-4d3f-bcd5-ac90db46f9c4",
+      "stats": {
+        "issuesSynced": 500,
+        "lastUpdated": "2025-11-26T20:32:17.992+0530",
+        "recordCount": 500,
+        "unitId": "jira.issues"
+      },
+      "lastUpdatedAt": "2025-11-26T15:04:21.332Z"
+    },
+    "version": "71511db4ef0d4719a89225caf1a6e01d",
+    "updatedAt": "2025-11-26T15:04:21.334Z"
   }
 }

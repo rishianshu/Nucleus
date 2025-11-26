@@ -4,6 +4,18 @@ export type IngestionState = "IDLE" | "RUNNING" | "PAUSED" | "FAILED" | "SUCCEED
 
 const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 
+export type IngestionUnitStateRow = {
+  endpointId: string;
+  unitId: string;
+  sinkId: string | null;
+  state: IngestionState | null;
+  checkpoint: unknown;
+  lastRunId: string | null;
+  lastRunAt: Date | string | null;
+  lastError: string | null;
+  stats: Record<string, unknown> | null;
+};
+
 type UnitKey = {
   endpointId: string;
   unitId: string;
@@ -21,9 +33,9 @@ type StatePatch = {
 
 type PrismaClient = Awaited<ReturnType<typeof getPrismaClient>>;
 
-export async function getUnitState(key: UnitKey) {
+export async function getUnitState(key: UnitKey): Promise<IngestionUnitStateRow | null> {
   const prisma = await getPrismaClient();
-  return prisma.ingestionUnitState.findUnique({
+  const row = await prisma.ingestionUnitState.findUnique({
     where: {
       endpointId_unitId: {
         endpointId: key.endpointId,
@@ -31,19 +43,21 @@ export async function getUnitState(key: UnitKey) {
       },
     },
   });
+  return (row as IngestionUnitStateRow) ?? null;
 }
 
-export async function listUnitStates(endpointId: string) {
+export async function listUnitStates(endpointId: string): Promise<IngestionUnitStateRow[]> {
   const prisma = await getPrismaClient();
-  return prisma.ingestionUnitState.findMany({
+  const rows = await prisma.ingestionUnitState.findMany({
     where: { endpointId },
     orderBy: { updatedAt: "desc" },
   });
+  return rows as IngestionUnitStateRow[];
 }
 
-export async function upsertUnitState(key: UnitKey, patch: StatePatch) {
+export async function upsertUnitState(key: UnitKey, patch: StatePatch): Promise<IngestionUnitStateRow> {
   const prisma = await getPrismaClient();
-  return prisma.ingestionUnitState.upsert({
+  const row = await prisma.ingestionUnitState.upsert({
     where: {
       endpointId_unitId: {
         endpointId: key.endpointId,
@@ -63,6 +77,7 @@ export async function upsertUnitState(key: UnitKey, patch: StatePatch) {
       stats: patch.stats ?? null,
     },
   });
+  return row as IngestionUnitStateRow;
 }
 
 export async function markUnitState(key: UnitKey, patch: StatePatch) {
@@ -76,7 +91,7 @@ export async function markUnitState(key: UnitKey, patch: StatePatch) {
   });
 }
 
-export async function ensureUnitState(key: UnitKey) {
+export async function ensureUnitState(key: UnitKey): Promise<IngestionUnitStateRow> {
   const existing = await getUnitState(key);
   if (existing) {
     return existing;

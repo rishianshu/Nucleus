@@ -30,7 +30,14 @@ import sampleMetadata from "./fixtures/sample-metadata.json" assert { type: "jso
 import { DEFAULT_ENDPOINT_TEMPLATES } from "./fixtures/default-endpoint-templates.js";
 import { resolveKbMeta } from "./kbMetaRegistry.js";
 import { resolveEndpointDriverId } from "./ingestion/helpers.js";
-import { getUnitState, listUnitStates, markUnitState, ensureUnitState } from "./ingestion/stateStore.js";
+import {
+  getUnitState,
+  listUnitStates,
+  markUnitState,
+  ensureUnitState,
+} from "./ingestion/stateStore.js";
+import type { IngestionUnitStateRow } from "./ingestion/stateStore.js";
+import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, saveIngestionUnitConfig, type IngestionUnitConfigRow } from "./ingestion/configStore.js";
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 
 const CATALOG_DATASET_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
@@ -41,6 +48,8 @@ const TEMPLATE_REFRESH_BACKOFF_MS = Number(process.env.METADATA_TEMPLATE_REFRESH
 const PLAYWRIGHT_INVALID_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const COLLECTION_SCHEDULE_PREFIX = "collection";
 const COLLECTION_SCHEDULE_PAUSE_REASON = "collection disabled";
+const INGESTION_SCHEDULE_PREFIX = "ingestion-unit";
+const INGESTION_DATASET_SCAN_LIMIT = Number(process.env.METADATA_INGESTION_DATASET_LIMIT ?? "2000");
 const KB_NODES_DEFAULT_PAGE_SIZE = 25;
 const KB_NODES_MAX_PAGE_SIZE = 100;
 const KB_EDGES_DEFAULT_PAGE_SIZE = 25;
@@ -357,6 +366,7 @@ export const typeDefs = `#graphql
     statistics: JSON
     fields: [CatalogDatasetField!]!
     lastCollectionRun: MetadataCollectionRun
+    ingestionConfig: IngestionUnitConfig
   }
 
   type PageInfo {
@@ -598,11 +608,17 @@ export const typeDefs = `#graphql
   type IngestionUnit {
     endpointId: ID!
     unitId: ID!
+    datasetId: ID
     kind: String!
     displayName: String!
     stats: JSON
     driverId: String!
     sinkId: String!
+    defaultMode: String
+    supportedModes: [String!]
+    defaultPolicy: JSON
+    defaultScheduleKind: String
+    defaultScheduleIntervalMinutes: Int
   }
 
   type IngestionStatus {
@@ -622,6 +638,31 @@ export const typeDefs = `#graphql
     runId: String
     state: IngestionState
     message: String
+  }
+
+  type IngestionUnitConfig {
+    id: ID!
+    endpointId: ID!
+    datasetId: ID!
+    unitId: ID!
+    enabled: Boolean!
+    mode: String!
+    sinkId: String!
+    scheduleKind: String!
+    scheduleIntervalMinutes: Int
+    policy: JSON
+    lastStatus: IngestionStatus
+  }
+
+  input IngestionUnitConfigInput {
+    endpointId: ID!
+    unitId: ID!
+    enabled: Boolean
+    mode: String
+    sinkId: String
+    scheduleKind: String
+    scheduleIntervalMinutes: Int
+    policy: JSON
   }
 
   type Query {
@@ -655,6 +696,7 @@ export const typeDefs = `#graphql
     ingestionUnits(endpointId: ID!): [IngestionUnit!]!
     ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
     ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
+    ingestionUnitConfigs(endpointId: ID!): [IngestionUnitConfig!]!
   }
 
   type Mutation {
@@ -676,6 +718,7 @@ export const typeDefs = `#graphql
     startIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+    configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
   }
 `;
 
@@ -1317,7 +1360,10 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driverId, driver } = resolveIngestionDriver(endpoint);
         const sinkId = resolveIngestionSinkId();
-        const units = await driver.listUnits(endpointRowId);
+        const units = await resolveAvailableIngestionUnits(store, endpoint, endpointRowId, driver);
+        if (units.length === 0) {
+          return [];
+        }
         return units.map((unit) => mapIngestionUnit(unit, endpointRowId, driverId, sinkId));
       },
       ingestionStatuses: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
@@ -1325,10 +1371,18 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        const sinkId = resolveIngestionSinkId();
-        const units = await driver.listUnits(endpointRowId);
+        const configs = await listIngestionUnitConfigs(endpointRowId);
+        const configMap = new Map(configs.map((config) => [config.unitId, config]));
+        const units = await resolveAvailableIngestionUnits(store, endpoint, endpointRowId, driver);
+        if (units.length === 0) {
+          return [];
+        }
         await Promise.all(
-          units.map((unit) => ensureUnitState({ endpointId: endpointRowId, unitId: unit.unitId, sinkId })),
+          units.map((unit) => {
+            const config = configMap.get(unit.unitId);
+            const sinkId = resolveIngestionSinkId(config?.sinkId);
+            return ensureUnitState({ endpointId: endpointRowId, unitId: unit.unitId, sinkId });
+          }),
         );
         const rows = await listUnitStates(endpointRowId);
         return rows.map(mapIngestionStateRow);
@@ -1338,11 +1392,24 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
-        const sinkId = resolveIngestionSinkId();
+        await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
+        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(config?.sinkId);
         await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         const row = await getUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         return row ? mapIngestionStateRow(row) : null;
+      },
+      ingestionUnitConfigs: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const configs = await listIngestionUnitConfigs(endpointRowId);
+        if (configs.length === 0) {
+          return [];
+        }
+        const stateRows = await listUnitStates(endpointRowId);
+        const stateMap = new Map(stateRows.map((row) => [row.unitId, mapIngestionStateRow(row)]));
+        return configs.map((config) => mapIngestionUnitConfig(config, stateMap.get(config.unitId) ?? null));
       },
     },
     Mutation: {
@@ -1497,8 +1564,14 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
-        const sinkId = resolveIngestionSinkId(args.sinkId);
+        await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
+        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        if ((!config || !config.enabled) && !ctx.bypassWrites) {
+          throw new GraphQLError("Ingestion unit is not enabled.", {
+            extensions: { code: "E_INGESTION_UNIT_DISABLED", unitId: args.unitId },
+          });
+        }
+        const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
         await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         if (ctx.bypassWrites) {
           const bypassRunId = `bypass-${randomUUID()}`;
@@ -1526,8 +1599,9 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
-        const sinkId = resolveIngestionSinkId(args.sinkId);
+        await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
+        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
         await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         await markUnitState(
           { endpointId: endpointRowId, unitId: args.unitId, sinkId },
@@ -1544,8 +1618,9 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        await ensureIngestionUnit(driver, endpointRowId, args.unitId);
-        const sinkId = resolveIngestionSinkId(args.sinkId);
+        await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
+        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
         await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         await clearIngestionCheckpoint({
           endpointId: endpointRowId,
@@ -1558,6 +1633,49 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
           { checkpoint: null, state: "IDLE", lastError: null },
         );
         return { ok: true, state: "IDLE", message: "Checkpoint reset" };
+      },
+      configureIngestionUnit: async (_parent: unknown, args: { input: IngestionUnitConfigInput }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.input.endpointId);
+        const endpointRowId = endpoint.id ?? args.input.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        const unit = await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.input.unitId);
+        const datasetId = unit.datasetId ?? unit.unitId;
+        await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
+        const existing = await getIngestionUnitConfig(endpointRowId, args.input.unitId);
+        const sinkId = resolveIngestionSinkId(args.input.sinkId ?? existing?.sinkId ?? unit.defaultSinkId);
+        const supportedModes = inferSupportedModes(unit).map((entry) => entry.toUpperCase());
+        const requestedMode = (args.input.mode ?? existing?.mode ?? unit.defaultMode ?? inferDefaultMode(unit)).toUpperCase();
+        if (!supportedModes.includes(requestedMode)) {
+          throw new GraphQLError("Mode is not supported for this ingestion unit.", {
+            extensions: { code: "E_INGESTION_MODE_UNSUPPORTED", mode: requestedMode, unitId: args.input.unitId },
+          });
+        }
+        const scheduleKind = (args.input.scheduleKind ?? existing?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
+        const scheduleIntervalMinutes =
+          scheduleKind === "INTERVAL"
+            ? Math.max(1, args.input.scheduleIntervalMinutes ?? existing?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15)
+            : null;
+        const policy = (args.input.policy as Record<string, unknown> | null | undefined) ?? existing?.policy ?? unit.defaultPolicy ?? null;
+        const saved = await saveIngestionUnitConfig({
+          endpointId: endpointRowId,
+          datasetId,
+          unitId: args.input.unitId,
+          enabled: args.input.enabled ?? existing?.enabled ?? false,
+          mode: requestedMode,
+          sinkId,
+          scheduleKind,
+          scheduleIntervalMinutes,
+          policy,
+        });
+        await ensureUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
+        if (saved.enabled && saved.scheduleKind === "INTERVAL") {
+          await syncIngestionUnitSchedule(saved);
+        } else {
+          await removeIngestionUnitSchedule(saved.endpointId, saved.unitId);
+        }
+        const state = await getUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
+        return mapIngestionUnitConfig(saved, state ? mapIngestionStateRow(state) : null);
       },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
@@ -1883,6 +2001,18 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
           orderBy: { requestedAt: "desc" },
         });
         return run ?? null;
+      },
+      ingestionConfig: async (parent: CatalogDataset, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        if (!parent.sourceEndpointId || !parent.id) {
+          return null;
+        }
+        const config = await findConfigByDataset(parent.sourceEndpointId, parent.id);
+        if (!config) {
+          return null;
+        }
+        const state = await getUnitState({ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId });
+        return mapIngestionUnitConfig(config, state ? mapIngestionStateRow(state) : null);
       },
     },
   };
@@ -2215,6 +2345,17 @@ type CatalogDatasetProfile = {
   sampleSize?: number | null;
   lastProfiledAt?: string | null;
   raw?: Record<string, unknown> | null;
+};
+
+type IngestionUnitConfigInput = {
+  endpointId: string;
+  unitId: string;
+  enabled?: boolean | null;
+  mode?: string | null;
+  sinkId?: string | null;
+  scheduleKind?: string | null;
+  scheduleIntervalMinutes?: number | null;
+  policy?: Record<string, unknown> | null;
 };
 
 type PageInfo = {
@@ -2883,8 +3024,14 @@ function resolveIngestionSinkId(candidate?: string | null): string {
   return sinkId;
 }
 
-async function ensureIngestionUnit(driver: { listUnits(endpointId: string): Promise<IngestionUnitDescriptor[]> }, endpointId: string, unitId: string) {
-  const units = await driver.listUnits(endpointId);
+async function ensureIngestionUnit(
+  store: MetadataStore,
+  driver: { listUnits(endpointId: string): Promise<IngestionUnitDescriptor[]> },
+  endpoint: MetadataEndpointDescriptor,
+  endpointId: string,
+  unitId: string,
+) {
+  const units = await resolveAvailableIngestionUnits(store, endpoint, endpointId, driver);
   const match = units.find((unit) => unit.unitId === unitId);
   if (!match) {
     throw new GraphQLError("Ingestion unit not found for this endpoint.", {
@@ -2894,29 +3041,147 @@ async function ensureIngestionUnit(driver: { listUnits(endpointId: string): Prom
   return match;
 }
 
+async function resolveAvailableIngestionUnits(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+  endpointId: string,
+  driver: { listUnits(endpointId: string): Promise<IngestionUnitDescriptor[]> },
+) {
+  const [units, catalogRecords] = await Promise.all([
+    driver.listUnits(endpointId),
+    listCatalogRecordsForEndpoint(store, endpoint),
+  ]);
+  if (catalogRecords.length === 0) {
+    return [];
+  }
+  const datasetIds = new Set(
+    catalogRecords
+      .map((record) => resolveCatalogDatasetSlug(record) ?? record.id)
+      .filter((value): value is string => Boolean(value)),
+  );
+  return units.filter((unit) => datasetIds.has((unit.datasetId ?? unit.unitId)));
+}
+
+async function listCatalogRecordsForEndpoint(store: MetadataStore, endpoint: MetadataEndpointDescriptor) {
+  const records = await store.listRecords(CATALOG_DATASET_DOMAIN, {
+    projectId: endpoint.projectId ?? undefined,
+    limit: INGESTION_DATASET_SCAN_LIMIT,
+  });
+  return (records ?? []).filter((record) => recordBelongsToEndpoint(record, endpoint));
+}
+
+async function ensureCatalogDatasetForUnit(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+  datasetId: string,
+) {
+  const record = await store.getRecord(CATALOG_DATASET_DOMAIN, datasetId);
+  if (record && recordBelongsToEndpoint(record, endpoint)) {
+    return record;
+  }
+  const relatedRecords = await listCatalogRecordsForEndpoint(store, endpoint);
+  const slugMatch = relatedRecords.find((entry) => resolveCatalogDatasetSlug(entry) === datasetId);
+  if (slugMatch) {
+    return slugMatch;
+  }
+  throw new GraphQLError("Dataset not found for this endpoint.", {
+    extensions: { code: "E_DATASET_NOT_FOUND", datasetId },
+  });
+}
+
+function recordBelongsToEndpoint(record: MetadataRecord<unknown>, endpoint: MetadataEndpointDescriptor) {
+  const endpointIds = new Set([endpoint.id, endpoint.sourceId].filter((value): value is string => Boolean(value)));
+  const endpointLabels = new Set(Array.from(endpointIds).map((value) => `endpoint:${value}`));
+  if (record.labels?.some((label) => endpointLabels.has(label))) {
+    return true;
+  }
+  const payload = normalizePayload(record.payload) ?? {};
+  const metadataBlock = payload && typeof payload === "object" && !Array.isArray(payload) ? ((payload as Record<string, unknown>)._metadata as Record<string, unknown> | undefined) : undefined;
+  const candidateValues: Array<unknown> = [];
+  if (metadataBlock && typeof metadataBlock === "object") {
+    candidateValues.push(metadataBlock.source_endpoint_id, metadataBlock.sourceEndpointId);
+  }
+  candidateValues.push(
+    (payload as Record<string, unknown>).metadata_endpoint_id,
+    (payload as Record<string, unknown>).metadataEndpointId,
+    (payload as Record<string, unknown>).endpointId,
+  );
+  return candidateValues.some((candidate) => typeof candidate === "string" && endpointIds.has(candidate));
+}
+
+function resolveCatalogDatasetSlug(record: MetadataRecord<unknown>): string | null {
+  const payload = normalizePayload(record.payload);
+  if (!payload) {
+    return null;
+  }
+  const datasetPayload = normalizePayload(payload.dataset);
+  const datasetExtras = datasetPayload ? normalizePayload(datasetPayload.extras) : null;
+  if (datasetExtras?.datasetId && typeof datasetExtras.datasetId === "string") {
+    return datasetExtras.datasetId;
+  }
+  const payloadExtras = normalizePayload(payload.extras);
+  if (payloadExtras?.datasetId && typeof payloadExtras.datasetId === "string") {
+    return payloadExtras.datasetId;
+  }
+  return null;
+}
+
+function inferDefaultMode(unit: IngestionUnitDescriptor) {
+  if (unit.defaultMode) {
+    return unit.defaultMode;
+  }
+  if (unit.supportedModes?.includes("INCREMENTAL")) {
+    return "INCREMENTAL";
+  }
+  return unit.stats && (unit.stats as Record<string, unknown>).supportsIncremental ? "INCREMENTAL" : "FULL";
+}
+
+function inferSupportedModes(unit: IngestionUnitDescriptor) {
+  if (unit.supportedModes && unit.supportedModes.length > 0) {
+    return unit.supportedModes;
+  }
+  const defaultMode = inferDefaultMode(unit);
+  if (defaultMode === "INCREMENTAL") {
+    return ["FULL", "INCREMENTAL"];
+  }
+  return ["FULL"];
+}
+
 function mapIngestionUnit(unit: IngestionUnitDescriptor, endpointId: string, driverId: string, sinkId: string) {
   return {
     endpointId,
     unitId: unit.unitId,
+    datasetId: unit.datasetId ?? unit.unitId,
     kind: unit.kind,
     displayName: unit.displayName,
     stats: unit.stats ?? null,
     driverId,
     sinkId,
+    defaultMode: unit.defaultMode ?? inferDefaultMode(unit),
+    supportedModes: unit.supportedModes ?? inferSupportedModes(unit),
+    defaultPolicy: unit.defaultPolicy ?? null,
+    defaultScheduleKind: unit.defaultScheduleKind ?? "MANUAL",
+    defaultScheduleIntervalMinutes: unit.defaultScheduleIntervalMinutes ?? null,
   };
 }
 
-function mapIngestionStateRow(row: {
-  endpointId: string;
-  unitId: string;
-  sinkId?: string | null;
-  state?: string | null;
-  checkpoint?: unknown;
-  lastRunId?: string | null;
-  lastRunAt?: Date | string | null;
-  lastError?: string | null;
-  stats?: unknown;
-}) {
+function mapIngestionUnitConfig(config: IngestionUnitConfigRow, status: ReturnType<typeof mapIngestionStateRow> | null) {
+  return {
+    id: config.id,
+    endpointId: config.endpointId,
+    datasetId: config.datasetId,
+    unitId: config.unitId,
+    enabled: config.enabled,
+    mode: config.mode,
+    sinkId: config.sinkId,
+    scheduleKind: config.scheduleKind,
+    scheduleIntervalMinutes: config.scheduleIntervalMinutes ?? null,
+    policy: config.policy ?? null,
+    lastStatus: status,
+  };
+}
+
+function mapIngestionStateRow(row: IngestionUnitStateRow) {
   return {
     endpointId: row.endpointId,
     unitId: row.unitId,
@@ -3284,6 +3549,18 @@ async function createCollectionRunRecord(
 
 function buildCollectionScheduleId(collectionId: string): string {
   return `${COLLECTION_SCHEDULE_PREFIX}::${collectionId}`;
+}
+
+function buildIngestionScheduleId(endpointId: string, unitId: string): string {
+  return `${INGESTION_SCHEDULE_PREFIX}::${sanitizeScheduleKey(endpointId)}::${sanitizeScheduleKey(unitId)}`;
+}
+
+function buildIngestionWorkflowId(endpointId: string, unitId: string): string {
+  return `ingestion-run-${sanitizeScheduleKey(endpointId)}-${sanitizeScheduleKey(unitId)}`;
+}
+
+function sanitizeScheduleKey(value: string) {
+  return value.replace(/[^a-zA-Z0-9:_-]/g, "-");
 }
 
 type GraphScopeFilter = {
@@ -4517,6 +4794,70 @@ async function removeCollectionSchedule(collection: { temporalScheduleId?: strin
   }
 }
 
+async function syncIngestionUnitSchedule(config: IngestionUnitConfigRow) {
+  if (config.scheduleKind !== "INTERVAL" || !config.enabled) {
+    await removeIngestionUnitSchedule(config.endpointId, config.unitId);
+    return;
+  }
+  const everySeconds = Math.max(60, (config.scheduleIntervalMinutes ?? 15) * 60);
+  const { client, taskQueue } = await getTemporalClient();
+  const scheduleId = buildIngestionScheduleId(config.endpointId, config.unitId);
+  const spec = {
+    intervals: [{ every: `${everySeconds}s` }],
+  };
+  const action = {
+    type: "startWorkflow" as const,
+    workflowType: WORKFLOW_NAMES.ingestionRun,
+    taskQueue,
+    workflowId: buildIngestionWorkflowId(config.endpointId, config.unitId),
+    workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+    args: [{ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId }],
+  };
+  const policies = {
+    overlap: ScheduleOverlapPolicy.SKIP,
+    catchupWindow: 60_000,
+    pauseOnFailure: false,
+  };
+  const handle = client.schedule.getHandle(scheduleId);
+  let exists = true;
+  try {
+    await handle.describe();
+  } catch (error) {
+    exists = false;
+    if (!(error instanceof Error) || !/not\s+found/i.test(error.message)) {
+      throw error;
+    }
+  }
+  if (!exists) {
+    await client.schedule.create({ scheduleId, spec, action, policies });
+  } else {
+    await handle.update(() => ({ spec, action, policies, state: { paused: false } }));
+  }
+  await handle.unpause().catch((error: unknown) => {
+    if (error instanceof Error && /not\s+paused/i.test(error.message)) {
+      return;
+    }
+    throw error;
+  });
+}
+
+async function removeIngestionUnitSchedule(endpointId: string, unitId: string) {
+  const scheduleId = buildIngestionScheduleId(endpointId, unitId);
+  const { client } = await getTemporalClient();
+  const handle = client.schedule.getHandle(scheduleId);
+  try {
+    await handle.delete();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (/not\s+found/i.test(error.message) || /no rows in result set/i.test(error.message))
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 function sanitizeScheduleCron(value?: string | null): string | null {
   if (!value) {
     return null;
@@ -4536,8 +4877,28 @@ function sanitizeScheduleTimezone(value?: string | null): string {
 const JIRA_TEMPLATE_ID = "jira.http";
 const JIRA_DEFAULT_UNITS = [
   { unitId: "jira.projects", kind: "semantic", displayName: "Jira Projects" },
-  { unitId: "jira.issues", kind: "semantic", displayName: "Jira Issues" },
+  {
+    unitId: "jira.issues",
+    kind: "semantic",
+    displayName: "Jira Issues",
+    supportsIncremental: true,
+    defaultPolicy: { cursor: "fields.updated" },
+  },
   { unitId: "jira.users", kind: "semantic", displayName: "Jira Users" },
+  {
+    unitId: "jira.comments",
+    kind: "semantic",
+    displayName: "Jira Comments",
+    supportsIncremental: true,
+    defaultPolicy: { cursor: "updated" },
+  },
+  {
+    unitId: "jira.worklogs",
+    kind: "semantic",
+    displayName: "Jira Worklogs",
+    supportsIncremental: true,
+    defaultPolicy: { cursor: "started" },
+  },
 ];
 
 function applyJiraEndpointDefaults(descriptor: MetadataEndpointDescriptor) {

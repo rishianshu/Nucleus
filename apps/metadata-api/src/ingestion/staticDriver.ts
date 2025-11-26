@@ -10,8 +10,14 @@ import { getMetadataStore } from "../context.js";
 
 type RawUnit = {
   unitId: string;
+  datasetId?: string;
   kind?: string;
   displayName?: string;
+  supportedModes?: string[];
+  defaultMode?: string;
+  defaultSinkId?: string;
+  defaultScheduleKind?: string;
+  defaultScheduleIntervalMinutes?: number;
   stats?: Record<string, unknown> | null;
   description?: string;
   supportsIncremental?: boolean;
@@ -74,10 +80,51 @@ function normalizeUnits(units: unknown): IngestionUnitDescriptor[] {
     .filter((entry: unknown): entry is RawUnit => Boolean(entry && typeof entry === "object" && typeof (entry as any).unitId === "string"))
     .map((entry) => ({
       unitId: entry.unitId,
+      datasetId: normalizeDatasetId(entry.datasetId, entry.unitId),
       kind: entry.kind ?? "dataset",
       displayName: entry.displayName ?? entry.unitId,
+      defaultMode: resolveDefaultMode(entry),
+      supportedModes: resolveSupportedModes(entry),
+      defaultSinkId: entry.defaultSinkId,
+      defaultScheduleKind: entry.defaultScheduleKind,
+      defaultScheduleIntervalMinutes: entry.defaultScheduleIntervalMinutes ?? null,
+      defaultPolicy: normalizePolicy(entry.defaultPolicy),
       stats: buildUnitStats(entry),
     }));
+}
+
+function normalizeDatasetId(raw: unknown, fallback: string) {
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return raw.trim();
+  }
+  return fallback;
+}
+
+function resolveDefaultMode(entry: RawUnit) {
+  if (entry.defaultMode && typeof entry.defaultMode === "string") {
+    return entry.defaultMode;
+  }
+  if (entry.supportsIncremental) {
+    return "INCREMENTAL";
+  }
+  return "FULL";
+}
+
+function resolveSupportedModes(entry: RawUnit) {
+  if (Array.isArray(entry.supportedModes) && entry.supportedModes.length > 0) {
+    return entry.supportedModes;
+  }
+  if (entry.supportsIncremental) {
+    return ["FULL", "INCREMENTAL"];
+  }
+  return ["FULL"];
+}
+
+function normalizePolicy(policy: unknown): Record<string, unknown> | null {
+  if (policy && typeof policy === "object") {
+    return policy as Record<string, unknown>;
+  }
+  return null;
 }
 
 function buildUnitStats(entry: RawUnit): Record<string, unknown> | null {

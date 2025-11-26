@@ -158,6 +158,21 @@ export const METADATA_CATALOG_DATASET_QUERY = `
         completedAt
         error
       }
+      ingestionConfig {
+        id
+        unitId
+        enabled
+        mode
+        sinkId
+      scheduleKind
+      scheduleIntervalMinutes
+      lastStatus {
+        state
+        lastRunAt
+        lastRunId
+        lastError
+      }
+    }
       sourceEndpoint {
         id
         name
@@ -272,11 +287,17 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
     ingestionUnits(endpointId: $endpointId) {
       endpointId
       unitId
+      datasetId
       kind
       displayName
       stats
       driverId
       sinkId
+      defaultMode
+      supportedModes
+      defaultPolicy
+      defaultScheduleKind
+      defaultScheduleIntervalMinutes
     }
     ingestionStatuses(endpointId: $endpointId) {
       endpointId
@@ -288,6 +309,24 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
       lastError
       stats
       checkpoint
+    }
+    ingestionUnitConfigs(endpointId: $endpointId) {
+      id
+      endpointId
+      datasetId
+      unitId
+      enabled
+      mode
+      sinkId
+      scheduleKind
+      scheduleIntervalMinutes
+      policy
+      lastStatus {
+        state
+        lastRunAt
+        lastRunId
+        lastError
+      }
     }
   }
 `;
@@ -319,6 +358,29 @@ export const RESET_INGESTION_CHECKPOINT_MUTATION = `
       ok
       state
       message
+    }
+  }
+`;
+
+export const CONFIGURE_INGESTION_UNIT_MUTATION = `
+  mutation ConfigureIngestionUnit($input: IngestionUnitConfigInput!) {
+    configureIngestionUnit(input: $input) {
+      id
+      endpointId
+      datasetId
+      unitId
+      enabled
+      mode
+      sinkId
+      scheduleKind
+      scheduleIntervalMinutes
+      policy
+      lastStatus {
+        state
+        lastRunAt
+        lastRunId
+        lastError
+      }
     }
   }
 `;

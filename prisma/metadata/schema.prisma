@@ -53,6 +53,7 @@ model MetadataEndpoint {
   capabilities String[] @default([])
   collections MetadataCollection[]
   runs        MetadataCollectionRun[]
+  ingestionConfigs IngestionUnitConfig[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   deletedAt   DateTime?
@@ -141,6 +142,25 @@ model IngestionUnitState {
 
   @@id([endpointId, unitId])
   @@index([endpointId])
+}
+
+model IngestionUnitConfig {
+  id                      String           @id @default(uuid())
+  endpointId              String
+  endpoint                MetadataEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  datasetId               String
+  unitId                  String
+  enabled                 Boolean          @default(false)
+  mode                    String           @default("FULL")
+  sinkId                  String           @default("kb")
+  scheduleKind            String           @default("MANUAL")
+  scheduleIntervalMinutes Int?
+  policy                  Json?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@unique([endpointId, unitId])
+  @@index([datasetId])
 }
 
 model GraphNode {

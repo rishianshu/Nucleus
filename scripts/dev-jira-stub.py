@@ -8,7 +8,7 @@ import json
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 LOGGER = logging.getLogger("jira_stub")
 
@@ -105,6 +105,36 @@ USERS = [
     },
 ]
 
+COMMENTS = {
+    "ENG-1": [
+        {
+            "id": "c-100",
+            "body": "First comment on ENG-1",
+            "created": "2025-01-01T08:00:00.000+0000",
+            "updated": "2025-01-01T08:15:00.000+0000",
+            "author": {
+                "accountId": "user-ada",
+                "displayName": "Ada Lovelace",
+            },
+        }
+    ]
+}
+
+WORKLOGS = {
+    "ENG-1": [
+        {
+            "id": "w-100",
+            "timeSpentSeconds": 1800,
+            "started": "2025-01-01T09:00:00.000+0000",
+            "updated": "2025-01-01T09:05:00.000+0000",
+            "author": {
+                "accountId": "user-ada",
+                "displayName": "Ada Lovelace",
+            },
+        }
+    ]
+}
+
 
 class JiraStubHandler(BaseHTTPRequestHandler):
     server_version = "JiraStub/1.0"
@@ -128,8 +158,8 @@ class JiraStubHandler(BaseHTTPRequestHandler):
         if parsed.path == "/rest/api/3/project/search":
             self._handle_project_search()
             return
-        if parsed.path == "/rest/api/3/search":
-            self._handle_issue_search()
+        if parsed.path == "/rest/api/3/search/jql":
+            self._handle_issue_search(parsed)
             return
         if parsed.path in ("/rest/api/3/user/search", "/rest/api/3/users/search"):
             self._handle_user_search()
@@ -140,6 +170,15 @@ class JiraStubHandler(BaseHTTPRequestHandler):
         if parsed.path == "/rest/api/3/myself":
             self._write_json({"accountId": "stub-account", "displayName": "Jira Stub"})
             return
+        if parsed.path.startswith("/rest/api/3/issue/"):
+            if parsed.path.endswith("/comment"):
+                issue_key = self._issue_key_from_path(parsed.path)
+                self._handle_issue_comments(issue_key)
+                return
+            if parsed.path.endswith("/worklog"):
+                issue_key = self._issue_key_from_path(parsed.path)
+                self._handle_issue_worklogs(issue_key)
+                return
         self._write_json({"message": "Not found", "path": parsed.path}, status=404)
 
     def _handle_project_search(self) -> None:
@@ -151,17 +190,40 @@ class JiraStubHandler(BaseHTTPRequestHandler):
         }
         self._write_json(payload)
 
-    def _handle_issue_search(self) -> None:
+    def _handle_issue_search(self, parsed) -> None:
+        params = parse_qs(parsed.query)
+        max_results = max(1, int(params.get("maxResults", ["50"])[0]))
+        page_token = params.get("pageToken", [None])[0]
+        start_index = int(page_token) if page_token and page_token.isdigit() else 0
+        subset = ISSUES[start_index : start_index + max_results]
+        next_index = start_index + len(subset)
         payload = {
-            "issues": ISSUES,
-            "startAt": 0,
-            "maxResults": len(ISSUES),
-            "total": len(ISSUES),
+            "issues": subset,
+            "isLast": next_index >= len(ISSUES),
         }
+        if next_index < len(ISSUES):
+            payload["nextPageToken"] = str(next_index)
         self._write_json(payload)
 
     def _handle_user_search(self) -> None:
         self._write_json(USERS)
+
+    def _handle_issue_comments(self, issue_key: str | None) -> None:
+        comments = COMMENTS.get(issue_key or "", [])
+        payload = {"comments": comments, "total": len(comments), "isLast": True}
+        self._write_json(payload)
+
+    def _handle_issue_worklogs(self, issue_key: str | None) -> None:
+        worklogs = WORKLOGS.get(issue_key or "", [])
+        payload = {"worklogs": worklogs, "total": len(worklogs)}
+        self._write_json(payload)
+
+    @staticmethod
+    def _issue_key_from_path(path: str) -> str | None:
+        segments = path.strip("/").split("/")
+        if len(segments) >= 6 and segments[0:4] == ["rest", "api", "3", "issue"]:
+            return segments[4]
+        return None
 
 
 def main() -> None:

@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IconType } from "react-icons";
 import {
+  LuArrowUpRight,
   LuCircleAlert,
   LuCircleCheck,
   LuEllipsis,
@@ -39,6 +40,7 @@ import type {
   MetadataEndpointTemplateField,
   MetadataEndpointTestResult,
   GraphNodeSummary,
+  IngestionState,
 } from "./types";
 import { parseListInput, previewTableColumns } from "./utils";
 import {
@@ -50,6 +52,12 @@ import {
   type ToastIntent,
 } from "./hooks";
 import type { Role } from "../auth/AuthProvider";
+import {
+  formatIngestionMode,
+  formatIngestionSchedule,
+  formatIngestionSink,
+  ingestionStateTone,
+} from "../ingestion/stateTone";
 
 type MetadataWorkspaceProps = {
   metadataEndpoint: string | null;
@@ -2246,6 +2254,7 @@ export function MetadataWorkspace({
                   ))}
                 </div>
               ) : null}
+              <IngestionSummaryCard dataset={catalogDataset} className="mt-4" />
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Fields ({catalogDatasetFields.length})</p>
                 <div className="mt-3 space-y-2">
@@ -3198,6 +3207,7 @@ export function MetadataWorkspace({
                 ))}
               </div>
             ) : null}
+            <IngestionSummaryCard dataset={detailDataset} className="mt-4" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
                 Fields ({detailDatasetFields.length})
@@ -3619,6 +3629,7 @@ export function MetadataWorkspace({
                 <span>Entity · {metadataDatasetDetail.entity ?? "—"}</span>
                 <span>Schema · {metadataDatasetDetail.schema ?? "—"}</span>
               </div>
+              <IngestionSummaryCard dataset={metadataDatasetDetail} className="mt-4" />
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Fields ({metadataDatasetDetailFields.length})</p>
                 <div className="mt-2 space-y-2">
@@ -3885,4 +3896,101 @@ function formatGraphScope(scope: GraphNodeSummary["scope"]): string {
     parts.push(`team:${scope.teamId}`);
   }
   return parts.join(" · ");
+}
+
+type IngestionSummaryCardProps = {
+  dataset: CatalogDataset | null | undefined;
+  className?: string;
+};
+
+function IngestionSummaryCard({ dataset, className }: IngestionSummaryCardProps) {
+  if (!dataset) {
+    return null;
+  }
+  const config = dataset.ingestionConfig ?? null;
+  const manageHref =
+    dataset.sourceEndpointId && dataset.sourceEndpointId.length > 0
+      ? `/ingestion?endpointId=${encodeURIComponent(dataset.sourceEndpointId)}`
+      : "/ingestion";
+  const baseClasses =
+    "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+  const combinedClass = className ? `${baseClasses} ${className}` : baseClasses;
+  if (!config) {
+    return (
+      <section className={combinedClass}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Ingestion</p>
+            <p className="text-sm text-slate-500">Not configured yet. Enable ingestion to orchestrate runs.</p>
+          </div>
+          <a
+            href={manageHref}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-700 dark:text-slate-200"
+          >
+            Manage in console
+            <LuArrowUpRight className="h-3 w-3" aria-hidden="true" />
+          </a>
+        </div>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Metadata collection must run before ingestion units become available.
+        </p>
+      </section>
+    );
+  }
+  const lastStatus = config.lastStatus ?? null;
+  const fallbackState: IngestionState = config.enabled ? "IDLE" : "PAUSED";
+  const lastState = (lastStatus?.state as IngestionState | undefined) ?? fallbackState;
+  const tone = ingestionStateTone[lastState];
+  const lastRunRelative = lastStatus?.lastRunAt ? formatRelativeTime(lastStatus.lastRunAt) : "Never";
+  const lastRunExact = lastStatus?.lastRunAt ? formatDateTime(lastStatus.lastRunAt) : null;
+  const modeLabel = formatIngestionMode(config.mode);
+  const scheduleLabel = formatIngestionSchedule(config.scheduleKind, config.scheduleIntervalMinutes);
+  const sinkLabel = formatIngestionSink(config.sinkId);
+  return (
+    <section className={combinedClass}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Ingestion</p>
+          <p className="text-sm text-slate-500">Configuration applies to this dataset&apos;s ingestion unit.</p>
+        </div>
+        <a
+          href={manageHref}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-700 dark:text-slate-200"
+        >
+          Manage in console
+          <LuArrowUpRight className="h-3 w-3" aria-hidden="true" />
+        </a>
+      </div>
+      <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+        <div className="flex items-center justify-between">
+          <dt className="text-xs uppercase tracking-[0.3em] text-slate-400">Mode</dt>
+          <dd className="font-semibold text-slate-900 dark:text-white">{modeLabel}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-xs uppercase tracking-[0.3em] text-slate-400">Schedule</dt>
+          <dd>{scheduleLabel}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-xs uppercase tracking-[0.3em] text-slate-400">Sink</dt>
+          <dd>{sinkLabel}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-[0.3em] text-slate-400">Last run</dt>
+          <dd className="mt-2">
+            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${tone.badge}`}>
+              <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
+              {tone.label}
+            </div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {lastRunRelative}
+              {lastRunExact ? ` · ${lastRunExact}` : ""}
+            </p>
+            {lastStatus?.lastError ? (
+              <p className="mt-1 text-xs text-rose-500 dark:text-rose-300">Last error: {lastStatus.lastError}</p>
+            ) : null}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
 }

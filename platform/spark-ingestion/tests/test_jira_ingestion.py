@@ -35,7 +35,7 @@ def stub_jira_http(monkeypatch):
                 }
             ]
         },
-        "/rest/api/3/search": {
+        "/rest/api/3/search/jql": {
             "issues": [
                 {
                     "id": "1001",
@@ -59,6 +59,28 @@ def stub_jira_http(monkeypatch):
             }
         ],
     }
+    comments = {
+        "ENG-1": [
+            {
+                "id": "c-1",
+                "body": "Looks good",
+                "created": "2023-01-01T00:30:00.000+0000",
+                "updated": "2023-01-02T00:00:00.000+0000",
+                "author": {"accountId": "user-4", "displayName": "User Four"},
+            }
+        ]
+    }
+    worklogs = {
+        "ENG-1": [
+            {
+                "id": "w-1",
+                "timeSpentSeconds": 3600,
+                "started": "2023-01-02T01:00:00.000+0000",
+                "updated": "2023-01-02T01:00:00.000+0000",
+                "author": {"accountId": "user-4", "displayName": "User Four"},
+            }
+        ]
+    }
 
     def fake_session(_params):
         return DummySession()
@@ -66,14 +88,27 @@ def stub_jira_http(monkeypatch):
     def fake_jira_get(_session, _base_url, path, params=None):
         if path == "/rest/api/3/project/search":
             return payloads[path]
-        if path == "/rest/api/3/search":
-            if params and params.get("startAt", 0) > 0:
-                return {"issues": []}
-            return payloads[path]
+        if path == "/rest/api/3/search/jql":
+            if params and params.get("pageToken"):
+                return {"issues": [], "isLast": True}
+            return {**payloads[path], "isLast": True}
         if path == "/rest/api/3/users/search":
             if params and params.get("startAt", 0) > 0:
                 return []
             return payloads[path]
+        if path.startswith("/rest/api/3/issue/"):
+            segments = path.strip("/").split("/")
+            if len(segments) >= 6:
+                issue_key = segments[4]
+                resource = segments[5]
+                if resource == "comment":
+                    if params and params.get("startAt", 0) > 0:
+                        return {"comments": []}
+                    return {"comments": comments.get(issue_key, []), "total": len(comments.get(issue_key, []))}
+                if resource == "worklog":
+                    if params and params.get("startAt", 0) > 0:
+                        return {"worklogs": []}
+                    return {"worklogs": worklogs.get(issue_key, []), "total": len(worklogs.get(issue_key, []))}
         raise AssertionError(f"Unexpected Jira path: {path}")
 
     monkeypatch.setattr(jira_http, "_build_jira_session", fake_session)
@@ -121,3 +156,27 @@ def test_users_unit_uses_catalog_handler():
     )
     assert result.records
     assert result.stats["usersSynced"] == 1
+
+
+def test_comments_unit_uses_catalog_handler():
+    result = jira_http.run_jira_ingestion_unit(
+        "jira.comments",
+        endpoint_id="endpoint-1",
+        policy=dict(BASE_POLICY),
+        checkpoint={"lastUpdated": "2022-12-31T00:00:00.000+0000"},
+    )
+    assert result.records
+    assert result.cursor["lastUpdated"] == "2023-01-02T00:00:00.000+0000"
+    assert result.stats["commentsSynced"] == 1
+
+
+def test_worklogs_unit_uses_catalog_handler():
+    result = jira_http.run_jira_ingestion_unit(
+        "jira.worklogs",
+        endpoint_id="endpoint-1",
+        policy=dict(BASE_POLICY),
+        checkpoint={"lastStarted": "2023-01-01T00:00:00.000+0000"},
+    )
+    assert result.records
+    assert result.cursor["lastStarted"] == "2023-01-02T01:00:00.000+0000"
+    assert result.stats["worklogsSynced"] == 1

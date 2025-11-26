@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -52,7 +53,8 @@ from metadata_service.utils import collect_rows, safe_upper, to_serializable
 from runtime_core import MetadataTarget
 from runtime_common.endpoints.base import MetadataCapableEndpoint  # type: ignore
 from runtime_common.endpoints.factory import EndpointFactory
-from runtime_common.endpoints.jira_http import run_jira_ingestion_unit
+from runtime_common.endpoints.jira_http import JiraEndpoint, run_jira_ingestion_unit
+from runtime_common.endpoints.jira_catalog import JIRA_DATASET_DEFINITIONS
 from runtime_common.tools.sqlalchemy import SQLAlchemyTool
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
@@ -71,6 +73,7 @@ class CollectionJobRequest:
     schemas: List[str]
     projectId: Optional[str] = None
     labels: Optional[List[str]] = None
+    config: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -106,6 +109,7 @@ class IngestionUnitRequest:
     checkpoint: Optional[Dict[str, Any]] = None
     stagingProviderId: Optional[str] = None
     policy: Optional[Dict[str, Any]] = None
+    mode: Optional[str] = None
 
 
 @dataclass
@@ -209,9 +213,112 @@ def _write_records_manifest(records: List[CatalogRecordOutput], run_id: str) -> 
     return path
 
 
+def _should_use_http_metadata(request: CollectionJobRequest) -> bool:
+    if not request.config:
+        return False
+    template_id = (
+        str(
+            request.config.get("templateId")
+            or request.config.get("template_id")
+            or request.config.get("template")
+            or "",
+        ).lower()
+    )
+    return template_id == "jira.http"
+
+
+def _collect_http_metadata_records(request: CollectionJobRequest, logger: ActivityLogger) -> List[CatalogRecordOutput]:
+    config = request.config or {}
+    parameters = dict(config.get("parameters") or {})
+    parameters.setdefault("base_url", request.connectionUrl)
+    temp_dir = tempfile.mkdtemp(prefix=f"metadata-collect-{request.runId}-http-")
+    cache_cfg = MetadataCacheConfig(
+        cache_path=temp_dir,
+        ttl_hours=1,
+        enabled=True,
+        source_id=request.sourceId or request.endpointId or "metadata-endpoint",
+    )
+    cache_manager = MetadataCacheManager(cache_cfg, logger, spark=None)
+    service_cfg = MetadataServiceConfig(endpoint_defaults={})
+    metadata_service = MetadataCollectionService(service_cfg, cache_manager, logger, emitter=None)
+    jobs: List[MetadataJob] = []
+    for dataset_id in sorted(JIRA_DATASET_DEFINITIONS.keys()):
+        table_cfg = {
+            "schema": "jira",
+            "table": dataset_id,
+            "dataset": dataset_id,
+            "mode": "full",
+            "metadata_project_id": request.projectId,
+        }
+        endpoint = JiraEndpoint(
+            tool=None,
+            endpoint_cfg=parameters,
+            table_cfg=table_cfg,
+        )
+        target = MetadataTarget(
+            source_id=request.sourceId or request.endpointId,
+            namespace="JIRA",
+            entity=safe_upper(dataset_id.replace(".", "_")),
+        )
+        jobs.append(MetadataJob(target=target, artifact=table_cfg, endpoint=endpoint))
+
+    if not jobs:
+        logger.warn(event="metadata_no_jobs_ready")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return []
+
+    metadata_service.run(jobs)
+    repository = CacheMetadataRepository(cache_manager)
+    records: List[CatalogRecordOutput] = []
+    try:
+        for job in jobs:
+            record = repository.latest(job.target)
+            if not record:
+                continue
+            payload = record.payload if isinstance(record.payload, dict) else {}
+            payload = dict(payload)
+            payload["metadata_endpoint_id"] = request.endpointId
+            metadata_block = dict(payload.get("_metadata") or {})
+            metadata_block["source_endpoint_id"] = request.endpointId
+            metadata_block["source_id"] = request.sourceId or request.endpointId
+            payload["_metadata"] = metadata_block
+            dataset_id = str(payload.get("id") or job.artifact.get("dataset") or job.target.entity.lower())
+            labels = sorted({*(request.labels or []), *(payload.get("labels") or [])})
+            records.append(
+                CatalogRecordOutput(
+                    id=dataset_id,
+                    projectId=request.projectId,
+                    domain="catalog.dataset",
+                    labels=labels,
+                    payload=payload,
+                )
+            )
+        return records
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _finalize_collection_result(
+    request: CollectionJobRequest,
+    logger: ActivityLogger,
+    records: List[CatalogRecordOutput],
+) -> Dict[str, Any]:
+    logger.info(event="metadata_collect_complete", datasets=len(records))
+    records_path = _write_records_manifest(records, request.runId)
+    return CollectionJobResult(
+        recordsPath=records_path,
+        recordCount=len(records),
+        logs=logger.entries,
+    ).__dict__
+
+
 def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, Any]:
     logger = ActivityLogger()
     logger.info(event="metadata_collect_start", run_id=request.runId, endpoint=request.endpointName)
+    if _should_use_http_metadata(request):
+        records = _collect_http_metadata_records(request, logger)
+        return _finalize_collection_result(request, logger, records)
+
     tool = _build_sqlalchemy_tool(request.connectionUrl)
     temp_dir = tempfile.mkdtemp(prefix=f"metadata-collect-{request.runId}-")
     cache_cfg = MetadataCacheConfig(
@@ -288,16 +395,8 @@ def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, 
                     payload=payload,
                 )
             )
-        logger.info(event="metadata_collect_complete", datasets=len(records))
-        records_path = _write_records_manifest(records, request.runId)
-        return CollectionJobResult(
-            recordsPath=records_path,
-            recordCount=len(records),
-            logs=logger.entries,
-        ).__dict__
+        return _finalize_collection_result(request, logger, records)
     finally:
-        import shutil
-
         tool.stop()
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -316,12 +415,15 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         staging_provider=request.stagingProviderId or "in_memory",
     )
     completed_at = datetime.now(timezone.utc).isoformat()
+    normalized_mode = (request.mode or "").upper()
+    checkpoint = None if normalized_mode == "FULL" else request.checkpoint
     if request.unitId.startswith("jira."):
         result = run_jira_ingestion_unit(
             request.unitId,
             endpoint_id=request.endpointId,
             policy=request.policy or {},
-            checkpoint=request.checkpoint,
+            checkpoint=checkpoint,
+            mode=normalized_mode or None,
         )
         logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
         return IngestionUnitResult(newCheckpoint=result.cursor, stats=result.stats, records=result.records).__dict__
@@ -333,7 +435,7 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
     }
     logger.info(event="ingestion_unit_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=stats)
     return IngestionUnitResult(
-        newCheckpoint=request.checkpoint or {"lastRunAt": completed_at},
+        newCheckpoint=checkpoint or {"lastRunAt": completed_at},
         stats=stats,
     ).__dict__
 

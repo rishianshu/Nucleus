@@ -77,6 +77,7 @@ export type CollectionJobRequest = {
   schemas: string[];
   projectId?: string | null;
   labels?: string[];
+  config?: Record<string, unknown> | null;
 };
 
 export type CollectionJobPlan =
@@ -107,6 +108,7 @@ type StartIngestionRunResult = {
   checkpointVersion: string | null;
   stagingProviderId: string;
   policy: Record<string, unknown> | null;
+  mode: string | null;
 };
 
 type CompleteIngestionRunInput = {
@@ -329,6 +331,7 @@ export const activities: MetadataActivities = {
         schemas,
         projectId: run.endpoint.projectId ?? null,
         labels: run.endpoint.labels ?? [],
+        config: (run.endpoint.config as Record<string, unknown>) ?? null,
       },
     };
   },
@@ -401,13 +404,27 @@ export const activities: MetadataActivities = {
     if (!endpoint) {
       throw new Error(`Endpoint ${endpointId} not found`);
     }
-    const resolvedSinkId = resolveSinkId(sinkId);
+    const prisma = await getPrismaClient();
+    const config = await prisma.ingestionUnitConfig.findUnique({
+      where: {
+        endpointId_unitId: {
+          endpointId,
+          unitId,
+        },
+      },
+    });
+    if (config && !config.enabled) {
+      throw new Error(`Ingestion config disabled for unit ${unitId}`);
+    }
+    const resolvedSinkId = resolveSinkId(config?.sinkId ?? sinkId);
     if (!getIngestionSink(resolvedSinkId)) {
       throw new Error(`Ingestion sink "${resolvedSinkId}" is not registered`);
     }
     const vendorKey = endpoint.domain ?? endpoint.sourceId ?? endpoint.id ?? endpointId;
     const stagingProviderId = resolveStagingProvider(endpoint);
-    const policy = resolveIngestionPolicy(endpoint);
+    const policyOverrides =
+      config?.policy && typeof config.policy === "object" ? (config.policy as Record<string, unknown>) : null;
+    const policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
     const checkpointKey: IngestionCheckpointKey = {
       endpointId,
       unitId,
@@ -433,6 +450,7 @@ export const activities: MetadataActivities = {
       checkpointVersion: checkpointState.version,
       stagingProviderId,
       policy,
+      mode: config?.mode ?? null,
     };
   },
   async completeIngestionRun({
@@ -682,6 +700,16 @@ export function resolveIngestionPolicy(endpoint?: { config?: unknown } | null): 
     return raw as Record<string, unknown>;
   }
   return null;
+}
+
+function mergeIngestionPolicies(
+  base: Record<string, unknown> | null,
+  overrides: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (base && overrides) {
+    return { ...base, ...overrides };
+  }
+  return overrides ?? base;
 }
 
 function buildCheckpointKey({

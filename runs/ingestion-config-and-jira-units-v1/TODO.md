@@ -1,0 +1,4 @@
+- [x] Wire ingestion console + catalog detail with config drawer (mode/schedule/sink policy).
+- [x] Implement Jira comments/worklogs ingestion (catalog definitions, Python handlers, stubs, unit tests).
+- [x] Add ingestion catalog gating tests + update default template extras.
+- [x] Verification: `pnpm check:metadata-auth`, `pnpm check:metadata-lifecycle`, `pnpm ci-check`.

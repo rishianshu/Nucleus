@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   LuArrowRight,
   LuCircle,
@@ -12,8 +12,10 @@ import {
   LuClock3,
   LuInfo,
   LuRefreshCcw,
+  LuSlidersHorizontal,
   LuSearch,
   LuTriangleAlert,
+  LuX,
 } from "react-icons/lu";
 import { formatRelativeTime } from "../lib/format";
 import { fetchMetadataGraphQL } from "../metadata/api";
@@ -23,15 +25,24 @@ import {
   START_INGESTION_MUTATION,
   PAUSE_INGESTION_MUTATION,
   RESET_INGESTION_CHECKPOINT_MUTATION,
+  CONFIGURE_INGESTION_UNIT_MUTATION,
 } from "../metadata/queries";
 import {
   IngestionStatusSummary,
   IngestionState,
   IngestionUnitSummary,
+  IngestionUnitConfigSummary,
   MetadataEndpointSummary,
 } from "../metadata/types";
 import { useDebouncedValue, useToastQueue } from "../metadata/hooks";
 import type { Role } from "../auth/AuthProvider";
+import {
+  formatIngestionMode,
+  formatIngestionSchedule,
+  formatIngestionSink,
+  ingestionStateTone,
+  summarizePolicy,
+} from "./stateTone";
 
 type IngestionConsoleProps = {
   metadataEndpoint: string | null;
@@ -47,6 +58,7 @@ type EndpointQueryResult = {
 type UnitsQueryResult = {
   ingestionUnits: IngestionUnitSummary[];
   ingestionStatuses: IngestionStatusSummary[];
+  ingestionUnitConfigs: IngestionUnitConfigSummary[];
 };
 
 type IngestionActionResult = {
@@ -69,73 +81,111 @@ type IngestionUnitRow = IngestionUnitSummary & {
   lastError: string | null;
   stats: Record<string, unknown> | null;
   checkpoint: Record<string, unknown> | null;
+  config: IngestionUnitConfigSummary | null;
 };
 
-const ingestStateTone: Record<
-  IngestionState,
-  {
-    label: string;
-    badge: string;
-    dot: string;
-    icon: ComponentType<{ className?: string }>;
-  }
-> = {
-  RUNNING: {
-    label: "Running",
-    badge: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-500/60 dark:bg-sky-500/10 dark:text-sky-100",
-    dot: "bg-sky-500 animate-pulse",
-    icon: LuCircle,
-  },
-  SUCCEEDED: {
-    label: "Healthy",
-    badge: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-500/10 dark:text-emerald-100",
-    dot: "bg-emerald-500",
-    icon: LuCircleCheck,
-  },
-  FAILED: {
-    label: "Failed",
-    badge: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-100",
-    dot: "bg-rose-500 animate-pulse",
-    icon: LuCircleX,
-  },
-  PAUSED: {
-    label: "Paused",
-    badge: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-50",
-    dot: "bg-amber-500",
-    icon: LuCirclePause,
-  },
-  IDLE: {
-    label: "Idle",
-    badge: "border-slate-200 bg-white text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100",
-    dot: "bg-slate-400",
-    icon: LuCircleDashed,
-  },
+type ConfigFormState = {
+  enabled: boolean;
+  mode: string;
+  scheduleKind: string;
+  scheduleIntervalMinutes: number;
+  sinkId: string;
+  policyText: string;
+};
+
+type ConfigOverrides = {
+  enabled?: boolean;
+  mode?: string;
+  sinkId?: string;
+  scheduleKind?: string;
+  scheduleIntervalMinutes?: number | null;
+  policy?: Record<string, unknown> | null;
 };
 
 const endpointSidebarWidth = 320;
 
 export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, userRole }: IngestionConsoleProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const endpointQueryParam = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const requested = params.get("endpointId");
+    return requested && requested.length > 0 ? requested : null;
+  }, [location.search]);
   const [endpointSearch, setEndpointSearch] = useState("");
   const debouncedSearch = useDebouncedValue(endpointSearch, 350);
   const [endpoints, setEndpoints] = useState<MetadataEndpointSummary[]>([]);
   const [endpointLoading, setEndpointLoading] = useState(false);
   const [endpointError, setEndpointError] = useState<string | null>(null);
-  const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(null);
+  const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(endpointQueryParam);
   const [units, setUnits] = useState<IngestionUnitRow[]>([]);
   const [unitsLoading, setUnitsLoading] = useState(false);
   const [unitsRefetching, setUnitsRefetching] = useState(false);
   const [unitsError, setUnitsError] = useState<string | null>(null);
   const [unitsVersion, setUnitsVersion] = useState(0);
-  const [actionState, setActionState] = useState<Record<string, "start" | "pause" | "reset">>({});
+  const [actionState, setActionState] = useState<Record<string, "start" | "pause" | "reset" | "configure" | "toggle">>({});
+  const [configuringUnit, setConfiguringUnit] = useState<IngestionUnitRow | null>(null);
+  const [configForm, setConfigForm] = useState<ConfigFormState | null>(null);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const drawerSinkOptions = useMemo(() => {
+    if (!configuringUnit || !configForm) {
+      return [];
+    }
+    return Array.from(
+      new Set(
+        [configForm.sinkId, configuringUnit.sinkId, "kb"].filter(
+          (value): value is string => typeof value === "string" && value.length > 0,
+        ),
+      ),
+    );
+  }, [configuringUnit, configForm]);
   const toastQueue = useToastQueue();
   const isAdmin = userRole === "ADMIN";
   const abortRef = useRef<AbortController | null>(null);
+  const updateEndpointQuery = useCallback(
+    (nextId: string | null) => {
+      const params = new URLSearchParams(location.search);
+      if (nextId) {
+        params.set("endpointId", nextId);
+      } else {
+        params.delete("endpointId");
+      }
+      const searchString = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: searchString.length ? `?${searchString}` : "",
+        },
+        { replace: true },
+      );
+    },
+    [location.pathname, location.search, navigate],
+  );
+  const applySelectedEndpoint = useCallback(
+    (nextId: string | null, options?: { syncUrl?: boolean }) => {
+      setSelectedEndpointId(nextId);
+      if (options?.syncUrl === false) {
+        return;
+      }
+      updateEndpointQuery(nextId);
+    },
+    [updateEndpointQuery],
+  );
+
+  useEffect(() => {
+    if (endpointQueryParam === selectedEndpointId) {
+      return;
+    }
+    applySelectedEndpoint(endpointQueryParam, { syncUrl: false });
+  }, [endpointQueryParam, selectedEndpointId, applySelectedEndpoint]);
 
   useEffect(() => {
     if (!metadataEndpoint || !authToken) {
       setEndpoints([]);
       setEndpointLoading(false);
       setEndpointError(null);
+       applySelectedEndpoint(null);
       return;
     }
     let cancelled = false;
@@ -157,11 +207,6 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
           return;
         }
         setEndpoints(data.endpoints ?? []);
-        if (!selectedEndpointId && data.endpoints?.length) {
-          setSelectedEndpointId(data.endpoints[0]?.id ?? null);
-        } else if (selectedEndpointId && !data.endpoints?.some((endpoint) => endpoint.id === selectedEndpointId)) {
-          setSelectedEndpointId(data.endpoints?.[0]?.id ?? null);
-        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -176,7 +221,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     return () => {
       cancelled = true;
     };
-  }, [metadataEndpoint, authToken, projectSlug, debouncedSearch, selectedEndpointId]);
+  }, [metadataEndpoint, authToken, projectSlug, debouncedSearch, applySelectedEndpoint]);
 
   const refreshUnits = useCallback(() => {
     setUnitsVersion((prev) => prev + 1);
@@ -207,16 +252,20 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
           { token: authToken ?? undefined },
         );
         const statuses = new Map(payload.ingestionStatuses?.map((status) => [status.unitId, status]));
+        const configMap = new Map((payload.ingestionUnitConfigs ?? []).map((config) => [config.unitId, config]));
         const combined: IngestionUnitRow[] = (payload.ingestionUnits ?? []).map((unit) => {
           const status = statuses.get(unit.unitId);
+          const config = configMap.get(unit.unitId) ?? null;
           return {
             ...unit,
+            datasetId: unit.datasetId ?? unit.unitId,
             state: status?.state ?? "IDLE",
             lastRunAt: status?.lastRunAt ?? null,
             lastRunId: status?.lastRunId ?? null,
             lastError: status?.lastError ?? null,
             stats: (status?.stats ?? unit.stats ?? null) as Record<string, unknown> | null,
             checkpoint: (status?.checkpoint ?? null) as Record<string, unknown> | null,
+            config,
           };
         });
         combined.sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -245,6 +294,31 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     }
     void loadUnits(selectedEndpointId, { silent: Boolean(units.length) });
   }, [selectedEndpointId, loadUnits, unitsVersion]);
+
+  useEffect(() => {
+    if (endpointLoading) {
+      return;
+    }
+    if (endpoints.length === 0) {
+      if (selectedEndpointId) {
+        applySelectedEndpoint(null);
+      }
+      return;
+    }
+    const hasSelection =
+      selectedEndpointId && endpoints.some((endpoint) => endpoint.id === selectedEndpointId);
+    if (hasSelection) {
+      return;
+    }
+    const desired =
+      (endpointQueryParam &&
+        endpoints.find((endpoint) => endpoint.id === endpointQueryParam)?.id) ??
+      endpoints[0]?.id ??
+      null;
+    if (desired) {
+      applySelectedEndpoint(desired);
+    }
+  }, [endpointLoading, endpoints, selectedEndpointId, endpointQueryParam, applySelectedEndpoint]);
 
   const endpointOptions = useMemo(
     () =>
@@ -314,28 +388,160 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     [metadataEndpoint, authToken, selectedEndpointId, toastQueue, refreshUnits],
   );
 
+  const ensureUnitConfigured = useCallback(
+    (unit: IngestionUnitRow, actionLabel: string) => {
+      if (!unit.config || !unit.config.enabled) {
+        toastQueue.pushToast({
+          title: `${actionLabel} unavailable`,
+          description: "Configure and enable this unit first.",
+          intent: "info",
+        });
+        return false;
+      }
+      return true;
+    },
+    [toastQueue],
+  );
+
+  const persistConfig = useCallback(
+    async (unit: IngestionUnitRow, overrides: ConfigOverrides, intent: "configure" | "toggle") => {
+      if (!metadataEndpoint || !authToken) {
+        return;
+      }
+      setActionState((prev) => ({ ...prev, [unit.unitId]: intent }));
+      const input = buildConfigInput(unit, overrides);
+      try {
+        await fetchMetadataGraphQL(
+          metadataEndpoint,
+          CONFIGURE_INGESTION_UNIT_MUTATION,
+          { input },
+          undefined,
+          { token: authToken ?? undefined },
+        );
+        toastQueue.pushToast({
+          title: overrides.enabled === undefined ? "Configuration saved" : overrides.enabled ? "Ingestion enabled" : "Ingestion disabled",
+          description: `${unit.displayName} updated.`,
+          intent: "success",
+        });
+        refreshUnits();
+      } catch (error) {
+        toastQueue.pushToast({
+          title: `Unable to update ${unit.displayName}`,
+          description: error instanceof Error ? error.message : String(error),
+          intent: "error",
+        });
+        throw error;
+      } finally {
+        setActionState((prev) => {
+          const next = { ...prev };
+          delete next[unit.unitId];
+          return next;
+        });
+      }
+    },
+    [metadataEndpoint, authToken, toastQueue, refreshUnits],
+  );
+
+  const handleToggleUnit = useCallback(
+    (unit: IngestionUnitRow, nextEnabled: boolean) => {
+      void persistConfig(unit, { enabled: nextEnabled }, "toggle");
+    },
+    [persistConfig],
+  );
+
+  const openConfigureDrawer = useCallback((unit: IngestionUnitRow) => {
+    setConfiguringUnit(unit);
+    setConfigForm({
+      enabled: unit.config?.enabled ?? false,
+      mode: (unit.config?.mode ?? unit.defaultMode ?? "FULL").toUpperCase(),
+      scheduleKind: (unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase(),
+      scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15,
+      sinkId: unit.config?.sinkId ?? unit.sinkId,
+      policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
+    });
+    setConfigError(null);
+  }, []);
+
+  const closeConfigureDrawer = useCallback(() => {
+    setConfiguringUnit(null);
+    setConfigForm(null);
+    setConfigError(null);
+  }, []);
+
+  const updateConfigForm = useCallback((patch: Partial<ConfigFormState>) => {
+    setConfigForm((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const handleSaveConfig = useCallback(async () => {
+    if (!configuringUnit || !configForm) {
+      return;
+    }
+    let parsedPolicy: Record<string, unknown> | null = null;
+    if (configForm.policyText.trim().length) {
+      try {
+        parsedPolicy = JSON.parse(configForm.policyText);
+      } catch (error) {
+        setConfigError("Policy must be valid JSON.");
+        return;
+      }
+    }
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      await persistConfig(
+        configuringUnit,
+        {
+          enabled: configForm.enabled,
+          mode: configForm.mode,
+          sinkId: configForm.sinkId,
+          scheduleKind: configForm.scheduleKind,
+          scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
+          policy: parsedPolicy,
+        },
+        "configure",
+      );
+      closeConfigureDrawer();
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [configuringUnit, configForm, persistConfig, closeConfigureDrawer]);
+
   const handleRunUnit = useCallback(
-    (unitId: string) =>
-      handleAction(START_INGESTION_MUTATION, unitId, "start", "Ingestion run started", "Unable to start ingestion"),
-    [handleAction],
+    (unit: IngestionUnitRow) => {
+      if (!ensureUnitConfigured(unit, "Run ingestion")) {
+        return;
+      }
+      handleAction(START_INGESTION_MUTATION, unit.unitId, "start", "Ingestion run started", "Unable to start ingestion");
+    },
+    [handleAction, ensureUnitConfigured],
   );
 
   const handlePauseUnit = useCallback(
-    (unitId: string) =>
-      handleAction(PAUSE_INGESTION_MUTATION, unitId, "pause", "Ingestion paused", "Unable to pause ingestion"),
-    [handleAction],
+    (unit: IngestionUnitRow) => {
+      if (!ensureUnitConfigured(unit, "Pause ingestion")) {
+        return;
+      }
+      handleAction(PAUSE_INGESTION_MUTATION, unit.unitId, "pause", "Ingestion paused", "Unable to pause ingestion");
+    },
+    [handleAction, ensureUnitConfigured],
   );
 
   const handleResetUnit = useCallback(
-    (unitId: string) =>
+    (unit: IngestionUnitRow) => {
+      if (!ensureUnitConfigured(unit, "Reset checkpoint")) {
+        return;
+      }
       handleAction(
         RESET_INGESTION_CHECKPOINT_MUTATION,
-        unitId,
+        unit.unitId,
         "reset",
         "Checkpoint reset",
         "Unable to reset checkpoint",
-      ),
-    [handleAction],
+      );
+    },
+    [handleAction, ensureUnitConfigured],
   );
 
   const toastPortal = toastQueue.toasts.length ? (
@@ -443,7 +649,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                       key={endpoint.id}
                       type="button"
                       disabled={endpoint.disabled}
-                      onClick={() => setSelectedEndpointId(endpoint.id)}
+                      onClick={() => applySelectedEndpoint(endpoint.id)}
                       className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                         isActive
                           ? "border-white bg-white/5 shadow-lg"
@@ -524,6 +730,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                     <tr className="text-left text-xs uppercase tracking-[0.35em] text-slate-400">
                       <th className="px-6 py-4">Unit</th>
                       <th className="px-6 py-4">State</th>
+                      <th className="px-6 py-4">Mode</th>
+                      <th className="px-6 py-4">Schedule</th>
+                      <th className="px-6 py-4">Sink</th>
                       <th className="px-6 py-4">Last Run</th>
                       <th className="px-6 py-4">Stats</th>
                       <th className="px-6 py-4">Actions</th>
@@ -531,11 +740,25 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {units.map((unit) => {
-                      const tone = ingestStateTone[unit.state];
+                      const tone = ingestionStateTone[unit.state];
                       const relativeRun = unit.lastRunAt ? formatRelativeTime(unit.lastRunAt) : "Never";
                       const isBusy = Boolean(actionState[unit.unitId]);
                       const localIntent = actionState[unit.unitId];
                       const statsSummary = summarizeStats(unit.stats);
+                      const config = unit.config;
+                      const isConfigured = Boolean(config);
+                      const isEnabled = Boolean(config?.enabled);
+                      const effectiveMode = formatIngestionMode(config?.mode ?? unit.defaultMode ?? "FULL");
+                      const scheduleKind = (config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
+                      const scheduleInterval =
+                        scheduleKind === "INTERVAL"
+                          ? config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15
+                          : null;
+                      const scheduleLabel = formatIngestionSchedule(scheduleKind, scheduleInterval);
+                      const sinkLabel = formatIngestionSink(config?.sinkId ?? unit.sinkId);
+                      const policySummary = summarizePolicy(config?.policy ?? unit.defaultPolicy ?? null);
+                      const canMutate = isAdmin;
+                      const canControl = canMutate && isEnabled;
                       return (
                         <tr key={unit.unitId} className="align-top text-slate-200" data-testid="ingestion-unit-row">
                           <td className="px-6 py-4">
@@ -552,6 +775,39 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                                 <LuTriangleAlert className="h-3 w-3" /> {unit.lastError}
                               </p>
                             ) : null}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em]">
+                              {effectiveMode}
+                            </div>
+                            {policySummary.length ? (
+                              <div className="mt-2 text-[11px] uppercase tracking-[0.3em] text-slate-400">
+                                {policySummary.join(" · ")}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-xs text-slate-500">No policy overrides.</p>
+                            )}
+                            {!isConfigured ? (
+                              <p className="mt-2 text-xs text-amber-200">Configure this unit to enable ingestion.</p>
+                            ) : null}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <LuClock3 className="h-4 w-4" /> {scheduleLabel}
+                            </div>
+                            {scheduleKind === "INTERVAL" && scheduleInterval ? (
+                              <p className="text-xs text-slate-500">Interval · every {scheduleInterval} minutes</p>
+                            ) : (
+                              <p className="text-xs text-slate-500">Manual runs only.</p>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em]">
+                              {sinkLabel}
+                            </div>
+                            <p className="mt-2 text-xs text-slate-500">
+                              {isEnabled ? "Enabled" : isConfigured ? "Configured but disabled" : "Not configured"}
+                            </p>
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 text-slate-300">
@@ -573,46 +829,80 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleRunUnit(unit.unitId)}
-                                disabled={isBusy || !isAdmin}
-                                className="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {localIntent === "start" ? (
-                                  <LuRefreshCcw className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <LuCirclePlay className="h-3 w-3" />
-                                )}
-                                Run
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handlePauseUnit(unit.unitId)}
-                                disabled={isBusy || !isAdmin}
-                                className="inline-flex items-center gap-2 rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {localIntent === "pause" ? (
-                                  <LuRefreshCcw className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <LuCirclePause className="h-3 w-3" />
-                                )}
-                                Pause
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleResetUnit(unit.unitId)}
-                                disabled={isBusy || !isAdmin}
-                                className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {localIntent === "reset" ? (
-                                  <LuRefreshCcw className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <LuCircleSlash className="h-3 w-3" />
-                                )}
-                                Reset
-                              </button>
+                            <div className="flex flex-col gap-3">
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openConfigureDrawer(unit)}
+                                  disabled={!canMutate}
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <LuSlidersHorizontal className="h-3 w-3" />
+                                  Configure
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUnit(unit, !isEnabled)}
+                                  disabled={!canMutate || isBusy}
+                                  className={`inline-flex items-center gap-3 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] transition ${
+                                    isEnabled
+                                      ? "border-emerald-400/30 text-emerald-100"
+                                      : "border-slate-400/40 text-slate-200"
+                                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                                >
+                                  <span
+                                    className={`flex h-5 w-10 items-center rounded-full ${isEnabled ? "bg-emerald-500/70" : "bg-slate-600/80"}`}
+                                  >
+                                    <span
+                                      className={`h-4 w-4 rounded-full bg-white transition ${
+                                        isEnabled ? "translate-x-5" : "translate-x-1"
+                                      }`}
+                                    />
+                                  </span>
+                                  {isEnabled ? "Disable" : "Enable"}
+                                </button>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRunUnit(unit)}
+                                  disabled={isBusy || !canControl}
+                                  className="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {localIntent === "start" ? (
+                                    <LuRefreshCcw className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <LuCirclePlay className="h-3 w-3" />
+                                  )}
+                                  Run
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePauseUnit(unit)}
+                                  disabled={isBusy || !canControl}
+                                  className="inline-flex items-center gap-2 rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {localIntent === "pause" ? (
+                                    <LuRefreshCcw className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <LuCirclePause className="h-3 w-3" />
+                                  )}
+                                  Pause
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetUnit(unit)}
+                                  disabled={isBusy || !canControl}
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {localIntent === "reset" ? (
+                                    <LuRefreshCcw className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <LuCircleSlash className="h-3 w-3" />
+                                  )}
+                                  Reset
+                                </button>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -625,6 +915,179 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
           )}
         </main>
       </div>
+      {configuringUnit && configForm ? (
+        <div className="pointer-events-auto fixed inset-0 z-40 flex">
+          <div
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            aria-hidden="true"
+            onClick={() => {
+              if (!configSaving) {
+                closeConfigureDrawer();
+              }
+            }}
+          />
+          <div className="relative ml-auto flex h-full w-full max-w-md flex-col bg-slate-950/95 p-6 text-slate-100 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.4em] text-slate-400">Configure ingestion</p>
+                <h2 className="text-xl font-semibold text-white">{configuringUnit.displayName}</h2>
+                <p className="text-xs text-slate-400">{configuringUnit.datasetId ?? configuringUnit.unitId}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeConfigureDrawer}
+                disabled={configSaving}
+                className="rounded-full border border-white/20 p-2 text-slate-200 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Close configure drawer"
+              >
+                <LuX className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            {configError ? (
+              <div className="mt-4 rounded-2xl border border-rose-500/50 bg-rose-500/20 px-4 py-3 text-sm text-rose-100" role="alert">
+                {configError}
+              </div>
+            ) : null}
+            <div className="mt-5 flex-1 space-y-5 overflow-y-auto">
+              <section className="rounded-2xl border border-white/10 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Enable ingestion</p>
+                    <p className="text-[13px] text-slate-400">Toggle to allow schedules and manual runs.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateConfigForm({ enabled: !configForm.enabled })}
+                    className={`inline-flex items-center gap-3 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] transition ${
+                      configForm.enabled ? "border-emerald-400/40 text-emerald-100" : "border-slate-500/50 text-slate-200"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-5 w-10 items-center rounded-full ${configForm.enabled ? "bg-emerald-500/70" : "bg-slate-600/80"}`}
+                    >
+                      <span
+                        className={`h-4 w-4 rounded-full bg-white transition ${
+                          configForm.enabled ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </span>
+                    {configForm.enabled ? "Enabled" : "Disabled"}
+                  </button>
+                </div>
+              </section>
+              <section className="rounded-2xl border border-white/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Mode &amp; policy</p>
+                <div className="mt-3 space-y-3">
+                  <label className="block text-sm text-slate-200">
+                    Mode
+                    <select
+                      value={configForm.mode}
+                      onChange={(event) => updateConfigForm({ mode: event.target.value.toUpperCase() })}
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                    >
+                      {Array.from(
+                        new Set(
+                          (configuringUnit.supportedModes ?? [configuringUnit.defaultMode ?? "FULL"]).map((mode) =>
+                            (mode ?? "FULL").toUpperCase(),
+                          ),
+                        ),
+                      ).map((mode) => (
+                        <option key={mode} value={mode}>
+                          {mode === "INCREMENTAL" ? "Incremental (cursor)" : mode === "FULL" ? "Full refresh" : mode}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm text-slate-200">
+                    Policy (JSON)
+                    <textarea
+                      value={configForm.policyText}
+                      onChange={(event) => updateConfigForm({ policyText: event.target.value })}
+                      rows={4}
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      placeholder='{"cursorField":"updated","primaryKeys":["id"]}'
+                    />
+                    <span className="mt-1 block text-xs text-slate-400">
+                      Leave empty to use the endpoint defaults ({summarizePolicy(configuringUnit.defaultPolicy ?? null).join(" · ") || "no cursor"}).
+                    </span>
+                  </label>
+                </div>
+              </section>
+              <section className="rounded-2xl border border-white/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Schedule</p>
+                <div className="mt-3 space-y-3">
+                  <label className="block text-sm text-slate-200">
+                    Trigger
+                    <select
+                      value={configForm.scheduleKind}
+                      onChange={(event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() })}
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                    >
+                      <option value="MANUAL">Manual only</option>
+                      <option value="INTERVAL">Fixed interval</option>
+                    </select>
+                  </label>
+                  {configForm.scheduleKind === "INTERVAL" ? (
+                    <label className="block text-sm text-slate-200">
+                      Interval (minutes)
+                      <input
+                        type="number"
+                        min={1}
+                        value={configForm.scheduleIntervalMinutes}
+                        onChange={(event) =>
+                          updateConfigForm({
+                            scheduleIntervalMinutes: Math.max(1, Number(event.target.value) || 1),
+                          })
+                        }
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              </section>
+              <section className="rounded-2xl border border-white/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Sink</p>
+                <label className="mt-3 block text-sm text-slate-200">
+                  Destination
+                  <select
+                    value={configForm.sinkId}
+                    onChange={(event) => updateConfigForm({ sinkId: event.target.value })}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                  >
+                    {drawerSinkOptions.map((sink) => (
+                      <option key={sink} value={sink}>
+                        {formatIngestionSink(sink)}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-slate-400">
+                    Registered sinks determine where normalized records land (Knowledge Base is the default).
+                  </span>
+                </label>
+              </section>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeConfigureDrawer}
+                disabled={configSaving}
+                className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveConfig}
+                disabled={configSaving}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {configSaving ? <LuRefreshCcw className="h-4 w-4 animate-spin" /> : null}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -675,4 +1138,49 @@ function extractNested(payload: Record<string, unknown>, path: string): unknown 
     }
     return undefined;
   }, payload);
+}
+
+function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
+  const fallback = {
+    enabled: unit.config?.enabled ?? false,
+    mode: unit.config?.mode ?? unit.defaultMode ?? "FULL",
+    sinkId: unit.config?.sinkId ?? unit.sinkId ?? "kb",
+    scheduleKind: unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL",
+    scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
+    policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
+  };
+  const nextScheduleKind = normalizeScheduleKind(overrides.scheduleKind ?? fallback.scheduleKind);
+  const intervalValue =
+    nextScheduleKind === "INTERVAL"
+      ? overrides.scheduleIntervalMinutes ?? fallback.scheduleIntervalMinutes ?? 15
+      : null;
+  return {
+    endpointId: unit.endpointId,
+    datasetId: unit.datasetId ?? unit.unitId,
+    unitId: unit.unitId,
+    enabled: overrides.enabled ?? fallback.enabled,
+    mode: formatIngestionMode(overrides.mode ?? fallback.mode),
+    sinkId: (overrides.sinkId ?? fallback.sinkId ?? "kb").trim(),
+    scheduleKind: nextScheduleKind,
+    scheduleIntervalMinutes:
+      nextScheduleKind === "INTERVAL"
+        ? Math.max(1, Math.trunc(typeof intervalValue === "number" && !Number.isNaN(intervalValue) ? intervalValue : 15))
+        : null,
+    policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
+  };
+}
+
+function normalizeScheduleKind(kind?: string | null) {
+  return (kind ?? "MANUAL").toUpperCase() === "INTERVAL" ? "INTERVAL" : "MANUAL";
+}
+
+function stringifyPolicy(policy?: Record<string, unknown> | null) {
+  if (!policy) {
+    return "";
+  }
+  try {
+    return JSON.stringify(policy, null, 2);
+  } catch {
+    return "";
+  }
 }
