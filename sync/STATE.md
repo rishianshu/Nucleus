@@ -1,7 +1,7 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-core-model-and-semantic-binding-v1 (success @ 2025-11-27T06:05Z)
+cdm-ingestion-modes-and-sinks-v1 (success @ 2025-11-27T10:32Z)
 
 ## Last Run
 - slug: metadata-planner-endpoint-hooks-v1
@@ -21,6 +21,8 @@ LATER:
 - 
 
 ## Events
+- 2025-11-27T10:32Z run success (cdm-ingestion-modes-and-sinks-v1, CDM mode wiring + ci-check)
+- 2025-11-27T08:53Z run started (cdm-ingestion-modes-and-sinks-v1, boot + artifact sync)
 - 2025-11-27T06:05Z run success (cdm-core-model-and-semantic-binding-v1, CDM models + Jira bindings + docs/tests)
 - 2025-11-27T02:20Z run success (metadata-planner-endpoint-hooks-v1, planner hooks + Jira/JDBC subs + ci-check)
 - 2025-11-26T19:40Z run success (metadata-worker-capabilities-and-preview-v1, planner refactor + Jira preview + ci-check green)

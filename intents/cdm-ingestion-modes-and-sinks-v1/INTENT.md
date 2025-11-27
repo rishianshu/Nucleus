@@ -1,0 +1,42 @@
+- title: CDM ingestion modes & sink capabilities v1
+- slug: cdm-ingestion-modes-and-sinks-v1
+- type: feature
+- context:
+  - apps/metadata-api (GraphQL ingestion config + resolvers)
+  - apps/metadata-ui (ingestion config UI)
+  - platform/spark-ingestion/temporal/ingestion_worker.py (or equivalent)
+  - platform/spark-ingestion/runtime_common/ingestion/* (unit config, drivers)
+  - runtime_core/cdm/* (CDM work models + Jira mapper from cdm-core-model-and-semantic-binding-v1)
+  - docs/meta/nucleus-architecture/*
+- why_now: `cdm-core-model-and-semantic-binding-v1` defined a richer work CDM and Jira→CDM mappers, but ingestion still only supports a raw “source-shaped” mode. For semantic sources like Jira, we want ingestion units that can either store raw payloads or apply CDM mapping before writing to any compatible sink endpoint. This choice must be explicit in the ingestion config, enforced by capabilities (source + sink), and implemented in the Python data-plane.
+- scope_in:
+  - Extend ingestion unit configuration (GraphQL + DB/Prisma + Python config structs) to include a per-unit `mode: "raw" | "cdm"` field when `cdm_model_id` is available.
+  - Update ingestion config UI to:
+    - show a “Raw vs CDM” option only for units that advertise `cdm_model_id`,
+    - validate that a chosen sink endpoint supports the requested CDM model when `mode="cdm"`.
+  - Update Python ingestion worker / drivers so that:
+    - if `mode="raw"`, records are passed through to the sink as they are today;
+    - if `mode="cdm"`, the worker applies the appropriate CDM mapper (e.g. Jira→CDM work) before handing rows to the sink.
+  - Add sink capability flags so endpoints can declare CDM support (e.g., `sink.cdm.work.item`, `sink.cdm.work.project`, etc.), and enforce compatibility at config time.
+  - Document the CDM ingestion capability matrix (which sources and sinks currently support CDM) and the behavior of `mode="raw"` vs `mode="cdm"`.
+- scope_out:
+  - Creating dedicated CDM sinks or tables (handled in a follow-up CDM sink slug).
+  - Building a full UI for exploring CDM data.
+  - CDM mapping for non-Jira sources (they will see only raw mode until their mappers exist).
+- acceptance:
+  1. Ingestion unit configs persist a `mode` field (`"raw"` or `"cdm"`) for units that have `cdm_model_id`; existing units without CDM remain raw-only.
+  2. UI shows a “Raw vs CDM” toggle only when a unit has `cdm_model_id`, and blocks saving a CDM mode if the chosen sink does not support that CDM model.
+  3. Python ingestion worker applies Jira→CDM mapping only when `mode="cdm"` *and* the unit has `cdm_model_id`; otherwise it passes raw records through as before.
+  4. A small capability matrix doc lists which source units expose `cdm_model_id` and which sinks advertise CDM support, and ingestion config rejects invalid combinations.
+- constraints:
+  - No changes to the ingestion Temporal workflow signatures beyond adding mode/cdm-related fields into existing config payloads.
+  - No changes to endpoint registration flows in this slug (CDM-awareness is expressed via capabilities and unit metadata).
+  - Backward compatibility: existing ingestion configs that lack mode should default to `"raw"`.
+- non_negotiables:
+  - CDM transformation must occur in the Python data-plane, not in TS/GraphQL.
+  - CDM mode must only be selectable when both the source unit and sink endpoint explicitly signal CDM support.
+- refs:
+  - intents/cdm-core-model-and-semantic-binding-v1/*
+  - docs/meta/nucleus-architecture/INGESTION_AND_SINKS.md
+  - docs/meta/nucleus-architecture/endpoint-HLD.md
+- status: in-progress

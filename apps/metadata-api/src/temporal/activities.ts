@@ -450,7 +450,7 @@ export const activities: MetadataActivities = {
       checkpointVersion: checkpointState.version,
       stagingProviderId,
       policy,
-      mode: config?.mode ?? null,
+      mode: config?.runMode ?? null,
     };
   },
   async completeIngestionRun({

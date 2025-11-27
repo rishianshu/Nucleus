@@ -12,12 +12,15 @@ import type {
   GraphStore,
   TenantContext,
   IngestionUnitDescriptor,
+  IngestionSinkCapabilities,
 } from "@metadata/core";
 import {
   getIngestionDriver,
   getIngestionSink,
+  getIngestionSinkCapabilities,
   listRegisteredIngestionDrivers,
   listRegisteredIngestionSinks,
+  listRegisteredIngestionSinkDescriptors,
 } from "@metadata/core";
 import { resolveKbLabel, humanizeKbIdentifier } from "@metadata/client";
 import type { EndpointBuildResult, EndpointTemplate, EndpointTestResult } from "./types.js";
@@ -661,6 +664,7 @@ export const typeDefs = `#graphql
     datasetId: ID!
     unitId: ID!
     enabled: Boolean!
+    runMode: String!
     mode: String!
     sinkId: String!
     scheduleKind: String!
@@ -673,11 +677,17 @@ export const typeDefs = `#graphql
     endpointId: ID!
     unitId: ID!
     enabled: Boolean
+    runMode: String
     mode: String
     sinkId: String
     scheduleKind: String
     scheduleIntervalMinutes: Int
     policy: JSON
+  }
+
+  type IngestionSink {
+    id: ID!
+    supportedCdmModels: [String!]
   }
 
   type Query {
@@ -709,6 +719,7 @@ export const typeDefs = `#graphql
     endpointDatasets(endpointId: ID!, domain: String, projectSlug: String, first: Int = 100, after: ID): [MetadataRecord!]!
     endpointTemplates(family: MetadataEndpointFamily): [MetadataEndpointTemplate!]!
     ingestionUnits(endpointId: ID!): [IngestionUnit!]!
+    ingestionSinks: [IngestionSink!]!
     ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
     ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
     ingestionUnitConfigs(endpointId: ID!): [IngestionUnitConfig!]!
@@ -1400,6 +1411,7 @@ export function createResolvers(
         }
         return units.map((unit) => mapIngestionUnit(unit, endpointRowId, driverId, sinkId));
       },
+      ingestionSinks: () => listRegisteredIngestionSinkDescriptors().map(mapIngestionSinkDescriptor),
       ingestionStatuses: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
         enforceIngestionAdmin(ctx);
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
@@ -1678,12 +1690,26 @@ export function createResolvers(
         await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
         const existing = await configStore.getIngestionUnitConfig(endpointRowId, args.input.unitId);
         const sinkId = resolveIngestionSinkId(args.input.sinkId ?? existing?.sinkId ?? unit.defaultSinkId);
-        const supportedModes = inferSupportedModes(unit).map((entry) => entry.toUpperCase());
-        const requestedMode = (args.input.mode ?? existing?.mode ?? unit.defaultMode ?? inferDefaultMode(unit)).toUpperCase();
-        if (!supportedModes.includes(requestedMode)) {
+        const sinkCapabilities = getIngestionSinkCapabilities(sinkId);
+        const supportedRunModes = inferSupportedModes(unit).map((entry) => entry.toUpperCase());
+        const requestedRunMode = (args.input.runMode ?? existing?.runMode ?? unit.defaultMode ?? inferDefaultMode(unit)).toUpperCase();
+        if (!supportedRunModes.includes(requestedRunMode)) {
           throw new GraphQLError("Mode is not supported for this ingestion unit.", {
-            extensions: { code: "E_INGESTION_MODE_UNSUPPORTED", mode: requestedMode, unitId: args.input.unitId },
+            extensions: { code: "E_INGESTION_MODE_UNSUPPORTED", mode: requestedRunMode, unitId: args.input.unitId },
           });
+        }
+        const requestedDataMode = normalizeDataModeInput(args.input.mode ?? existing?.mode, unit.cdmModelId);
+        if (requestedDataMode === "cdm") {
+          if (!unit.cdmModelId) {
+            throw new GraphQLError("CDM mode requires a source unit with cdm_model_id.", {
+              extensions: { code: "E_CDM_MODE_UNAVAILABLE", unitId: args.input.unitId },
+            });
+          }
+          if (!sinkSupportsCdmModel(sinkCapabilities, unit.cdmModelId)) {
+            throw new GraphQLError("Selected sink does not support this CDM model.", {
+              extensions: { code: "E_CDM_SINK_UNSUPPORTED", sinkId, cdmModelId: unit.cdmModelId },
+            });
+          }
         }
         const scheduleKind = (args.input.scheduleKind ?? existing?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
         const scheduleIntervalMinutes =
@@ -1696,7 +1722,8 @@ export function createResolvers(
           datasetId,
           unitId: args.input.unitId,
           enabled: args.input.enabled ?? existing?.enabled ?? false,
-          mode: requestedMode,
+          runMode: requestedRunMode,
+          mode: requestedDataMode,
           sinkId,
           scheduleKind,
           scheduleIntervalMinutes,
@@ -3209,13 +3236,52 @@ function mapIngestionUnitConfig(config: IngestionUnitConfigRow, status: ReturnTy
     datasetId: config.datasetId,
     unitId: config.unitId,
     enabled: config.enabled,
-    mode: config.mode,
+    runMode: config.runMode,
+    mode: config.mode ?? "raw",
     sinkId: config.sinkId,
     scheduleKind: config.scheduleKind,
     scheduleIntervalMinutes: config.scheduleIntervalMinutes ?? null,
     policy: config.policy ?? null,
     lastStatus: status,
   };
+}
+
+function mapIngestionSinkDescriptor(entry: { id: string; capabilities: IngestionSinkCapabilities }) {
+  return {
+    id: entry.id,
+    supportedCdmModels: entry.capabilities.supportedCdmModels ?? [],
+  };
+}
+
+function normalizeDataModeInput(candidate: string | null | undefined, cdmModelId?: string | null) {
+  const normalized = typeof candidate === "string" ? candidate.toLowerCase() : null;
+  if (normalized === "cdm") {
+    if (!cdmModelId) {
+      throw new GraphQLError("CDM mode is not available for this ingestion unit.", {
+        extensions: { code: "E_CDM_MODE_UNSUPPORTED" },
+      });
+    }
+    return "cdm";
+  }
+  return "raw";
+}
+
+function sinkSupportsCdmModel(capabilities: IngestionSinkCapabilities | null, modelId: string) {
+  if (!capabilities?.supportedCdmModels || capabilities.supportedCdmModels.length === 0) {
+    return false;
+  }
+  return capabilities.supportedCdmModels.some((entry) => matchesCdmPattern(entry, modelId));
+}
+
+function matchesCdmPattern(pattern: string, target: string) {
+  if (pattern === "*" || pattern === target) {
+    return true;
+  }
+  if (pattern.endsWith("*")) {
+    const prefix = pattern.slice(0, -1);
+    return target.startsWith(prefix);
+  }
+  return pattern === target;
 }
 
 function mapIngestionStateRow(row: IngestionUnitStateRow) {

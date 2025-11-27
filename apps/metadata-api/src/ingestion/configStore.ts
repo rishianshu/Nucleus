@@ -6,6 +6,7 @@ export type IngestionUnitConfigRow = {
   datasetId: string;
   unitId: string;
   enabled: boolean;
+  runMode: string;
   mode: string;
   sinkId: string;
   scheduleKind: string;
@@ -18,6 +19,7 @@ type SaveConfigInput = {
   datasetId: string;
   unitId: string;
   enabled?: boolean;
+  runMode?: string;
   mode?: string;
   sinkId?: string;
   scheduleKind?: string;
@@ -73,6 +75,7 @@ export async function saveIngestionUnitConfig(input: SaveConfigInput): Promise<I
     update: {
       datasetId: normalized.datasetId,
       enabled: normalized.enabled,
+      runMode: normalized.runMode,
       mode: normalized.mode,
       sinkId: normalized.sinkId,
       scheduleKind: normalized.scheduleKind,
@@ -90,12 +93,21 @@ function normalizeConfigInput(input: SaveConfigInput) {
     datasetId: input.datasetId,
     unitId: input.unitId,
     enabled: input.enabled ?? false,
-    mode: input.mode ?? "FULL",
+    runMode: (input.runMode ?? "FULL").toUpperCase(),
+    mode: normalizeDataMode(input.mode),
     sinkId: input.sinkId ?? process.env.INGESTION_DEFAULT_SINK ?? "kb",
     scheduleKind: normalizeScheduleKind(input.scheduleKind),
     scheduleIntervalMinutes: normalizeInterval(input.scheduleKind, input.scheduleIntervalMinutes),
     policy: input.policy ?? null,
   };
+}
+
+function normalizeDataMode(mode?: string) {
+  if (typeof mode !== "string") {
+    return "raw";
+  }
+  const normalized = mode.toLowerCase();
+  return normalized === "cdm" ? "cdm" : "raw";
 }
 
 function normalizeScheduleKind(kind?: string) {

@@ -54,6 +54,8 @@ from metadata_service.utils import collect_rows, to_serializable
 from runtime_common.endpoints.factory import EndpointFactory
 from runtime_common.endpoints.registry import get_endpoint_class
 from runtime_common.endpoints.jira_http import run_jira_ingestion_unit
+from runtime_common.endpoints.jira_catalog import JIRA_DATASET_DEFINITIONS
+from metadata_service.cdm import jira_work_mapper
 from runtime_common.tools.sqlalchemy import SQLAlchemyTool
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
@@ -320,8 +322,12 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
             checkpoint=checkpoint,
             mode=normalized_mode or None,
         )
+        records = result.records
+        if str(request.mode or "").lower() == "cdm":
+            cdm_model_id = _resolve_cdm_model_id(request.unitId)
+            records = _apply_jira_cdm_mapping(request.unitId, result.records, cdm_model_id)
         logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
-        return IngestionUnitResult(newCheckpoint=result.cursor, stats=result.stats, records=result.records).__dict__
+        return IngestionUnitResult(newCheckpoint=result.cursor, stats=result.stats, records=records).__dict__
     stats = {
         "note": "python_ingestion_worker_stub",
         "stagingProviderId": request.stagingProviderId or "in_memory",
@@ -333,6 +339,76 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         newCheckpoint=checkpoint or {"lastRunAt": completed_at},
         stats=stats,
     ).__dict__
+
+
+def _resolve_cdm_model_id(unit_id: str) -> Optional[str]:
+    definition = JIRA_DATASET_DEFINITIONS.get(unit_id) or {}
+    ingestion_meta = definition.get("ingestion") or {}
+    return ingestion_meta.get("cdm_model_id")
+
+
+def _apply_jira_cdm_mapping(unit_id: str, records: List[Dict[str, Any]], cdm_model_id: Optional[str]) -> List[Dict[str, Any]]:
+    if not cdm_model_id:
+        return records
+    mapper = _resolve_jira_cdm_mapper(unit_id)
+    if mapper is None:
+        return records
+    mapped: List[Dict[str, Any]] = []
+    for record in records:
+        payload = record.get("payload") if isinstance(record, dict) else record
+        if not isinstance(payload, dict):
+            mapped.append(record)
+            continue
+        mapped_payload = mapper(payload)
+        serialized = _serialize_cdm_record(mapped_payload)
+        new_record = dict(record)
+        new_record["entityType"] = cdm_model_id
+        new_record["cdmModelId"] = cdm_model_id
+        new_record["payload"] = serialized
+        mapped.append(new_record)
+    return mapped
+
+
+def _resolve_jira_cdm_mapper(unit_id: str):
+    if unit_id == "jira.projects":
+        return lambda payload: jira_work_mapper.map_jira_project_to_cdm(payload)
+    if unit_id == "jira.users":
+        return lambda payload: jira_work_mapper.map_jira_user_to_cdm(payload)
+    if unit_id == "jira.issues":
+        return lambda payload: jira_work_mapper.map_jira_issue_to_cdm(payload, project_cdm_id=_extract_project_cdm(payload))
+    if unit_id == "jira.comments":
+        return lambda payload: jira_work_mapper.map_jira_comment_to_cdm(payload, item_cdm_id=_extract_item_cdm(payload))
+    if unit_id == "jira.worklogs":
+        return lambda payload: jira_work_mapper.map_jira_worklog_to_cdm(payload, item_cdm_id=_extract_item_cdm(payload))
+    return None
+
+
+def _extract_project_cdm(payload: Dict[str, Any]) -> str:
+    project = payload.get("project") or payload.get("projectKey") or payload.get("project_key")
+    key = ""
+    if isinstance(project, dict):
+        key = project.get("key") or ""
+    elif isinstance(project, str):
+        key = project
+    return f"cdm:work:project:jira:{str(key).upper()}"
+
+
+def _extract_item_cdm(payload: Dict[str, Any]) -> str:
+    issue = payload.get("issue") or payload.get("issueKey") or payload.get("issue_key")
+    key = ""
+    if isinstance(issue, dict):
+        key = issue.get("key") or ""
+    elif isinstance(issue, str):
+        key = issue
+    return f"cdm:work:item:jira:{str(key)}"
+
+
+def _serialize_cdm_record(record_obj: Any) -> Dict[str, Any]:
+    if hasattr(record_obj, "__dict__"):
+        return record_obj.__dict__
+    if hasattr(record_obj, "_asdict"):
+        return record_obj._asdict()
+    return dict(record_obj)
 
 
 @activity.defn(name="collectCatalogSnapshots")

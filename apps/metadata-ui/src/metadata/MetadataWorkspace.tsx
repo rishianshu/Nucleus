@@ -3943,7 +3943,7 @@ function IngestionSummaryCard({ dataset, className }: IngestionSummaryCardProps)
   const tone = ingestionStateTone[lastState];
   const lastRunRelative = lastStatus?.lastRunAt ? formatRelativeTime(lastStatus.lastRunAt) : "Never";
   const lastRunExact = lastStatus?.lastRunAt ? formatDateTime(lastStatus.lastRunAt) : null;
-  const modeLabel = formatIngestionMode(config.mode);
+  const modeLabel = formatIngestionMode(config.runMode);
   const scheduleLabel = formatIngestionSchedule(config.scheduleKind, config.scheduleIntervalMinutes);
   const sinkLabel = formatIngestionSink(config.sinkId);
   return (

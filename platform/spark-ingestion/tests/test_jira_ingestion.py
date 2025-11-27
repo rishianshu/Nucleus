@@ -8,10 +8,13 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_COMMON_SRC = ROOT / "packages" / "runtime-common" / "src"
 RUNTIME_CORE_SRC = ROOT / "packages" / "core" / "src"
+TEMPORAL_SRC = ROOT / "temporal"
 sys.path.insert(0, str(RUNTIME_COMMON_SRC))
 sys.path.insert(0, str(RUNTIME_CORE_SRC))
+sys.path.insert(0, str(TEMPORAL_SRC))
 
 from runtime_common.endpoints import jira_http
+from metadata_worker import _apply_jira_cdm_mapping
 
 
 class DummySession:
@@ -180,3 +183,26 @@ def test_worklogs_unit_uses_catalog_handler():
     assert result.records
     assert result.cursor["lastStarted"] == "2023-01-02T01:00:00.000+0000"
     assert result.stats["worklogsSynced"] == 1
+
+
+def test_apply_jira_cdm_mapping_for_issues():
+    record = {
+        "entityType": "work.item",
+        "logicalId": "jira::example::issue::ENG-1",
+        "scope": {"orgId": "dev"},
+        "payload": {
+            "key": "ENG-1",
+            "project": {"key": "ENG"},
+            "fields": {
+                "summary": "Issue one",
+                "reporter": {"accountId": "user-3", "displayName": "Reporter"},
+                "assignee": {"accountId": "user-2", "displayName": "Assignee"},
+                "labels": [],
+                "status": {"name": "To Do", "statusCategory": {"name": "New"}},
+            },
+        },
+    }
+    mapped = _apply_jira_cdm_mapping("jira.issues", [record], "cdm.work.item")
+    assert mapped[0]["entityType"] == "cdm.work.item"
+    assert mapped[0]["payload"]["cdm_id"].startswith("cdm:work:item:jira:ENG-1")
+    assert mapped[0]["payload"]["project_cdm_id"].endswith("ENG")

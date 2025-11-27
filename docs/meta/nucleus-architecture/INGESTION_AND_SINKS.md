@@ -47,6 +47,18 @@ This ensures orchestration never targets phantom datasets and keeps ingestion po
 
 `EndpointUnitDescriptor` now includes an optional `cdm_model_id` (surfaced to GraphQL/console as `cdmModelId`). When a source knows how to map its normalized records into the work CDM (`docs/meta/nucleus-architecture/CDM-WORK-MODEL.md`), it should tag each unit accordingly. Jira HTTP does this for projects/issues/users/comments/worklogs so downstream sinks and reporting can reason about the target schema. Units without a CDM mapping leave the field `null`, signalling that only KB enrichment (or a bespoke sink) is available.
 
+When a unit advertises `cdm_model_id`, ingestion configs now expose a **data mode** selector:
+
+- `raw` (default) keeps the existing source-shaped payloads.
+- `cdm` instructs the Python worker to apply the appropriate mapper (e.g., Jira→CDM work) before emitting rows.
+
+Because CDM rows typically land in downstream data stores rather than the KB, sinks also declare their CDM support. Sink registrations call `registerIngestionSink(id, factory, { supportedCdmModels: [...] })`, and the GraphQL API exposes these descriptors via the `ingestionSinks` query so the UI can filter/validate selections. When a user chooses `mode="cdm"`, the server enforces that:
+
+1. the source unit has `cdm_model_id`, and
+2. the chosen sink’s `supportedCdmModels` includes that model (exact match or prefix wildcard like `cdm.work.*`).
+
+The Temporal worker receives both the run-mode (full/incremental) and data-mode; Jira ingestion now produces CDM records (updating `entityType` and payload) only when the config requests it, keeping the raw path unchanged for other sinks.
+
 ## Python Worker Highlights
 
 - `metadata_worker.py` registers Temporal activities (`collectCatalogSnapshots`, `previewDataset`, `runIngestionUnit`).

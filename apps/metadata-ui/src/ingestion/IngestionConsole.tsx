@@ -32,6 +32,7 @@ import {
   IngestionState,
   IngestionUnitSummary,
   IngestionUnitConfigSummary,
+  IngestionSinkDescriptor,
   MetadataEndpointSummary,
 } from "../metadata/types";
 import { useDebouncedValue, useToastQueue } from "../metadata/hooks";
@@ -59,6 +60,7 @@ type UnitsQueryResult = {
   ingestionUnits: IngestionUnitSummary[];
   ingestionStatuses: IngestionStatusSummary[];
   ingestionUnitConfigs: IngestionUnitConfigSummary[];
+  ingestionSinks?: IngestionSinkDescriptor[];
 };
 
 type IngestionActionResult = {
@@ -86,6 +88,7 @@ type IngestionUnitRow = IngestionUnitSummary & {
 
 type ConfigFormState = {
   enabled: boolean;
+  runMode: string;
   mode: string;
   scheduleKind: string;
   scheduleIntervalMinutes: number;
@@ -95,6 +98,7 @@ type ConfigFormState = {
 
 type ConfigOverrides = {
   enabled?: boolean;
+  runMode?: string;
   mode?: string;
   sinkId?: string;
   scheduleKind?: string;
@@ -128,18 +132,50 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
   const [configForm, setConfigForm] = useState<ConfigFormState | null>(null);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [sinkDescriptors, setSinkDescriptors] = useState<IngestionSinkDescriptor[]>([]);
+  const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
+  const sinkSupportsCdm = useCallback(
+    (sinkId: string, modelId: string) => {
+      const descriptor = sinkDescriptorMap.get(sinkId);
+      if (!descriptor?.supportedCdmModels || descriptor.supportedCdmModels.length === 0) {
+        return false;
+      }
+      return descriptor.supportedCdmModels.some((pattern) => matchesCdmPattern(pattern, modelId));
+    },
+    [sinkDescriptorMap],
+  );
   const drawerSinkOptions = useMemo(() => {
     if (!configuringUnit || !configForm) {
       return [];
     }
-    return Array.from(
-      new Set(
-        [configForm.sinkId, configuringUnit.sinkId, "kb"].filter(
-          (value): value is string => typeof value === "string" && value.length > 0,
-        ),
-      ),
+    const baseOptions = sinkDescriptors.map((sink) => sink.id);
+    const extras = [configForm.sinkId, configuringUnit.sinkId, "kb"].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
     );
-  }, [configuringUnit, configForm]);
+    let merged = Array.from(new Set([...baseOptions, ...extras]));
+    if (configForm.mode === "cdm" && configuringUnit.cdmModelId) {
+      const compatible = merged.filter((sinkId) => sinkSupportsCdm(sinkId, configuringUnit.cdmModelId!));
+      if (compatible.length > 0) {
+        return compatible;
+      }
+    }
+    return merged;
+  }, [configuringUnit, configForm, sinkDescriptors, sinkSupportsCdm]);
+  const cdmCompatibleSinkIds = useMemo(() => {
+    if (!configuringUnit?.cdmModelId) {
+      return [];
+    }
+    return sinkDescriptors
+      .filter((sink) => sinkSupportsCdm(sink.id, configuringUnit.cdmModelId!))
+      .map((sink) => sink.id);
+  }, [configuringUnit, sinkDescriptors, sinkSupportsCdm]);
+  const cdmModeActive =
+    Boolean(configForm && configuringUnit?.cdmModelId && configForm.mode === "cdm");
+  const selectedSinkSupportsCdm =
+    !cdmModeActive || !configForm || !configuringUnit?.cdmModelId
+      ? true
+      : sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId);
+  const saveDisabled = !configForm || configSaving || (cdmModeActive && !selectedSinkSupportsCdm);
   const toastQueue = useToastQueue();
   const isAdmin = userRole === "ADMIN";
   const abortRef = useRef<AbortController | null>(null);
@@ -270,6 +306,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         });
         combined.sort((a, b) => a.displayName.localeCompare(b.displayName));
         setUnits(combined);
+        setSinkDescriptors(payload.ingestionSinks ?? []);
         setUnitsError(null);
       } catch (error) {
         if (controller.signal.aborted) {
@@ -289,6 +326,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
   useEffect(() => {
     if (!selectedEndpointId) {
       setUnits([]);
+      setSinkDescriptors([]);
       setUnitsError(null);
       return;
     }
@@ -453,7 +491,8 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     setConfiguringUnit(unit);
     setConfigForm({
       enabled: unit.config?.enabled ?? false,
-      mode: (unit.config?.mode ?? unit.defaultMode ?? "FULL").toUpperCase(),
+      runMode: (unit.config?.runMode ?? unit.defaultMode ?? "FULL").toUpperCase(),
+      mode: unit.config?.mode ?? "raw",
       scheduleKind: (unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase(),
       scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15,
       sinkId: unit.config?.sinkId ?? unit.sinkId,
@@ -485,6 +524,10 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         return;
       }
     }
+    if (configForm.mode === "cdm" && configuringUnit.cdmModelId && !sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId)) {
+      setConfigError("Select a sink that supports this CDM model.");
+      return;
+    }
     setConfigSaving(true);
     setConfigError(null);
     try {
@@ -492,7 +535,8 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         configuringUnit,
         {
           enabled: configForm.enabled,
-          mode: configForm.mode,
+          runMode: configForm.runMode,
+          mode: configForm.mode ?? "raw",
           sinkId: configForm.sinkId,
           scheduleKind: configForm.scheduleKind,
           scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
@@ -748,7 +792,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                       const config = unit.config;
                       const isConfigured = Boolean(config);
                       const isEnabled = Boolean(config?.enabled);
-                      const effectiveMode = formatIngestionMode(config?.mode ?? unit.defaultMode ?? "FULL");
+                      const effectiveMode = formatIngestionMode(config?.runMode ?? unit.defaultMode ?? "FULL");
                       const scheduleKind = (config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
                       const scheduleInterval =
                         scheduleKind === "INTERVAL"
@@ -981,8 +1025,8 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                   <label className="block text-sm text-slate-200">
                     Mode
                     <select
-                      value={configForm.mode}
-                      onChange={(event) => updateConfigForm({ mode: event.target.value.toUpperCase() })}
+                      value={configForm.runMode}
+                      onChange={(event) => updateConfigForm({ runMode: event.target.value.toUpperCase() })}
                       className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
                     >
                       {Array.from(
@@ -998,6 +1042,38 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                       ))}
                     </select>
                   </label>
+                  {configuringUnit.cdmModelId ? (
+                    <label className="block text-sm text-slate-200">
+                      Data format
+                      <select
+                        value={configForm.mode}
+                        onChange={(event) => {
+                          const nextMode = event.target.value;
+                          if (
+                            nextMode === "cdm" &&
+                            configuringUnit.cdmModelId &&
+                            cdmCompatibleSinkIds.length > 0 &&
+                            !sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId)
+                          ) {
+                            updateConfigForm({ mode: nextMode, sinkId: cdmCompatibleSinkIds[0] });
+                            return;
+                          }
+                          updateConfigForm({ mode: nextMode });
+                        }}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      >
+                        <option value="raw">Store raw source data</option>
+                        <option value="cdm" disabled={cdmCompatibleSinkIds.length === 0}>
+                          Apply CDM ({configuringUnit.cdmModelId})
+                        </option>
+                      </select>
+                      {configForm.mode === "cdm" && cdmCompatibleSinkIds.length === 0 ? (
+                        <span className="mt-1 block text-xs text-amber-300">
+                          No sinks currently support this CDM model.
+                        </span>
+                      ) : null}
+                    </label>
+                  ) : null}
                   <label className="block text-sm text-slate-200">
                     Policy (JSON)
                     <textarea
@@ -1054,15 +1130,26 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                     onChange={(event) => updateConfigForm({ sinkId: event.target.value })}
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
                   >
-                    {drawerSinkOptions.map((sink) => (
-                      <option key={sink} value={sink}>
-                        {formatIngestionSink(sink)}
-                      </option>
-                    ))}
+                    {drawerSinkOptions.map((sink) => {
+                      const disabled =
+                        configForm.mode === "cdm" && configuringUnit.cdmModelId
+                          ? !sinkSupportsCdm(sink, configuringUnit.cdmModelId)
+                          : false;
+                      return (
+                        <option key={sink} value={sink} disabled={disabled}>
+                          {formatIngestionSink(sink)}
+                        </option>
+                      );
+                    })}
                   </select>
                   <span className="mt-1 block text-xs text-slate-400">
                     Registered sinks determine where normalized records land (Knowledge Base is the default).
                   </span>
+                  {configForm.mode === "cdm" && configuringUnit.cdmModelId && !sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId) ? (
+                    <span className="mt-1 block text-xs text-amber-300">
+                      Select a sink that supports {configuringUnit.cdmModelId} to enable CDM mode.
+                    </span>
+                  ) : null}
                 </label>
               </section>
             </div>
@@ -1078,7 +1165,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
               <button
                 type="button"
                 onClick={handleSaveConfig}
-                disabled={configSaving}
+                disabled={saveDisabled}
                 className="inline-flex items-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {configSaving ? <LuRefreshCcw className="h-4 w-4 animate-spin" /> : null}
@@ -1143,7 +1230,8 @@ function extractNested(payload: Record<string, unknown>, path: string): unknown 
 function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
   const fallback = {
     enabled: unit.config?.enabled ?? false,
-    mode: unit.config?.mode ?? unit.defaultMode ?? "FULL",
+    runMode: unit.config?.runMode ?? unit.defaultMode ?? "FULL",
+    mode: unit.config?.mode ?? "raw",
     sinkId: unit.config?.sinkId ?? unit.sinkId ?? "kb",
     scheduleKind: unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL",
     scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
@@ -1159,7 +1247,8 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
     datasetId: unit.datasetId ?? unit.unitId,
     unitId: unit.unitId,
     enabled: overrides.enabled ?? fallback.enabled,
-    mode: formatIngestionMode(overrides.mode ?? fallback.mode),
+    runMode: formatIngestionMode(overrides.runMode ?? fallback.runMode),
+    mode: (overrides.mode ?? fallback.mode ?? "raw").toLowerCase(),
     sinkId: (overrides.sinkId ?? fallback.sinkId ?? "kb").trim(),
     scheduleKind: nextScheduleKind,
     scheduleIntervalMinutes:
@@ -1168,6 +1257,16 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
         : null,
     policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
   };
+}
+
+function matchesCdmPattern(pattern: string, target: string) {
+  if (pattern === "*" || pattern === target) {
+    return true;
+  }
+  if (pattern.endsWith("*")) {
+    return target.startsWith(pattern.slice(0, -1));
+  }
+  return pattern === target;
 }
 
 function normalizeScheduleKind(kind?: string | null) {

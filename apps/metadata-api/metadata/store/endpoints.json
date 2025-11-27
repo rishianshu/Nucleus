@@ -1,0 +1,33 @@
+[
+  {
+    "id": "seed-endpoint-sample-pg",
+    "sourceId": "seed-endpoint-sample-pg",
+    "name": "Sample Analytics Warehouse",
+    "description": "Seeded PostgreSQL endpoint used for metadata smoke tests.",
+    "verb": "POST",
+    "url": "postgresql://sample-host:5432/analytics",
+    "authPolicy": "basic",
+    "projectId": "global",
+    "domain": "postgres",
+    "labels": [
+      "sample",
+      "warehouse",
+      "jdbc"
+    ],
+    "config": {
+      "templateId": "jdbc.postgres.sample",
+      "parameters": {
+        "host": "sample-host",
+        "port": "5432",
+        "database": "analytics",
+        "username": "readonly",
+        "sslmode": "disable"
+      }
+    },
+    "capabilities": [],
+    "createdAt": "2025-11-27T10:13:29.913Z",
+    "updatedAt": "2025-11-27T10:13:29.913Z",
+    "deletedAt": null,
+    "deletionReason": null
+  }
+]

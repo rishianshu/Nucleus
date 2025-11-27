@@ -1,0 +1,4 @@
+- [x] Add sink capability metadata (source + sink), expose via GraphQL, and validate configs selecting `mode="cdm"`.
+- [x] Update ingestion console drawer to present a Raw vs CDM toggle + sink filtering for CDM-aware units.
+- [x] Thread data mode through Temporal activities + Python worker so Jira mapping only runs in CDM mode.
+- [x] Expand docs/tests (unit + integration) to cover the new modes/capability matrix.

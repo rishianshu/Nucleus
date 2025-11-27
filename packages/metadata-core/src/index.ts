@@ -384,11 +384,20 @@ export interface IngestionSink {
   abort?(context: IngestionSinkContext, error: unknown): Promise<void>;
 }
 
+export type IngestionSinkCapabilities = {
+  supportedCdmModels?: string[];
+};
+
 type IngestionDriverFactory = () => IngestionDriver;
 type IngestionSinkFactory = () => IngestionSink;
 
+type IngestionSinkRegistration = {
+  factory: IngestionSinkFactory;
+  capabilities: IngestionSinkCapabilities;
+};
+
 const ingestionDriverRegistry = new Map<string, IngestionDriverFactory>();
-const ingestionSinkRegistry = new Map<string, IngestionSinkFactory>();
+const ingestionSinkRegistry = new Map<string, IngestionSinkRegistration>();
 
 export function registerIngestionDriver(id: string, factory: IngestionDriverFactory): void {
   const normalized = id.trim();
@@ -407,22 +416,47 @@ export function listRegisteredIngestionDrivers(): string[] {
   return Array.from(ingestionDriverRegistry.keys());
 }
 
-export function registerIngestionSink(id: string, factory: IngestionSinkFactory): void {
+export function registerIngestionSink(
+  id: string,
+  factory: IngestionSinkFactory,
+  capabilities?: IngestionSinkCapabilities,
+): void {
   const normalized = id.trim();
   if (!normalized) {
     throw new Error("Ingestion sink id is required");
   }
-  ingestionSinkRegistry.set(normalized, factory);
+  ingestionSinkRegistry.set(normalized, {
+    factory,
+    capabilities: {
+      supportedCdmModels: capabilities?.supportedCdmModels ?? [],
+    },
+  });
 }
 
 export function getIngestionSink(id: string): IngestionSink | null {
   const normalized = id.trim();
-  const factory = ingestionSinkRegistry.get(normalized);
-  return factory ? factory() : null;
+  const registration = ingestionSinkRegistry.get(normalized);
+  return registration ? registration.factory() : null;
+}
+
+export function getIngestionSinkCapabilities(id: string): IngestionSinkCapabilities | null {
+  const normalized = id.trim();
+  const registration = ingestionSinkRegistry.get(normalized);
+  return registration ? registration.capabilities : null;
 }
 
 export function listRegisteredIngestionSinks(): string[] {
   return Array.from(ingestionSinkRegistry.keys());
+}
+
+export function listRegisteredIngestionSinkDescriptors(): Array<{
+  id: string;
+  capabilities: IngestionSinkCapabilities;
+}> {
+  return Array.from(ingestionSinkRegistry.entries()).map(([id, registration]) => ({
+    id,
+    capabilities: registration.capabilities,
+  }));
 }
 
 type GraphNodeRecord = {

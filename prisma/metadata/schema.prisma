@@ -151,7 +151,8 @@ model IngestionUnitConfig {
   datasetId               String
   unitId                  String
   enabled                 Boolean          @default(false)
-  mode                    String           @default("FULL")
+  runMode                 String           @default("FULL")
+  mode                    String           @default("raw")
   sinkId                  String           @default("kb")
   scheduleKind            String           @default("MANUAL")
   scheduleIntervalMinutes Int?

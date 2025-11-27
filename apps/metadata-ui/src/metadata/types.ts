@@ -31,6 +31,7 @@ export type CatalogDataset = BaseMetadataDataset & {
     id: string;
     unitId: string;
     enabled: boolean;
+    runMode: string;
     mode: string;
     sinkId: string;
     scheduleKind: string;
@@ -47,6 +48,11 @@ export type CatalogDataset = BaseMetadataDataset & {
 export type DatasetPreviewResult = {
   rows: Array<Record<string, unknown>>;
   sampledAt?: string | null;
+};
+
+export type IngestionSinkDescriptor = {
+  id: string;
+  supportedCdmModels?: string[] | null;
 };
 
 export type EndpointDatasetRecord = {
@@ -241,6 +247,7 @@ export type IngestionUnitConfigSummary = {
   datasetId: string;
   unitId: string;
   enabled: boolean;
+  runMode: string;
   mode: string;
   sinkId: string;
   scheduleKind: string;

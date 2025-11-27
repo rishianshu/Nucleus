@@ -7,6 +7,8 @@ import {
   FileMetadataStore,
   createGraphStore,
   registerIngestionDriver,
+  registerIngestionSink,
+  type IngestionSink,
   type IngestionUnitDescriptor,
   type MetadataEndpointTemplateDescriptor,
 } from "@metadata/core";
@@ -32,6 +34,13 @@ const listUnitStatesStub = mock.fn(async () => []);
 const configStoreRows = new Map<string, IngestionUnitConfigRow>();
 
 registerDefaultIngestionSinks();
+class NullSink implements IngestionSink {
+  async begin() {}
+  async writeBatch() {
+    return {};
+  }
+}
+registerIngestionSink("raw-only-test", () => new NullSink());
 const JIRA_TEMPLATE = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
 const JIRA_TEMPLATE_EXTRAS = (JIRA_TEMPLATE?.extras ?? {}) as Record<string, unknown>;
 const TEMPLATE_UNITS = Array.isArray(JIRA_TEMPLATE_EXTRAS.ingestionUnits)
@@ -173,6 +182,80 @@ test("startIngestion bypass path succeeds for Jira units", async (t) => {
   assert.equal(markUnitStateStub.mock.callCount(), 1);
 });
 
+test("configureIngestionUnit rejects CDM mode when sink lacks capability", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-config-cdm-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext({ bypassWrites: true, roles: ["viewer", "editor", "admin"] });
+  const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
+  assert.ok(jiraTemplate);
+  await store.saveEndpointTemplates([jiraTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "jira-endpoint-cdm",
+    name: "Jira Dev",
+    verb: "GET",
+    url: "https://example.atlassian.net",
+    projectId: ctx.auth.projectId,
+    domain: "work.jira",
+    config: {
+      templateId: "jira.http",
+      parameters: {
+        base_url: "https://example.atlassian.net",
+        auth_type: "basic",
+        username: "bot@example.com",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  await seedCatalogDataset(store, endpoint.id!, "jira.issues");
+  await assert.rejects(
+    resolvers.Mutation.configureIngestionUnit(
+      null,
+      {
+        input: {
+          endpointId: endpoint.id!,
+          unitId: "jira.issues",
+          runMode: "FULL",
+          mode: "cdm",
+          sinkId: "raw-only-test",
+        },
+      },
+      ctx as any,
+    ),
+    (err: any) => {
+      assert.ok(err instanceof Error);
+      assert.match(err.message, /Selected sink does not support/);
+      return true;
+    },
+  );
+});
+
+test("ingestionSinks exposes registered sink capabilities", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-sinks-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const sinks = await resolvers.Query.ingestionSinks();
+  assert.ok(Array.isArray(sinks));
+  const kbSink = sinks.find((sink) => sink.id === "kb");
+  assert.ok(kbSink);
+  assert.ok(kbSink?.supportedCdmModels?.includes("cdm.work.item"));
+});
+
 function stateStoreOverrides() {
   return {
     getUnitState: getUnitStateStub,
@@ -204,6 +287,7 @@ function configStoreOverrides() {
       datasetId: string;
       unitId: string;
       enabled?: boolean;
+      runMode?: string;
       mode?: string;
       sinkId?: string;
       scheduleKind?: string;
@@ -216,7 +300,8 @@ function configStoreOverrides() {
         datasetId: input.datasetId,
         unitId: input.unitId,
         enabled: input.enabled ?? false,
-        mode: (input.mode ?? "FULL").toUpperCase(),
+        runMode: (input.runMode ?? "FULL").toUpperCase(),
+        mode: (input.mode ?? "raw"),
         sinkId: input.sinkId ?? "kb",
         scheduleKind: (input.scheduleKind ?? "MANUAL").toUpperCase(),
         scheduleIntervalMinutes:
