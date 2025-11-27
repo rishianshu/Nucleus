@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple, TYPE_CH
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame
-    from metadata_service.models import CatalogSnapshot
+    from metadata_service.models import CatalogSnapshot, MetadataConfigValidationResult, MetadataPlanningResult
     from runtime_common.tools.base import ExecutionTool
     from runtime_common.query.plan import QueryPlan, QueryResult
 
@@ -332,6 +332,8 @@ class MetadataSubsystem(Protocol):
 
     def capabilities(self) -> Dict[str, Any]: ...
     def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]: ...
+    def validate_metadata_config(self, *, parameters: Dict[str, Any]) -> "MetadataConfigValidationResult": ...
+    def plan_metadata_jobs(self, *, parameters: Dict[str, Any], request: Dict[str, Any], logger) -> "MetadataPlanningResult": ...
 
 
 @runtime_checkable

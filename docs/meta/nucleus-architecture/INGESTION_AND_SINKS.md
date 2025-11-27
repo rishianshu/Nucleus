@@ -30,6 +30,7 @@ See the dedicated Source–Staging–Sink spec for diagrams and code pointers. E
    - Shows status info sourced from Prisma + KV stats.
 4. **Metadata planner** (`metadata_service/planning.py`):
    - Centralized helper that inspects endpoint config/capabilities and returns planned `MetadataJob`s.
+   - Metadata subsystems expose optional hooks (`validate_metadata_config`, `plan_metadata_jobs`) so the planner delegates source-specific logic (Jira HTTP, JDBC, etc.) without hard-coded branches.
    - Python worker simply calls `plan_metadata_jobs(request, logger)` instead of branching on template ids.
 
 ## Metadata-first contract

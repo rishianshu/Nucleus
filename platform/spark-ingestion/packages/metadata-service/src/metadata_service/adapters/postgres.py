@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, TYPE_CHECKING
 
-from metadata_service.models import CatalogSnapshot
+from metadata_service.adapters.jdbc_planner import plan_jdbc_metadata_jobs
+from metadata_service.models import CatalogSnapshot, MetadataConfigValidationResult, MetadataPlanningResult
 from metadata_service.normalizers import PostgresMetadataNormalizer
 from metadata_service.utils import collect_rows, escape_literal
 
@@ -87,6 +88,19 @@ class PostgresMetadataSubsystem(MetadataSubsystem):
                 "dialect": "postgres",
             },
         )
+
+    def validate_metadata_config(self, *, parameters: Dict[str, Any]) -> MetadataConfigValidationResult:
+        normalized = dict(parameters or {})
+        return MetadataConfigValidationResult(ok=True, normalized_parameters=normalized)
+
+    def plan_metadata_jobs(
+        self,
+        *,
+        parameters: Dict[str, Any],
+        request: Any,
+        logger,
+    ) -> MetadataPlanningResult:
+        return plan_jdbc_metadata_jobs(parameters, request, logger)
 
     # ------------------------------------------------------------------ helpers --
     def _load_columns(self, schema: str, table: str) -> List[Dict[str, Any]]:

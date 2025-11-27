@@ -72,7 +72,7 @@
    - Create adapter in `metadata_service.adapters`.
    - Implement environment probing, dataset manifests, API catalogs, and reuse/extend normalizers.
    - Export adapter via `metadata_service.adapters.__init__`.
-   - The subsystem is the canonical place to describe datasets; ingestion units later reuse these manifests. Subsystems may also expose optional helpers such as `preview_dataset` so the worker can delegate HTTP/semantic previews. Run collection at least once in dev/tests before enabling ingestion so catalog state exists.
+   - The subsystem is the canonical place to describe datasets; ingestion units later reuse these manifests. Subsystems may also expose optional helpers such as `validate_metadata_config`, `plan_metadata_jobs`, or `preview_dataset` so the worker can delegate HTTP/semantic behavior. Run collection at least once in dev/tests before enabling ingestion so catalog state exists.
 4. **Wire Ingestion**
    - Extend ingestion registry (TS) if new driver/sink combos needed.
    - Implement Python worker helpers to fetch data (Source → Staging → Sink), returning normalized records/batches and leveraging the endpoint’s unit/slice planning.

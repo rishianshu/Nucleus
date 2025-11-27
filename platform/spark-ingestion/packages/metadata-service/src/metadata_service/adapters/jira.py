@@ -5,8 +5,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
-from metadata_service.models import CatalogSnapshot
+from metadata_service.collector import MetadataJob
+from metadata_service.models import CatalogSnapshot, MetadataConfigValidationResult, MetadataPlanningResult
 from metadata_service.normalizers import JiraMetadataNormalizer
+from metadata_service.utils import safe_upper
+from runtime_core import MetadataTarget
 
 try:  # pragma: no cover - imported dynamically inside the Temporal worker
     from runtime_common.endpoints.base import MetadataSubsystem  # type: ignore
@@ -103,6 +106,58 @@ class JiraMetadataSubsystem(MetadataSubsystem):
 
     def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:  # pragma: no cover - future use
         raise NotImplementedError("Jira ingestion is handled via the ingestion workflow pipeline.")
+
+    def validate_metadata_config(self, *, parameters: Dict[str, Any]) -> MetadataConfigValidationResult:
+        params = self._resolved_parameters(parameters or {})
+        errors: List[str] = []
+        base_url = params.get("base_url") or params.get("connection_url")
+        if not base_url:
+            errors.append("base_url is required for Jira metadata collection.")
+        elif "base_url" not in params:
+            params["base_url"] = base_url
+        return MetadataConfigValidationResult(
+            ok=not errors,
+            errors=errors,
+            normalized_parameters=params,
+        )
+
+    def plan_metadata_jobs(
+        self,
+        *,
+        parameters: Dict[str, Any],
+        request: Any,
+        logger,
+    ) -> MetadataPlanningResult:
+        datasets = self.capabilities().get("datasets") or []
+        if not datasets:
+            logger.warn(event="metadata_no_http_datasets", endpoint=getattr(request, "endpointId", None))
+            return MetadataPlanningResult(jobs=[])
+        source_id = getattr(request, "sourceId", None) or getattr(request, "endpointId", None)
+        project_id = getattr(request, "projectId", None)
+        endpoint_cls = self.endpoint.__class__
+        jobs: List[MetadataJob] = []
+        for dataset_id in datasets:
+            namespace, entity = _split_dataset_identifier(dataset_id)
+            table_cfg = {
+                "schema": namespace.lower(),
+                "table": entity,
+                "dataset": dataset_id,
+                "mode": "full",
+                "metadata_project_id": project_id,
+            }
+            endpoint = endpoint_cls(
+                tool=None,
+                endpoint_cfg=parameters,
+                table_cfg=table_cfg,
+                metadata_access=self,
+            )
+            target = MetadataTarget(
+                source_id=source_id,
+                namespace=safe_upper(namespace),
+                entity=safe_upper(entity),
+            )
+            jobs.append(MetadataJob(target=target, artifact=table_cfg, endpoint=endpoint))
+        return MetadataPlanningResult(jobs=jobs)
 
     def preview_dataset(
         self,
@@ -286,6 +341,13 @@ def _collect_preview_rows(
         else:
             rows.append(record)
     return rows
+
+
+def _split_dataset_identifier(dataset_id: str) -> tuple[str, str]:
+    if not dataset_id or "." not in dataset_id:
+        return (dataset_id or "dataset", dataset_id or "dataset")
+    namespace, entity = dataset_id.split(".", 1)
+    return namespace, entity
 
 def _safe_fetch(session, base_url: str, path: str):
     if jira_runtime is None:

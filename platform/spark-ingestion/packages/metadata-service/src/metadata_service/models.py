@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -118,6 +118,20 @@ class DataProcessMetadata:
     outputs: List[str] = field(default_factory=list)
     owners: List[str] = field(default_factory=list)
     extras: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MetadataConfigValidationResult:
+    ok: bool
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    normalized_parameters: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MetadataPlanningResult:
+    jobs: List[Any]
+    cleanup_callbacks: List[Callable[[], None]] = field(default_factory=list)
 
 
 @dataclass

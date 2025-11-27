@@ -1,0 +1,1 @@
+- 2025-11-26T20:47Z — Planner hooks + preview-ready subs landed (planner refactor, Jira/JDBC hooks, ci-check).

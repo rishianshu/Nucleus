@@ -1,13 +1,13 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-metadata-worker-capabilities-and-preview-v1 (success @ 2025-11-26T19:40Z)
+metadata-planner-endpoint-hooks-v1 (success @ 2025-11-27T02:20Z)
 
 ## Last Run
-- slug: metadata-worker-capabilities-and-preview-v1
+- slug: metadata-planner-endpoint-hooks-v1
 - status: success
-- duration: ~1.5h (planner refactor + HTTP preview wiring + docs/tests)
-- tests: pytest platform/spark-ingestion/tests/test_metadata_planning.py; pytest platform/spark-ingestion/tests/test_metadata_preview.py; pnpm check:metadata-auth; pnpm check:metadata-lifecycle; pnpm ci-check
+- duration: ~3h (planner hook refactor + Jira/JDBC subs + docs/tests/ci)
+- tests: pytest platform/spark-ingestion/tests/test_metadata_planning.py platform/spark-ingestion/tests/test_metadata_preview.py; pnpm ci-check
 - commits: not yet
 - decisions: 0
 - next_step: none (slug closed)
@@ -21,7 +21,9 @@ LATER:
 - 
 
 ## Events
+- 2025-11-27T02:20Z run success (metadata-planner-endpoint-hooks-v1, planner hooks + Jira/JDBC subs + ci-check)
 - 2025-11-26T19:40Z run success (metadata-worker-capabilities-and-preview-v1, planner refactor + Jira preview + ci-check green)
+- 2025-11-26T19:44Z run started (metadata-planner-endpoint-hooks-v1, boot + artifact sync)
 - 2025-11-26T19:35Z run success (ingestion-config-and-jira-units-v1, Jira issue ingestion via /search/jql + ingestion config UI + ci-check green)
 - 2025-11-26T19:14Z run started (metadata-worker-capabilities-and-preview-v1, boot + artifact sync)
 - 2025-11-26T09:53Z run started (ingestion-config-and-jira-units-v1, boot + context sync)
