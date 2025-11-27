@@ -48,6 +48,8 @@ Schema describing each Jira dataset. Key fields:
 - `_merge_fields`: Append runtime-discovered fields without duplicating static schema entries.
 - `_materialize_api_endpoint`: Resolve API metadata from `API_LIBRARY` and attach fully-qualified URLs.
 - `_resolve_value_catalog`: Pull the requested catalog (statuses/priorities/issue types/API inventory) from the environment for embedding into dataset properties.
+- `_normalize_ingestion_filter` / `_apply_ingestion_filter`: Convert persisted filter JSON (projects/statuses/assignees/updatedFrom) into runtime parameters consumed by the Jira REST calls.
+- `JiraTransientState`: Maintains per-project cursors (`projects.<KEY>.lastUpdated`) so incremental runs can resume per dimension while still emitting a global cursor for legacy consumers.
 
 ## Environment Payload Contract
 ```jsonc
@@ -78,6 +80,10 @@ Schema describing each Jira dataset. Key fields:
   }
 }
 ```
+
+## Filter + transient-state interoperability
+- **Filter ingestion**: GraphQL writes `IngestionUnitConfig.filter` as a JSON blob; the Jira runtime normalizes it into strongly typed lists and enforces the filters at the REST layer (project-limited JQL, status/assignee clauses, initial watermark).
+- **Transient state**: Stored alongside checkpoints in KV; Temporal loads it before each run, the Jira handler updates per-project entries during `_sync_jira_issues`, and the updated payload is persisted after successful runs. Missing entries imply “new dimension” and trigger `filter.updatedFrom` bootstrap semantics.
 
 ## Extension Hooks
 - **New Dictionaries:** Add API fetch + `_simplify_<entity>` helper, register `value_source` in `DATASET_DEFINITIONS`.

@@ -660,6 +660,43 @@ export const typeDefs = `#graphql
     message: String
   }
 
+  type JiraIngestionFilter {
+    projectKeys: [String!]
+    statuses: [String!]
+    assigneeIds: [String!]
+    updatedFrom: DateTime
+  }
+
+  input JiraIngestionFilterInput {
+    projectKeys: [String!]
+    statuses: [String!]
+    assigneeIds: [String!]
+    updatedFrom: DateTime
+  }
+
+  type JiraFilterProjectOption {
+    key: String!
+    name: String
+  }
+
+  type JiraFilterUserOption {
+    accountId: String!
+    displayName: String
+    email: String
+  }
+
+  type JiraFilterStatusOption {
+    id: String!
+    name: String!
+    category: String
+  }
+
+  type JiraIngestionFilterOptions {
+    projects: [JiraFilterProjectOption!]!
+    users: [JiraFilterUserOption!]!
+    statuses: [JiraFilterStatusOption!]!
+  }
+
   type IngestionUnitConfig {
     id: ID!
     endpointId: ID!
@@ -673,6 +710,7 @@ export const typeDefs = `#graphql
     scheduleKind: String!
     scheduleIntervalMinutes: Int
     policy: JSON
+    jiraFilter: JiraIngestionFilter
     lastStatus: IngestionStatus
   }
 
@@ -687,6 +725,7 @@ export const typeDefs = `#graphql
     scheduleKind: String
     scheduleIntervalMinutes: Int
     policy: JSON
+    jiraFilter: JiraIngestionFilterInput
   }
 
   type IngestionSink {
@@ -805,6 +844,7 @@ export const typeDefs = `#graphql
     ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
     ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
     ingestionUnitConfigs(endpointId: ID!): [IngestionUnitConfig!]!
+    jiraIngestionFilterOptions(endpointId: ID!): JiraIngestionFilterOptions!
     cdmWorkProjects: [CdmWorkProject!]!
     cdmWorkItems(filter: CdmWorkItemFilter, first: Int = 25, after: String): CdmWorkItemConnection!
     cdmWorkItem(cdmId: ID!): CdmWorkItemDetail
@@ -1590,6 +1630,26 @@ export function createResolvers(
         const stateMap = new Map(stateRows.map((row) => [row.unitId, mapIngestionStateRow(row)]));
         return configs.map((config) => mapIngestionUnitConfig(config, stateMap.get(config.unitId) ?? null));
       },
+      jiraIngestionFilterOptions: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        if (!isJiraEndpoint(endpoint)) {
+          return { projects: [], users: [], statuses: [] };
+        }
+        const [projectRecords, statusRecords, userRecords] = await Promise.all([
+          fetchJiraDimensionRecords(store, endpoint, "jira.projects", 500),
+          fetchJiraDimensionRecords(store, endpoint, "jira.statuses", 500),
+          fetchJiraDimensionRecords(store, endpoint, "jira.users", 1000),
+        ]);
+        const projects = dedupeOptions(projectRecords.map(mapJiraProjectOption), (option) => option.key);
+        const statuses = dedupeOptions(statusRecords.map(mapJiraStatusOption), (option) => option.id);
+        const users = dedupeOptions(userRecords.map(mapJiraUserOption), (option) => option.accountId);
+        return {
+          projects,
+          statuses,
+          users,
+        };
+      },
     },
     Mutation: {
       upsertMetadataRecord: async (_parent: unknown, args: { input: GraphQLMetadataRecordInput }, ctx: ResolverContext) => {
@@ -1820,6 +1880,12 @@ export function createResolvers(
         const { driver } = resolveIngestionDriver(endpoint);
         const unit = await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.input.unitId);
         const datasetId = unit.datasetId ?? unit.unitId;
+        const supportsJiraFilters = isJiraDatasetId(datasetId);
+        if (!supportsJiraFilters && args.input.jiraFilter !== undefined) {
+          throw new GraphQLError("Filters are only supported for Jira ingestion units.", {
+            extensions: { code: "E_INGESTION_FILTER_UNSUPPORTED", unitId: args.input.unitId },
+          });
+        }
         await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
         const existing = await configStore.getIngestionUnitConfig(endpointRowId, args.input.unitId);
         const sinkId = resolveIngestionSinkId(args.input.sinkId ?? existing?.sinkId ?? unit.defaultSinkId);
@@ -1866,6 +1932,13 @@ export function createResolvers(
             ? Math.max(1, args.input.scheduleIntervalMinutes ?? existing?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15)
             : null;
         const policy = (args.input.policy as Record<string, unknown> | null | undefined) ?? existing?.policy ?? unit.defaultPolicy ?? null;
+        let filterPayload: Record<string, unknown> | null = supportsJiraFilters ? existing?.filter ?? null : null;
+        if (supportsJiraFilters && args.input.jiraFilter !== undefined) {
+          const normalizedFilter = normalizeJiraFilterInputValue(args.input.jiraFilter);
+          filterPayload = serializeJiraFilterRow(normalizedFilter);
+        } else if (!supportsJiraFilters) {
+          filterPayload = null;
+        }
         const saved = await configStore.saveIngestionUnitConfig({
           endpointId: endpointRowId,
           datasetId,
@@ -1878,6 +1951,7 @@ export function createResolvers(
           scheduleKind,
           scheduleIntervalMinutes,
           policy,
+          filter: filterPayload,
         });
         await stateStore.ensureUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
         if (saved.enabled && saved.scheduleKind === "INTERVAL") {
@@ -2588,6 +2662,14 @@ type IngestionUnitConfigInput = {
   scheduleKind?: string | null;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
+  jiraFilter?: JiraIngestionFilterInputValue | null;
+};
+
+type JiraIngestionFilterInputValue = {
+  projectKeys?: string[] | null;
+  statuses?: string[] | null;
+  assigneeIds?: string[] | null;
+  updatedFrom?: string | null;
 };
 
 type PageInfo = {
@@ -3412,8 +3494,152 @@ function mapIngestionUnitConfig(config: IngestionUnitConfigRow, status: ReturnTy
     scheduleKind: config.scheduleKind,
     scheduleIntervalMinutes: config.scheduleIntervalMinutes ?? null,
     policy: config.policy ?? null,
+    jiraFilter: mapJiraFilter(config.filter),
     lastStatus: status,
   };
+}
+
+function mapJiraFilter(raw: Record<string, unknown> | null): JiraIngestionFilterRow | null {
+  return deserializeJiraFilter(raw);
+}
+
+function deserializeJiraFilter(raw: Record<string, unknown> | null | undefined): JiraIngestionFilterRow | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidates = raw as Record<string, unknown>;
+  const projectKeys = normalizeStringArray(candidates.projectKeys ?? candidates.project_keys);
+  const statuses = normalizeStringArray(candidates.statuses);
+  const assigneeIds = normalizeStringArray(candidates.assigneeIds ?? candidates.assignees);
+  const updatedFrom = normalizeDateOutputValue(candidates.updatedFrom ?? candidates.updated_from);
+  const filter: JiraIngestionFilterRow = {};
+  if (projectKeys) {
+    filter.projectKeys = projectKeys;
+  }
+  if (statuses) {
+    filter.statuses = statuses;
+  }
+  if (assigneeIds) {
+    filter.assigneeIds = assigneeIds;
+  }
+  if (updatedFrom) {
+    filter.updatedFrom = updatedFrom;
+  }
+  return Object.keys(filter).length ? filter : null;
+}
+
+function normalizeJiraFilterInputValue(value?: JiraIngestionFilterInputValue | null): JiraIngestionFilterRow | null {
+  if (!value) {
+    return null;
+  }
+  const filter: JiraIngestionFilterRow = {};
+  const projectKeys = normalizeStringArray(value.projectKeys);
+  const statuses = normalizeStringArray(value.statuses);
+  const assigneeIds = normalizeStringArray(value.assigneeIds);
+  const updatedFrom = normalizeDateInputValue(value.updatedFrom);
+  if (projectKeys) {
+    filter.projectKeys = projectKeys;
+  }
+  if (statuses) {
+    filter.statuses = statuses;
+  }
+  if (assigneeIds) {
+    filter.assigneeIds = assigneeIds;
+  }
+  if (updatedFrom) {
+    filter.updatedFrom = updatedFrom;
+  }
+  return Object.keys(filter).length ? filter : null;
+}
+
+function serializeJiraFilterRow(value: JiraIngestionFilterRow | null): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  const payload: Record<string, unknown> = {};
+  if (Array.isArray(value.projectKeys) && value.projectKeys.length) {
+    payload.projectKeys = value.projectKeys;
+  }
+  if (Array.isArray(value.statuses) && value.statuses.length) {
+    payload.statuses = value.statuses;
+  }
+  if (Array.isArray(value.assigneeIds) && value.assigneeIds.length) {
+    payload.assigneeIds = value.assigneeIds;
+  }
+  if (value.updatedFrom) {
+    payload.updatedFrom = value.updatedFrom;
+  }
+  return Object.keys(payload).length ? payload : null;
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = Array.from(
+    new Set(
+      value
+        .map((entry) => normalizeStringValue(entry))
+        .filter((entry): entry is string => Boolean(entry)),
+    ),
+  );
+  return normalized.length ? normalized : undefined;
+}
+
+function normalizeStringValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return String(value);
+  }
+  return null;
+}
+
+function normalizeDateInputValue(value: unknown): string | null {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+    return value.toISOString();
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    const candidate = new Date(trimmed);
+    if (Number.isNaN(candidate.getTime())) {
+      return null;
+    }
+    return candidate.toISOString();
+  }
+  return null;
+}
+
+function normalizeDateOutputValue(value: unknown): string | null {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    const candidate = new Date(trimmed);
+    if (Number.isNaN(candidate.getTime())) {
+      return null;
+    }
+    return candidate.toISOString();
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  return null;
 }
 
 function mapIngestionSinkDescriptor(entry: { id: string; capabilities: IngestionSinkCapabilities }) {
@@ -3453,6 +3679,13 @@ function matchesCdmPattern(pattern: string, target: string) {
   }
   return pattern === target;
 }
+
+type JiraIngestionFilterRow = {
+  projectKeys?: string[];
+  statuses?: string[];
+  assigneeIds?: string[];
+  updatedFrom?: string | null;
+};
 
 function mapIngestionStateRow(row: IngestionUnitStateRow) {
   return {
@@ -5288,6 +5521,23 @@ function applyJiraEndpointDefaults(descriptor: MetadataEndpointDescriptor) {
   descriptor.labels = Array.from(labelSet);
 }
 
+function isJiraEndpoint(endpoint: MetadataEndpointDescriptor) {
+  const config = normalizePayload(endpoint.config);
+  const templateId = typeof config?.templateId === "string" ? config.templateId : null;
+  if (templateId && templateId.startsWith("jira.")) {
+    return true;
+  }
+  return (endpoint.labels ?? []).some((label) => typeof label === "string" && label.toLowerCase().includes("jira"));
+}
+
+function isJiraDatasetId(value?: string | null) {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith("jira.");
+}
+
 function mapCollectionToGraphQL(collection: PrismaCollectionWithEndpoint) {
   return {
     ...collection,
@@ -5304,4 +5554,92 @@ function buildTenantContextForGraph(ctx: ResolverContext): TenantContext {
     projectId: ctx.auth.projectId,
     actorId: ctx.userId ?? undefined,
   };
+}
+
+async function fetchJiraDimensionRecords(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+  domain: string,
+  limit = 500,
+) {
+  const records = await store.listRecords(domain, {
+    projectId: endpoint.projectId ?? undefined,
+    limit,
+  });
+  return records.filter((record) => recordBelongsToEndpoint(record, endpoint));
+}
+
+function dedupeOptions<T extends { [key: string]: unknown }>(
+  items: Array<T | null>,
+  keySelector: (item: T) => string,
+): T[] {
+  const seen = new Set<string>();
+  const results: T[] = [];
+  for (const item of items) {
+    if (!item) {
+      continue;
+    }
+    const key = keySelector(item);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push(item);
+  }
+  results.sort((a, b) => keySelector(a).localeCompare(keySelector(b)));
+  return results;
+}
+
+function mapJiraProjectOption(record: MetadataRecord<unknown>) {
+  const payload = extractJiraRecordValue(record);
+  const key = normalizeStringValue(payload.projectKey ?? payload.key ?? payload.id ?? payload.name);
+  if (!key) {
+    return null;
+  }
+  const name = normalizeStringValue(payload.name ?? payload.projectName ?? payload.displayName) ?? key;
+  return { key, name };
+}
+
+function mapJiraStatusOption(record: MetadataRecord<unknown>) {
+  const payload = extractJiraRecordValue(record);
+  const id = normalizeStringValue(payload.statusId ?? payload.id ?? payload.key ?? payload.name);
+  if (!id) {
+    return null;
+  }
+  const name = normalizeStringValue(payload.name ?? payload.displayName ?? id) ?? id;
+  const category =
+    normalizeStringValue(payload.category) ??
+    normalizeStringValue(payload.categoryName) ??
+    extractStatusCategory(payload.statusCategory);
+  return { id, name, category };
+}
+
+function mapJiraUserOption(record: MetadataRecord<unknown>) {
+  const payload = extractJiraRecordValue(record);
+  const accountId = normalizeStringValue(payload.accountId ?? payload.id ?? payload.key ?? payload.accountID);
+  if (!accountId) {
+    return null;
+  }
+  const displayName = normalizeStringValue(payload.displayName ?? payload.name ?? payload.fullName) ?? accountId;
+  const email = normalizeStringValue(payload.emailAddress ?? payload.email ?? payload.mail);
+  return { accountId, displayName, email };
+}
+
+function extractJiraRecordValue(record: MetadataRecord<unknown>) {
+  const payload = normalizePayload(record.payload) ?? {};
+  const candidates = [payload.value, payload.payload, payload.record, payload.data];
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      return candidate as Record<string, unknown>;
+    }
+  }
+  return payload;
+}
+
+function extractStatusCategory(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const entry = value as Record<string, unknown>;
+  return normalizeStringValue(entry.name ?? entry.key ?? entry.category);
 }

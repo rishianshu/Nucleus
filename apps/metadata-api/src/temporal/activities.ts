@@ -17,6 +17,7 @@ import { getPrismaClient } from "../prismaClient.js";
 import { getMetadataStore, getGraphStore } from "../context.js";
 import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
 import { readCheckpoint, updateCheckpoint, writeCheckpoint, type IngestionCheckpointRecord, type IngestionCheckpointKey } from "../ingestion/checkpoints.js";
+import { readTransientState, writeTransientState } from "../ingestion/transientState.js";
 import { markUnitState, upsertUnitState } from "../ingestion/stateStore.js";
 import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
 
@@ -116,6 +117,9 @@ type StartIngestionRunResult = {
   dataMode: string | null;
   sinkEndpointId: string | null;
   cdmModelId: string | null;
+  filter: Record<string, unknown> | null;
+  transientState: Record<string, unknown> | null;
+  transientStateVersion: string | null;
 };
 
 type CompleteIngestionRunInput = {
@@ -127,6 +131,8 @@ type CompleteIngestionRunInput = {
   checkpointVersion: string | null;
   newCheckpoint: unknown;
   stats: Record<string, unknown> | null;
+  transientStateVersion: string | null;
+  newTransientState: Record<string, unknown> | null;
 };
 
 type FailIngestionRunInput = {
@@ -445,6 +451,9 @@ export const activities: MetadataActivities = {
       vendor: vendorKey,
     };
     const checkpointState = await readCheckpoint(checkpointKey);
+    const transientState = await readTransientState({ endpointId, unitId, sinkId: resolvedSinkId });
+    const filterConfig =
+      config?.filter && typeof config.filter === "object" ? (config.filter as Record<string, unknown>) : null;
     const runId = randomUUID();
     await upsertUnitState(
       { endpointId, unitId, sinkId: resolvedSinkId },
@@ -467,6 +476,9 @@ export const activities: MetadataActivities = {
       dataMode: dataMode ?? null,
       sinkEndpointId,
       cdmModelId,
+      filter: filterConfig,
+      transientState: transientState.state,
+      transientStateVersion: transientState.version,
     };
   },
   async completeIngestionRun({
@@ -478,6 +490,8 @@ export const activities: MetadataActivities = {
     checkpointVersion,
     newCheckpoint,
     stats,
+    transientStateVersion,
+    newTransientState,
   }: CompleteIngestionRunInput): Promise<void> {
     const checkpointKey = buildCheckpointKey({ endpointId, unitId, sinkId, vendorKey });
     const record: IngestionCheckpointRecord = {
@@ -488,6 +502,19 @@ export const activities: MetadataActivities = {
     await writeCheckpoint(checkpointKey, record, {
       expectedVersion: checkpointVersion ?? undefined,
     });
+    if (newTransientState !== undefined) {
+      await writeTransientState(
+        { endpointId, unitId, sinkId },
+        newTransientState,
+        { expectedVersion: transientStateVersion ?? undefined },
+      ).catch((error) => {
+        // transient state conflicts should surface as warnings but not fail the run
+        console.warn(
+          "[ingestion:transient-state] failed to persist transient state",
+          error instanceof Error ? error.message : error,
+        );
+      });
+    }
     await markUnitState(
       { endpointId, unitId, sinkId },
       {

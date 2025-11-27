@@ -66,12 +66,16 @@ type PythonIngestionRequest = {
   dataMode?: string | null;
   sinkEndpointId?: string | null;
   cdmModelId?: string | null;
+  filter?: Record<string, unknown> | null;
+  transientState?: Record<string, unknown> | null;
+  transientStateVersion?: string | null;
 };
 
 type PythonIngestionResult = {
   newCheckpoint: unknown;
   stats?: Record<string, unknown> | null;
   records?: NormalizedRecordInput[] | null;
+  transientState?: Record<string, unknown> | null;
 };
 
 type NormalizedRecordInput = {
@@ -217,6 +221,9 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       dataMode: context.dataMode ?? null,
       sinkEndpointId: context.sinkEndpointId ?? null,
       cdmModelId: context.cdmModelId ?? null,
+      filter: context.filter ?? null,
+      transientState: context.transientState ?? null,
+      transientStateVersion: context.transientStateVersion ?? null,
     });
     if (ingestionResult.records && ingestionResult.records.length > 0) {
       if (!context.sinkId) {
@@ -243,6 +250,8 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       checkpointVersion: context.checkpointVersion,
       newCheckpoint: ingestionResult.newCheckpoint,
       stats: ingestionResult.stats ?? null,
+      transientStateVersion: context.transientStateVersion,
+      newTransientState: ingestionResult.transientState ?? context.transientState ?? null,
     });
   } catch (error) {
     await failIngestionRunActivity({

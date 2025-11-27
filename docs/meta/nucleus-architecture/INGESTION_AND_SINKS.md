@@ -102,6 +102,30 @@ The Temporal worker receives both the run-mode (full/incremental) and data-mode;
 - **Prisma** – `IngestionUnitState` rows track state, last run IDs, timestamps.
 - **KB** – Graph metadata for console explorers (`apps/metadata-api/src/schema.ts` KB queries).
 
+### Jira filters & metadata-driven selectors
+
+Jira ingestion configs now include an optional `filter` payload that the GraphQL schema exposes as `JiraIngestionFilter`. It is Jira-only (other endpoints ignore the field) and contains structured selectors sourced from the catalog datasets:
+
+| Field | Source | Purpose |
+| ----- | ------ | ------- |
+| `projectKeys` | `jira.projects` dataset | Restrict ingestion to specific projects. |
+| `statuses` | `jira.statuses` dataset | Only include issues in these workflow states. |
+| `assigneeIds` | `jira.users` dataset | Filter issues assigned to a set of Jira account IDs. |
+| `updatedFrom` | Operator input | Bootstrap timestamp for new projects/dimensions. |
+
+`jiraIngestionFilterOptions(endpointId)` returns the live options (projects/users/statuses) for the UI to render multiselect controls without hardcoding strings. The ingestion console writes the filter back through `configureIngestionUnit`; GraphQL enforces that filters can only be set on Jira units before persisting them in Prisma.
+
+### Transient state for per-dimension cursors
+
+Incremental runs now persist two KV artifacts per `{endpointId, unitId, sinkId}`:
+
+1. **Checkpoint** – legacy cursor blob (unchanged) holding the worker’s last checkpoint object.
+2. **Transient state** – new JSON payload managed by `apps/metadata-api/src/ingestion/transientState.ts`.
+
+Temporal’s `startIngestionRun` loads both and hands them—along with the filter config—to the Python worker. Jira’s runtime (under `runtime_common/endpoints/jira_http.py`) records per-project watermarks in the transient state (`projects.<KEY>.lastUpdated`), so adding a new project to the filter only replays that project from `filter.updatedFrom` while existing projects continue from their saved cursor. The worker returns the updated transient payload; the `completeIngestionRun` activity writes it back to KV with optimistic concurrency, logging but ignoring conflicts.
+
+This pattern generalizes to any source that needs richer incremental metadata than a single cursor (e.g., per-dimension checkpoints, pagination tokens). Future endpoints can import the same transient state helpers without touching Prisma schema or Temporal signatures.
+
 ## KB scope vs. data views
 
 The Knowledge Base stores semantic entities (projects, issues, users, lineage edges). It is *not* the final repository for bulk ingested data. When an ingestion unit publishes KB nodes, that is purely for context/reasoning, not for row-level storage. The underlying Source→Staging→Sink pipeline continues to land data in the configured sink (lakehouse, CDM, etc.). A future UI will expose that ingested data; in the meantime dataset detail panes can display ingestion stats/checkpoints to tie catalog entries to ingestion runs.

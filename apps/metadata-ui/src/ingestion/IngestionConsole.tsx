@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   LuArrowRight,
@@ -26,6 +26,7 @@ import {
   PAUSE_INGESTION_MUTATION,
   RESET_INGESTION_CHECKPOINT_MUTATION,
   CONFIGURE_INGESTION_UNIT_MUTATION,
+  JIRA_FILTER_OPTIONS_QUERY,
 } from "../metadata/queries";
 import {
   IngestionStatusSummary,
@@ -34,6 +35,8 @@ import {
   IngestionUnitConfigSummary,
   IngestionSinkDescriptor,
   MetadataEndpointSummary,
+  JiraIngestionFilterSummary,
+  JiraFilterOptions,
 } from "../metadata/types";
 import { useDebouncedValue, useToastQueue } from "../metadata/hooks";
 import type { Role } from "../auth/AuthProvider";
@@ -70,6 +73,10 @@ type IngestionActionResult = {
   message?: string | null;
 };
 
+type JiraFilterQueryResult = {
+  jiraIngestionFilterOptions: JiraFilterOptions;
+};
+
 type ActionMutationResult = {
   startIngestion?: IngestionActionResult;
   pauseIngestion?: IngestionActionResult;
@@ -86,6 +93,13 @@ type IngestionUnitRow = IngestionUnitSummary & {
   config: IngestionUnitConfigSummary | null;
 };
 
+type JiraFilterFormState = {
+  projectKeys: string[];
+  statuses: string[];
+  assigneeIds: string[];
+  updatedFrom: string | null;
+};
+
 type ConfigFormState = {
   enabled: boolean;
   runMode: string;
@@ -95,6 +109,7 @@ type ConfigFormState = {
   sinkId: string;
   sinkEndpointId: string | null;
   policyText: string;
+  jiraFilter: JiraFilterFormState;
 };
 
 type ConfigOverrides = {
@@ -106,9 +121,17 @@ type ConfigOverrides = {
   scheduleKind?: string;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
+  jiraFilter?: JiraFilterFormState | null;
 };
 
 const endpointSidebarWidth = 320;
+
+const DEFAULT_JIRA_FILTER_FORM: JiraFilterFormState = {
+  projectKeys: [],
+  statuses: [],
+  assigneeIds: [],
+  updatedFrom: null,
+};
 
 export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, userRole }: IngestionConsoleProps) {
   const location = useLocation();
@@ -135,6 +158,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [sinkDescriptors, setSinkDescriptors] = useState<IngestionSinkDescriptor[]>([]);
+  const [jiraFilterOptions, setJiraFilterOptions] = useState<JiraFilterOptions | null>(null);
+  const [jiraFilterLoading, setJiraFilterLoading] = useState(false);
+  const [jiraFilterError, setJiraFilterError] = useState<string | null>(null);
   const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
   const cdmSinkEndpoints = useMemo(
     () =>
@@ -185,6 +211,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     !cdmModeActive || !configForm || !configuringUnit?.cdmModelId
       ? true
       : sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId);
+  const supportsJiraFilters = Boolean(configuringUnit && isJiraUnitId(configuringUnit.unitId));
   const saveDisabled = !configForm || configSaving || (cdmModeActive && !selectedSinkSupportsCdm);
   const toastQueue = useToastQueue();
   const isAdmin = userRole === "ADMIN";
@@ -368,6 +395,46 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     }
   }, [endpointLoading, endpoints, selectedEndpointId, endpointQueryParam, applySelectedEndpoint]);
 
+  useEffect(() => {
+    if (!metadataEndpoint || !authToken || !configuringUnit || !isJiraUnitId(configuringUnit.unitId)) {
+      setJiraFilterOptions(null);
+      setJiraFilterError(null);
+      setJiraFilterLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setJiraFilterLoading(true);
+    setJiraFilterError(null);
+    fetchMetadataGraphQL<JiraFilterQueryResult>(
+      metadataEndpoint,
+      JIRA_FILTER_OPTIONS_QUERY,
+      { endpointId: configuringUnit.endpointId },
+      undefined,
+      { token: authToken ?? undefined },
+    )
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setJiraFilterOptions(result?.jiraIngestionFilterOptions ?? { projects: [], statuses: [], users: [] });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setJiraFilterError(error instanceof Error ? error.message : String(error));
+        setJiraFilterOptions({ projects: [], statuses: [], users: [] });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setJiraFilterLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [metadataEndpoint, authToken, configuringUnit]);
+
   const endpointOptions = useMemo(
     () =>
       endpoints.map((endpoint) => ({
@@ -508,6 +575,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
       sinkId: unit.config?.sinkId ?? unit.sinkId,
       sinkEndpointId: unit.config?.sinkEndpointId ?? null,
       policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
+      jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
     });
     setConfigError(null);
   }, []);
@@ -516,11 +584,30 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     setConfiguringUnit(null);
     setConfigForm(null);
     setConfigError(null);
+    setJiraFilterOptions(null);
+    setJiraFilterError(null);
+    setJiraFilterLoading(false);
   }, []);
 
   const updateConfigForm = useCallback((patch: Partial<ConfigFormState>) => {
     setConfigForm((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
+
+  const updateJiraFilterForm = useCallback((patch: Partial<JiraFilterFormState>) => {
+    setConfigForm((prev) => (prev ? { ...prev, jiraFilter: { ...prev.jiraFilter, ...patch } } : prev));
+  }, []);
+
+  const resetJiraFilterForm = useCallback(() => {
+    setConfigForm((prev) => (prev ? { ...prev, jiraFilter: { ...DEFAULT_JIRA_FILTER_FORM } } : prev));
+  }, []);
+
+  const handleFilterMultiSelect = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>, field: keyof Pick<JiraFilterFormState, "projectKeys" | "statuses" | "assigneeIds">) => {
+      const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+      updateJiraFilterForm({ [field]: values } as Partial<JiraFilterFormState>);
+    },
+    [updateJiraFilterForm],
+  );
 
   const handleSaveConfig = useCallback(async () => {
     if (!configuringUnit || !configForm) {
@@ -557,6 +644,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
           scheduleKind: configForm.scheduleKind,
           scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
           policy: parsedPolicy,
+          jiraFilter: configForm.jiraFilter,
         },
         "configure",
       );
@@ -1105,6 +1193,101 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                   </label>
                 </div>
               </section>
+              {supportsJiraFilters && configForm ? (
+                <section className="rounded-2xl border border-white/10 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Filters</p>
+                    <button
+                      type="button"
+                      onClick={resetJiraFilterForm}
+                      className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-300/80 transition hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3">
+                    <label className="block text-sm text-slate-200">
+                      Projects
+                      <select
+                        multiple
+                        value={configForm.jiraFilter.projectKeys}
+                        onChange={(event) => handleFilterMultiSelect(event, "projectKeys")}
+                        disabled={jiraFilterLoading}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      >
+                        {(jiraFilterOptions?.projects ?? []).map((project) => (
+                          <option key={project.key} value={project.key} className="bg-slate-900 text-slate-100">
+                            {project.name ?? project.key}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-200">
+                      Statuses
+                      <select
+                        multiple
+                        value={configForm.jiraFilter.statuses}
+                        onChange={(event) => handleFilterMultiSelect(event, "statuses")}
+                        disabled={jiraFilterLoading}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      >
+                        {(jiraFilterOptions?.statuses ?? []).map((status) => (
+                          <option key={status.id} value={status.name} className="bg-slate-900 text-slate-100">
+                            {status.name}
+                            {status.category ? ` · ${status.category}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-200">
+                      Assignees
+                      <select
+                        multiple
+                        value={configForm.jiraFilter.assigneeIds}
+                        onChange={(event) => handleFilterMultiSelect(event, "assigneeIds")}
+                        disabled={jiraFilterLoading}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      >
+                        {(jiraFilterOptions?.users ?? []).map((user) => (
+                          <option key={user.accountId} value={user.accountId} className="bg-slate-900 text-slate-100">
+                            {user.displayName ?? user.accountId}
+                            {user.email ? ` · ${user.email}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-200">
+                      Updated from
+                      <input
+                        type="datetime-local"
+                        value={formatDateInputValue(configForm.jiraFilter.updatedFrom)}
+                        onChange={(event) => {
+                          const raw = event.target.value;
+                          if (!raw) {
+                            updateJiraFilterForm({ updatedFrom: null });
+                            return;
+                          }
+                          const parsed = new Date(raw);
+                          if (Number.isNaN(parsed.getTime())) {
+                            return;
+                          }
+                          updateJiraFilterForm({ updatedFrom: parsed.toISOString() });
+                        }}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      />
+                      <span className="mt-1 block text-xs text-slate-400">Leave blank to sync full history for new projects.</span>
+                    </label>
+                  </div>
+                  {jiraFilterLoading ? (
+                    <p className="mt-2 text-xs text-slate-400">Loading filter options…</p>
+                  ) : jiraFilterError ? (
+                    <p className="mt-2 text-xs text-amber-300">{jiraFilterError}</p>
+                  ) : null}
+                  <p className="mt-3 text-xs text-slate-400">
+                    Filter changes keep existing project cursors. Newly added projects use the Updated From timestamp (or all history if not set).
+                  </p>
+                </section>
+              ) : null}
               <section className="rounded-2xl border border-white/10 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Schedule</p>
                 <div className="mt-3 space-y-3">
@@ -1278,12 +1461,17 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
     scheduleKind: unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL",
     scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
     policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
+    jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
   };
   const nextScheduleKind = normalizeScheduleKind(overrides.scheduleKind ?? fallback.scheduleKind);
   const intervalValue =
     nextScheduleKind === "INTERVAL"
       ? overrides.scheduleIntervalMinutes ?? fallback.scheduleIntervalMinutes ?? 15
       : null;
+  const nextFilter =
+    overrides.jiraFilter === undefined
+      ? fallback.jiraFilter
+      : overrides.jiraFilter ?? DEFAULT_JIRA_FILTER_FORM;
   return {
     endpointId: unit.endpointId,
     datasetId: unit.datasetId ?? unit.unitId,
@@ -1299,6 +1487,7 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
         ? Math.max(1, Math.trunc(typeof intervalValue === "number" && !Number.isNaN(intervalValue) ? intervalValue : 15))
         : null,
     policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
+    jiraFilter: formatJiraFilterInputFromForm(nextFilter),
   };
 }
 
@@ -1325,4 +1514,67 @@ function stringifyPolicy(policy?: Record<string, unknown> | null) {
   } catch {
     return "";
   }
+}
+
+function reduceJiraFilterToFormValue(source?: JiraIngestionFilterSummary | JiraFilterFormState | null): JiraFilterFormState {
+  if (!source) {
+    return { ...DEFAULT_JIRA_FILTER_FORM };
+  }
+  return {
+    projectKeys: coerceFilterArray(source.projectKeys),
+    statuses: coerceFilterArray(source.statuses),
+    assigneeIds: coerceFilterArray(source.assigneeIds),
+    updatedFrom: source.updatedFrom ?? null,
+  };
+}
+
+function coerceFilterArray(value?: string[] | null): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry.length > 0),
+    ),
+  );
+}
+
+function formatJiraFilterInputFromForm(filter?: JiraFilterFormState | null): JiraIngestionFilterSummary | null {
+  if (!filter) {
+    return null;
+  }
+  const payload: JiraIngestionFilterSummary = {};
+  if (filter.projectKeys.length) {
+    payload.projectKeys = filter.projectKeys;
+  }
+  if (filter.statuses.length) {
+    payload.statuses = filter.statuses;
+  }
+  if (filter.assigneeIds.length) {
+    payload.assigneeIds = filter.assigneeIds;
+  }
+  if (filter.updatedFrom) {
+    payload.updatedFrom = filter.updatedFrom;
+  }
+  return Object.keys(payload).length ? payload : null;
+}
+
+function formatDateInputValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 16);
+}
+
+function isJiraUnitId(unitId?: string | null) {
+  if (!unitId) {
+    return false;
+  }
+  return unitId.toLowerCase().startsWith("jira.");
 }

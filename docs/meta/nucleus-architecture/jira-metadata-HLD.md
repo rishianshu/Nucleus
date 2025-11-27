@@ -38,6 +38,20 @@
 
 Each dataset includes `properties.apiEndpoints` and, where applicable, `properties.valueCatalog` with the live values returned by Jira.
 
+## Ingestion filters & incremental semantics
+Jira’s ingestion units (issues/comments/worklogs) now consume metadata-driven filters so admins can scope ingestion without authoring raw JQL:
+
+- Filter options are sourced from the metadata datasets above: project keys (`jira.projects`), workflow statuses (`jira.statuses`), and assignee account IDs (`jira.users`).
+- The ingestion console fetches these options via the new `jiraIngestionFilterOptions(endpointId)` GraphQL query and persists selections on the `IngestionUnitConfig.filter` JSON field.
+- `updatedFrom` acts as the bootstrap watermark for dimensions that haven’t been ingested before (e.g., a newly added project in the filter).
+
+To avoid replaying the entire tenant whenever filters change, Jira’s runtime maintains a **per-project transient state**. Temporal passes the stored transient JSON to the Python worker alongside the classic checkpoint, and the Jira handler merges its latest per-project cursors back into that state. Re-running with an expanded project list now:
+
+1. Reuses existing project cursors (no replay).
+2. Starts new projects from `filter.updatedFrom` (or all history if unspecified).
+
+The same transient-state contract will be reused by future semantic sources that need multi-dimensional incremental cursors.
+
 ## Dynamic Attribute Handling
 - `/rest/api/3/field` is queried once per environment probe to fetch all built-in and custom fields.
 - Fields are normalized into a lightweight structure (id, key, name, schema type, operations, system/custom flags).

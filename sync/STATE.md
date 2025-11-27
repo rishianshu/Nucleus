@@ -1,7 +1,7 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-work-explorer-v1 (success @ 2025-11-27T14:55Z)
+ingestion-filters-and-incremental-jira-v1 (in-progress @ 2025-11-27T15:00Z)
 
 ## Last Run
 - slug: cdm-work-explorer-v1
@@ -10,7 +10,7 @@ cdm-work-explorer-v1 (success @ 2025-11-27T14:55Z)
 - tests: pnpm --filter @apps/metadata-api build; pnpm --filter @apps/metadata-ui build; pnpm ci-check
 - commits: not yet
 - decisions: 0
-- next_step: ready for review / next slug TBD
+- next_step: focus shifted to ingestion-filters-and-incremental-jira-v1
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-11-27T16:52Z run heartbeat (ingestion-filters-and-incremental-jira-v1, unit/GraphQL tests + pnpm ci-check after resolving port/keycloak bring-up)
+- 2025-11-27T16:40Z run heartbeat (ingestion-filters-and-incremental-jira-v1, docs updated + transient/filter tests passing via tsx runner)
+- 2025-11-27T15:00Z run started (ingestion-filters-and-incremental-jira-v1, boot + artifact sync)
 - 2025-11-27T14:55Z run success (cdm-work-explorer-v1, CDM work explorer UI/resolvers/docs/tests + ci-check)
 - 2025-11-27T12:45Z run success (cdm-sinks-and-autoprovision-v1, CDM sink + autoprovision + docs + ci-check)
 - 2025-11-27T12:42Z run started (cdm-work-explorer-v1, boot + artifact sync)

@@ -182,6 +182,128 @@ test("startIngestion bypass path succeeds for Jira units", async (t) => {
   assert.equal(markUnitStateStub.mock.callCount(), 1);
 });
 
+test("configureIngestionUnit persists Jira filters for Jira units", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-config-filters-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext({ bypassWrites: true, roles: ["viewer", "editor", "admin"] });
+  const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
+  assert.ok(jiraTemplate);
+  await store.saveEndpointTemplates([jiraTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "jira-endpoint-config",
+    name: "Jira Dev",
+    verb: "GET",
+    url: "https://example.atlassian.net",
+    projectId: ctx.auth.projectId,
+    domain: "work.jira",
+    config: {
+      templateId: "jira.http",
+      parameters: {
+        base_url: "https://example.atlassian.net",
+        auth_type: "basic",
+        username: "bot@example.com",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  for (const datasetId of JIRA_DATASETS) {
+    await seedCatalogDataset(store, endpoint.id!, datasetId);
+  }
+  const filterInput = {
+    projectKeys: ["ENG"],
+    statuses: ["In Progress"],
+    assigneeIds: ["acct-1"],
+    updatedFrom: "2024-01-01T00:00:00.000Z",
+  };
+  const config = await resolvers.Mutation.configureIngestionUnit(
+    null,
+    {
+      input: {
+        endpointId: endpoint.id!,
+        unitId: "jira.issues",
+        enabled: true,
+        runMode: "INCREMENTAL",
+        mode: "raw",
+        sinkId: "kb",
+        scheduleKind: "MANUAL",
+        jiraFilter: filterInput,
+      },
+    },
+    ctx as any,
+  );
+  assert.deepEqual(config.jiraFilter?.projectKeys, ["ENG"]);
+  assert.deepEqual(config.jiraFilter?.statuses, ["In Progress"]);
+  assert.deepEqual(config.jiraFilter?.assigneeIds, ["acct-1"]);
+  assert.equal(config.jiraFilter?.updatedFrom, "2024-01-01T00:00:00.000Z");
+  const configs = await resolvers.Query.ingestionUnitConfigs(null, { endpointId: endpoint.id! }, ctx as any);
+  assert.equal(configs.length, 1);
+  assert.deepEqual(configs[0]?.jiraFilter?.projectKeys, ["ENG"]);
+});
+
+test("jiraIngestionFilterOptions returns metadata-driven options", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-filter-options-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext();
+  const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
+  assert.ok(jiraTemplate);
+  await store.saveEndpointTemplates([jiraTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "jira-endpoint-options",
+    name: "Jira Dev",
+    verb: "GET",
+    url: "https://example.atlassian.net",
+    projectId: ctx.auth.projectId,
+    domain: "work.jira",
+    config: {
+      templateId: "jira.http",
+      parameters: {
+        base_url: "https://example.atlassian.net",
+        auth_type: "basic",
+        username: "bot@example.com",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  await seedDimensionRecord(store, endpoint.id!, "jira.projects", { projectKey: "ENG", name: "Engineering" });
+  await seedDimensionRecord(store, endpoint.id!, "jira.statuses", { id: "1", name: "To Do", category: "To Do" });
+  await seedDimensionRecord(store, endpoint.id!, "jira.users", {
+    accountId: "acct-1",
+    displayName: "Jira Bot",
+    emailAddress: "bot@example.com",
+  });
+  const options = await resolvers.Query.jiraIngestionFilterOptions(null, { endpointId: endpoint.id! }, ctx as any);
+  const project = options.projects.find((entry) => entry.key === "ENG");
+  assert.deepEqual(project, { key: "ENG", name: "Engineering" });
+  const status = options.statuses.find((entry) => entry.id === "1");
+  assert.deepEqual(status, { id: "1", name: "To Do", category: "To Do" });
+  const user = options.users.find((entry) => entry.accountId === "acct-1");
+  assert.deepEqual(user, { accountId: "acct-1", displayName: "Jira Bot", email: "bot@example.com" });
+});
+
 test("configureIngestionUnit rejects CDM mode when sink lacks capability", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-config-cdm-"));
   t.after(async () => {
@@ -363,6 +485,7 @@ function configStoreOverrides() {
       scheduleKind?: string;
       scheduleIntervalMinutes?: number | null;
       policy?: Record<string, unknown> | null;
+      filter?: Record<string, unknown> | null;
     }) => {
       const row: IngestionUnitConfigRow = {
         id: configKey(input.endpointId, input.unitId),
@@ -378,6 +501,7 @@ function configStoreOverrides() {
         scheduleIntervalMinutes:
           (input.scheduleKind ?? "MANUAL").toUpperCase() === "INTERVAL" ? input.scheduleIntervalMinutes ?? 15 : null,
         policy: input.policy ?? null,
+        filter: input.filter ?? null,
       };
       configStoreRows.set(configKey(row.endpointId, row.unitId), row);
       return row;
@@ -425,6 +549,24 @@ async function seedCatalogDataset(store: FileMetadataStore, endpointId: string, 
         schema: "jira",
         entity: datasetId.split(".").pop(),
       },
+    },
+  });
+}
+
+async function seedDimensionRecord(
+  store: FileMetadataStore,
+  endpointId: string,
+  datasetId: string,
+  value: Record<string, unknown>,
+) {
+  await store.upsertRecord({
+    id: `${datasetId}-${value.id ?? value.projectKey ?? value.accountId ?? Date.now().toString(36)}`,
+    projectId: TEST_PROJECT,
+    domain: datasetId,
+    labels: [`endpoint:${endpointId}`],
+    payload: {
+      value,
+      ...value,
     },
   });
 }

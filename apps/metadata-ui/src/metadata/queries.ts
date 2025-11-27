@@ -326,6 +326,12 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
       scheduleKind
       scheduleIntervalMinutes
       policy
+      jiraFilter {
+        projectKeys
+        statuses
+        assigneeIds
+        updatedFrom
+      }
       lastStatus {
         state
         lastRunAt
@@ -385,11 +391,38 @@ export const CONFIGURE_INGESTION_UNIT_MUTATION = `
       scheduleKind
       scheduleIntervalMinutes
       policy
+      jiraFilter {
+        projectKeys
+        statuses
+        assigneeIds
+        updatedFrom
+      }
       lastStatus {
         state
         lastRunAt
         lastRunId
         lastError
+      }
+    }
+  }
+`;
+
+export const JIRA_FILTER_OPTIONS_QUERY = `
+  query JiraFilterOptions($endpointId: ID!) {
+    jiraIngestionFilterOptions(endpointId: $endpointId) {
+      projects {
+        key
+        name
+      }
+      statuses {
+        id
+        name
+        category
+      }
+      users {
+        accountId
+        displayName
+        email
       }
     }
   }

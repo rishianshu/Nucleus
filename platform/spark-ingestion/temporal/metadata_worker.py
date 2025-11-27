@@ -114,6 +114,9 @@ class IngestionUnitRequest:
     dataMode: Optional[str] = None
     sinkEndpointId: Optional[str] = None
     cdmModelId: Optional[str] = None
+    filter: Optional[Dict[str, Any]] = None
+    transientState: Optional[Dict[str, Any]] = None
+    transientStateVersion: Optional[str] = None
 
 
 @dataclass
@@ -121,6 +124,7 @@ class IngestionUnitResult:
     newCheckpoint: Optional[Dict[str, Any]]
     stats: Dict[str, Any]
     records: Optional[List[Dict[str, Any]]] = None
+    transientState: Optional[Dict[str, Any]] = None
 
 
 class ActivityLogger:
@@ -324,13 +328,20 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
             policy=request.policy or {},
             checkpoint=checkpoint,
             mode=normalized_mode or None,
+            filter=request.filter,
+            transient_state=request.transientState,
         )
         records = result.records
         if str(request.dataMode or "").lower() == "cdm":
             cdm_model_id = request.cdmModelId or _resolve_cdm_model_id(request.unitId)
             records = _apply_jira_cdm_mapping(request.unitId, result.records, cdm_model_id)
         logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
-        return IngestionUnitResult(newCheckpoint=result.cursor, stats=result.stats, records=records).__dict__
+        return IngestionUnitResult(
+            newCheckpoint=result.cursor,
+            stats=result.stats,
+            records=records,
+            transientState=result.transient_state,
+        ).__dict__
     stats = {
         "note": "python_ingestion_worker_stub",
         "stagingProviderId": request.stagingProviderId or "in_memory",

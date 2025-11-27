@@ -319,12 +319,26 @@ export type IngestionUnitConfigSummary = {
   scheduleKind: string;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
+  jiraFilter?: JiraIngestionFilterSummary | null;
   lastStatus?: {
     state: IngestionState;
     lastRunAt?: string | null;
     lastRunId?: string | null;
     lastError?: string | null;
   } | null;
+};
+
+export type JiraIngestionFilterSummary = {
+  projectKeys?: string[] | null;
+  statuses?: string[] | null;
+  assigneeIds?: string[] | null;
+  updatedFrom?: string | null;
+};
+
+export type JiraFilterOptions = {
+  projects: { key: string; name?: string | null }[];
+  statuses: { id: string; name: string; category?: string | null }[];
+  users: { accountId: string; displayName?: string | null; email?: string | null }[];
 };
 
 export type IngestionUnitSummary = {

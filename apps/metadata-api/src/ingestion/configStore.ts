@@ -13,6 +13,7 @@ export type IngestionUnitConfigRow = {
   scheduleKind: string;
   scheduleIntervalMinutes: number | null;
   policy: Record<string, unknown> | null;
+  filter: Record<string, unknown> | null;
 };
 
 type SaveConfigInput = {
@@ -27,6 +28,7 @@ type SaveConfigInput = {
   scheduleKind?: string;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
+  filter?: Record<string, unknown> | null;
 };
 
 type Prisma = Awaited<ReturnType<typeof getPrismaClient>>;
@@ -84,6 +86,7 @@ export async function saveIngestionUnitConfig(input: SaveConfigInput): Promise<I
       scheduleKind: normalized.scheduleKind,
       scheduleIntervalMinutes: normalized.scheduleIntervalMinutes,
       policy: normalized.policy,
+      filter: normalized.filter,
     },
     create: normalized,
   });
@@ -103,6 +106,7 @@ function normalizeConfigInput(input: SaveConfigInput) {
     scheduleKind: normalizeScheduleKind(input.scheduleKind),
     scheduleIntervalMinutes: normalizeInterval(input.scheduleKind, input.scheduleIntervalMinutes),
     policy: input.policy ?? null,
+    filter: input.filter ?? null,
   };
 }
 

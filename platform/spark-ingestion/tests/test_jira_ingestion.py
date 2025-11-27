@@ -148,6 +148,7 @@ def test_issues_unit_uses_catalog_handler():
     assert result.records
     assert result.cursor["lastUpdated"] == "2023-01-01T00:00:00.000+0000"
     assert result.stats["issuesSynced"] == 1
+    assert result.transient_state["lastUpdated"] == "2023-01-01T00:00:00.000+0000"
 
 
 def test_users_unit_uses_catalog_handler():
@@ -183,6 +184,23 @@ def test_worklogs_unit_uses_catalog_handler():
     assert result.records
     assert result.cursor["lastStarted"] == "2023-01-02T01:00:00.000+0000"
     assert result.stats["worklogsSynced"] == 1
+
+
+def test_issues_filter_updates_transient_state():
+    result = jira_http.run_jira_ingestion_unit(
+        "jira.issues",
+        endpoint_id="endpoint-1",
+        policy=dict(BASE_POLICY),
+        checkpoint=None,
+        filter={
+            "projectKeys": ["ENG"],
+            "statuses": ["To Do"],
+            "assigneeIds": ["user-2"],
+            "updatedFrom": "2022-12-01T00:00:00.000+0000",
+        },
+        transient_state={"projects": {"ENG": {"lastUpdated": "2022-12-15T00:00:00.000+0000"}}},
+    )
+    assert result.transient_state["projects"]["ENG"]["lastUpdated"] == "2023-01-01T00:00:00.000+0000"
 
 
 def test_apply_jira_cdm_mapping_for_issues():

@@ -4,10 +4,16 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { LuArrowRight, LuCircleDashed, LuCirclePause, LuCirclePlay, LuCircleSlash, LuClock3, LuInfo, LuRefreshCcw, LuSlidersHorizontal, LuSearch, LuTriangleAlert, LuX, } from "react-icons/lu";
 import { formatRelativeTime } from "../lib/format";
 import { fetchMetadataGraphQL } from "../metadata/api";
-import { INGESTION_ENDPOINTS_QUERY, INGESTION_UNITS_WITH_STATUS_QUERY, START_INGESTION_MUTATION, PAUSE_INGESTION_MUTATION, RESET_INGESTION_CHECKPOINT_MUTATION, CONFIGURE_INGESTION_UNIT_MUTATION, } from "../metadata/queries";
+import { INGESTION_ENDPOINTS_QUERY, INGESTION_UNITS_WITH_STATUS_QUERY, START_INGESTION_MUTATION, PAUSE_INGESTION_MUTATION, RESET_INGESTION_CHECKPOINT_MUTATION, CONFIGURE_INGESTION_UNIT_MUTATION, JIRA_FILTER_OPTIONS_QUERY, } from "../metadata/queries";
 import { useDebouncedValue, useToastQueue } from "../metadata/hooks";
 import { formatIngestionMode, formatIngestionSchedule, formatIngestionSink, ingestionStateTone, summarizePolicy, } from "./stateTone";
 const endpointSidebarWidth = 320;
+const DEFAULT_JIRA_FILTER_FORM = {
+    projectKeys: [],
+    statuses: [],
+    assigneeIds: [],
+    updatedFrom: null,
+};
 export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, userRole }) {
     const location = useLocation();
     const navigate = useNavigate();
@@ -33,6 +39,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     const [configSaving, setConfigSaving] = useState(false);
     const [configError, setConfigError] = useState(null);
     const [sinkDescriptors, setSinkDescriptors] = useState([]);
+    const [jiraFilterOptions, setJiraFilterOptions] = useState(null);
+    const [jiraFilterLoading, setJiraFilterLoading] = useState(false);
+    const [jiraFilterError, setJiraFilterError] = useState(null);
     const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
     const cdmSinkEndpoints = useMemo(() => endpoints.filter((endpoint) => {
         const labels = endpoint.labels ?? [];
@@ -72,6 +81,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     const selectedSinkSupportsCdm = !cdmModeActive || !configForm || !configuringUnit?.cdmModelId
         ? true
         : sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId);
+    const supportsJiraFilters = Boolean(configuringUnit && isJiraUnitId(configuringUnit.unitId));
     const saveDisabled = !configForm || configSaving || (cdmModeActive && !selectedSinkSupportsCdm);
     const toastQueue = useToastQueue();
     const isAdmin = userRole === "ADMIN";
@@ -226,6 +236,39 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
             applySelectedEndpoint(desired);
         }
     }, [endpointLoading, endpoints, selectedEndpointId, endpointQueryParam, applySelectedEndpoint]);
+    useEffect(() => {
+        if (!metadataEndpoint || !authToken || !configuringUnit || !isJiraUnitId(configuringUnit.unitId)) {
+            setJiraFilterOptions(null);
+            setJiraFilterError(null);
+            setJiraFilterLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setJiraFilterLoading(true);
+        setJiraFilterError(null);
+        fetchMetadataGraphQL(metadataEndpoint, JIRA_FILTER_OPTIONS_QUERY, { endpointId: configuringUnit.endpointId }, undefined, { token: authToken ?? undefined })
+            .then((result) => {
+            if (cancelled) {
+                return;
+            }
+            setJiraFilterOptions(result?.jiraIngestionFilterOptions ?? { projects: [], statuses: [], users: [] });
+        })
+            .catch((error) => {
+            if (cancelled) {
+                return;
+            }
+            setJiraFilterError(error instanceof Error ? error.message : String(error));
+            setJiraFilterOptions({ projects: [], statuses: [], users: [] });
+        })
+            .finally(() => {
+            if (!cancelled) {
+                setJiraFilterLoading(false);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [metadataEndpoint, authToken, configuringUnit]);
     const endpointOptions = useMemo(() => endpoints.map((endpoint) => ({
         id: endpoint.id,
         name: endpoint.name,
@@ -327,6 +370,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
             sinkId: unit.config?.sinkId ?? unit.sinkId,
             sinkEndpointId: unit.config?.sinkEndpointId ?? null,
             policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
+            jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
         });
         setConfigError(null);
     }, []);
@@ -334,10 +378,23 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         setConfiguringUnit(null);
         setConfigForm(null);
         setConfigError(null);
+        setJiraFilterOptions(null);
+        setJiraFilterError(null);
+        setJiraFilterLoading(false);
     }, []);
     const updateConfigForm = useCallback((patch) => {
         setConfigForm((prev) => (prev ? { ...prev, ...patch } : prev));
     }, []);
+    const updateJiraFilterForm = useCallback((patch) => {
+        setConfigForm((prev) => (prev ? { ...prev, jiraFilter: { ...prev.jiraFilter, ...patch } } : prev));
+    }, []);
+    const resetJiraFilterForm = useCallback(() => {
+        setConfigForm((prev) => (prev ? { ...prev, jiraFilter: { ...DEFAULT_JIRA_FILTER_FORM } } : prev));
+    }, []);
+    const handleFilterMultiSelect = useCallback((event, field) => {
+        const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+        updateJiraFilterForm({ [field]: values });
+    }, [updateJiraFilterForm]);
     const handleSaveConfig = useCallback(async () => {
         if (!configuringUnit || !configForm) {
             return;
@@ -372,6 +429,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                 scheduleKind: configForm.scheduleKind,
                 scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
                 policy: parsedPolicy,
+                jiraFilter: configForm.jiraFilter,
             }, "configure");
             closeConfigureDrawer();
         }
@@ -445,7 +503,18 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                                                                         return;
                                                                     }
                                                                     updateConfigForm({ mode: nextMode });
-                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "raw", children: "Store raw source data" }), _jsxs("option", { value: "cdm", disabled: cdmCompatibleSinkIds.length === 0, children: ["Apply CDM (", configuringUnit.cdmModelId, ")"] })] }), configForm.mode === "cdm" && cdmCompatibleSinkIds.length === 0 ? (_jsx("span", { className: "mt-1 block text-xs text-amber-300", children: "No sinks currently support this CDM model." })) : null] })) : null, _jsxs("label", { className: "block text-sm text-slate-200", children: ["Policy (JSON)", _jsx("textarea", { value: configForm.policyText, onChange: (event) => updateConfigForm({ policyText: event.target.value }), rows: 4, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", placeholder: '{"cursorField":"updated","primaryKeys":["id"]}' }), _jsxs("span", { className: "mt-1 block text-xs text-slate-400", children: ["Leave empty to use the endpoint defaults (", summarizePolicy(configuringUnit.defaultPolicy ?? null).join(" · ") || "no cursor", ")."] })] })] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Schedule" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Trigger", _jsxs("select", { value: configForm.scheduleKind, onChange: (event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "MANUAL", children: "Manual only" }), _jsx("option", { value: "INTERVAL", children: "Fixed interval" })] })] }), configForm.scheduleKind === "INTERVAL" ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Interval (minutes)", _jsx("input", { type: "number", min: 1, value: configForm.scheduleIntervalMinutes, onChange: (event) => updateConfigForm({
+                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "raw", children: "Store raw source data" }), _jsxs("option", { value: "cdm", disabled: cdmCompatibleSinkIds.length === 0, children: ["Apply CDM (", configuringUnit.cdmModelId, ")"] })] }), configForm.mode === "cdm" && cdmCompatibleSinkIds.length === 0 ? (_jsx("span", { className: "mt-1 block text-xs text-amber-300", children: "No sinks currently support this CDM model." })) : null] })) : null, _jsxs("label", { className: "block text-sm text-slate-200", children: ["Policy (JSON)", _jsx("textarea", { value: configForm.policyText, onChange: (event) => updateConfigForm({ policyText: event.target.value }), rows: 4, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", placeholder: '{"cursorField":"updated","primaryKeys":["id"]}' }), _jsxs("span", { className: "mt-1 block text-xs text-slate-400", children: ["Leave empty to use the endpoint defaults (", summarizePolicy(configuringUnit.defaultPolicy ?? null).join(" · ") || "no cursor", ")."] })] })] })] }), supportsJiraFilters && configForm ? (_jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Filters" }), _jsx("button", { type: "button", onClick: resetJiraFilterForm, className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-300/80 transition hover:text-white", children: "Clear" })] }), _jsxs("div", { className: "mt-3 grid gap-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Projects", _jsx("select", { multiple: true, value: configForm.jiraFilter.projectKeys, onChange: (event) => handleFilterMultiSelect(event, "projectKeys"), disabled: jiraFilterLoading, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: (jiraFilterOptions?.projects ?? []).map((project) => (_jsx("option", { value: project.key, className: "bg-slate-900 text-slate-100", children: project.name ?? project.key }, project.key))) })] }), _jsxs("label", { className: "block text-sm text-slate-200", children: ["Statuses", _jsx("select", { multiple: true, value: configForm.jiraFilter.statuses, onChange: (event) => handleFilterMultiSelect(event, "statuses"), disabled: jiraFilterLoading, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: (jiraFilterOptions?.statuses ?? []).map((status) => (_jsxs("option", { value: status.name, className: "bg-slate-900 text-slate-100", children: [status.name, status.category ? ` · ${status.category}` : ""] }, status.id))) })] }), _jsxs("label", { className: "block text-sm text-slate-200", children: ["Assignees", _jsx("select", { multiple: true, value: configForm.jiraFilter.assigneeIds, onChange: (event) => handleFilterMultiSelect(event, "assigneeIds"), disabled: jiraFilterLoading, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: (jiraFilterOptions?.users ?? []).map((user) => (_jsxs("option", { value: user.accountId, className: "bg-slate-900 text-slate-100", children: [user.displayName ?? user.accountId, user.email ? ` · ${user.email}` : ""] }, user.accountId))) })] }), _jsxs("label", { className: "block text-sm text-slate-200", children: ["Updated from", _jsx("input", { type: "datetime-local", value: formatDateInputValue(configForm.jiraFilter.updatedFrom), onChange: (event) => {
+                                                                    const raw = event.target.value;
+                                                                    if (!raw) {
+                                                                        updateJiraFilterForm({ updatedFrom: null });
+                                                                        return;
+                                                                    }
+                                                                    const parsed = new Date(raw);
+                                                                    if (Number.isNaN(parsed.getTime())) {
+                                                                        return;
+                                                                    }
+                                                                    updateJiraFilterForm({ updatedFrom: parsed.toISOString() });
+                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" }), _jsx("span", { className: "mt-1 block text-xs text-slate-400", children: "Leave blank to sync full history for new projects." })] })] }), jiraFilterLoading ? (_jsx("p", { className: "mt-2 text-xs text-slate-400", children: "Loading filter options\u2026" })) : jiraFilterError ? (_jsx("p", { className: "mt-2 text-xs text-amber-300", children: jiraFilterError })) : null, _jsx("p", { className: "mt-3 text-xs text-slate-400", children: "Filter changes keep existing project cursors. Newly added projects use the Updated From timestamp (or all history if not set)." })] })) : null, _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Schedule" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Trigger", _jsxs("select", { value: configForm.scheduleKind, onChange: (event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "MANUAL", children: "Manual only" }), _jsx("option", { value: "INTERVAL", children: "Fixed interval" })] })] }), configForm.scheduleKind === "INTERVAL" ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Interval (minutes)", _jsx("input", { type: "number", min: 1, value: configForm.scheduleIntervalMinutes, onChange: (event) => updateConfigForm({
                                                                     scheduleIntervalMinutes: Math.max(1, Number(event.target.value) || 1),
                                                                 }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" })] })) : null] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Sink" }), _jsxs("label", { className: "mt-3 block text-sm text-slate-200", children: ["Destination", _jsx("select", { value: configForm.sinkId, onChange: (event) => updateConfigForm({ sinkId: event.target.value }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: drawerSinkOptions.map((sink) => {
                                                             const disabled = configForm.mode === "cdm" && configuringUnit.cdmModelId
@@ -509,11 +578,15 @@ function buildConfigInput(unit, overrides) {
         scheduleKind: unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL",
         scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
         policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
+        jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
     };
     const nextScheduleKind = normalizeScheduleKind(overrides.scheduleKind ?? fallback.scheduleKind);
     const intervalValue = nextScheduleKind === "INTERVAL"
         ? overrides.scheduleIntervalMinutes ?? fallback.scheduleIntervalMinutes ?? 15
         : null;
+    const nextFilter = overrides.jiraFilter === undefined
+        ? fallback.jiraFilter
+        : overrides.jiraFilter ?? DEFAULT_JIRA_FILTER_FORM;
     return {
         endpointId: unit.endpointId,
         datasetId: unit.datasetId ?? unit.unitId,
@@ -528,6 +601,7 @@ function buildConfigInput(unit, overrides) {
             ? Math.max(1, Math.trunc(typeof intervalValue === "number" && !Number.isNaN(intervalValue) ? intervalValue : 15))
             : null,
         policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
+        jiraFilter: formatJiraFilterInputFromForm(nextFilter),
     };
 }
 function matchesCdmPattern(pattern, target) {
@@ -552,4 +626,58 @@ function stringifyPolicy(policy) {
     catch {
         return "";
     }
+}
+function reduceJiraFilterToFormValue(source) {
+    if (!source) {
+        return { ...DEFAULT_JIRA_FILTER_FORM };
+    }
+    return {
+        projectKeys: coerceFilterArray(source.projectKeys),
+        statuses: coerceFilterArray(source.statuses),
+        assigneeIds: coerceFilterArray(source.assigneeIds),
+        updatedFrom: source.updatedFrom ?? null,
+    };
+}
+function coerceFilterArray(value) {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return Array.from(new Set(value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry.length > 0)));
+}
+function formatJiraFilterInputFromForm(filter) {
+    if (!filter) {
+        return null;
+    }
+    const payload = {};
+    if (filter.projectKeys.length) {
+        payload.projectKeys = filter.projectKeys;
+    }
+    if (filter.statuses.length) {
+        payload.statuses = filter.statuses;
+    }
+    if (filter.assigneeIds.length) {
+        payload.assigneeIds = filter.assigneeIds;
+    }
+    if (filter.updatedFrom) {
+        payload.updatedFrom = filter.updatedFrom;
+    }
+    return Object.keys(payload).length ? payload : null;
+}
+function formatDateInputValue(value) {
+    if (!value) {
+        return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return "";
+    }
+    return date.toISOString().slice(0, 16);
+}
+function isJiraUnitId(unitId) {
+    if (!unitId) {
+        return false;
+    }
+    return unitId.toLowerCase().startsWith("jira.");
 }

@@ -334,6 +334,49 @@ class JiraIngestionResult:
     records: List[Dict[str, Any]]
     cursor: Dict[str, Any]
     stats: Dict[str, Any]
+    transient_state: Dict[str, Any]
+
+
+@dataclass
+class JiraIngestionFilter:
+    project_keys: List[str]
+    statuses: List[str]
+    assignee_ids: List[str]
+    updated_from: Optional[str]
+
+
+class JiraTransientState:
+    def __init__(self, payload: Optional[Dict[str, Any]] = None) -> None:
+        base: Dict[str, Any] = {}
+        if isinstance(payload, dict):
+            base.update(payload)
+        projects = base.get("projects")
+        if not isinstance(projects, dict):
+            projects = {}
+        normalized_projects = {}
+        for key, value in projects.items():
+            if not isinstance(value, dict):
+                continue
+            normalized_projects[str(key).upper()] = dict(value)
+        base["projects"] = normalized_projects
+        self._state = base
+
+    def get_project_cursor(self, project_key: str) -> Dict[str, Any]:
+        projects = self._state.setdefault("projects", {})
+        return projects.get(str(project_key).upper(), {})
+
+    def set_project_cursor(self, project_key: str, last_updated: Optional[str]) -> None:
+        if not last_updated:
+            return
+        projects = self._state.setdefault("projects", {})
+        projects[str(project_key).upper()] = {"lastUpdated": last_updated}
+
+    def set_global_cursor(self, last_updated: Optional[str]) -> None:
+        if last_updated:
+            self._state["lastUpdated"] = last_updated
+
+    def serialize(self) -> Dict[str, Any]:
+        return self._state
 
 
 def run_jira_ingestion_unit(
@@ -343,6 +386,8 @@ def run_jira_ingestion_unit(
     policy: Dict[str, Any],
     checkpoint: Optional[Dict[str, Any]] = None,
     mode: Optional[str] = None,
+    filter: Optional[Dict[str, Any]] = None,
+    transient_state: Optional[Dict[str, Any]] = None,
 ) -> JiraIngestionResult:
     definition = JIRA_DATASET_DEFINITIONS.get(unit_id)
     ingestion_meta = definition.get("ingestion") if definition else None
@@ -353,6 +398,9 @@ def run_jira_ingestion_unit(
     if not handler:
         raise ValueError(f"No ingestion handler registered for Jira unit '{unit_id}'")
     params = _normalize_jira_parameters(policy)
+    ingestion_filter = _normalize_ingestion_filter(filter)
+    if ingestion_filter:
+        _apply_ingestion_filter(params, ingestion_filter)
     base_url = params.get("base_url")
     if not base_url:
         raise ValueError("Jira base_url is required")
@@ -360,6 +408,7 @@ def run_jira_ingestion_unit(
     org_id = params.get("scope_org_id") or "dev"
     scope_project = params.get("scope_project_id")
     cursor = {} if str(mode or "").upper() == "FULL" else _extract_jira_cursor(checkpoint)
+    state = JiraTransientState(transient_state)
     session = _build_jira_session(params)
     try:
         records, new_cursor, stats = handler(
@@ -371,12 +420,14 @@ def run_jira_ingestion_unit(
             endpoint_id=endpoint_id,
             params=params,
             cursor=cursor,
+            ingestion_filter=ingestion_filter,
+            state=state,
         )
     finally:
         session.close()
     stats.setdefault("unitId", unit_id)
     stats.setdefault("recordCount", len(records))
-    return JiraIngestionResult(records=records, cursor=new_cursor, stats=stats)
+    return JiraIngestionResult(records=records, cursor=new_cursor, stats=stats, transient_state=state.serialize())
 
 
 def _build_static_api_overview() -> List[Dict[str, Any]]:
@@ -422,13 +473,25 @@ def _build_issue_jql(params: Dict[str, Any], since: Optional[str]) -> str:
     clauses: List[str] = []
     keys = params.get("project_keys") or []
     if keys:
-        clauses.append(f"project in ({','.join(keys)})")
+        clauses.append(f"project in ({','.join(_quote_jql_value(key) for key in keys)})")
     jql_filter = params.get("jql_filter")
     if jql_filter:
         clauses.append(f"({jql_filter})")
-    if since:
-        clauses.append(f'updated >= "{_format_timestamp(since)}"')
+    statuses = params.get("filter_statuses") or []
+    if statuses:
+        clauses.append(f"status in ({','.join(_quote_jql_value(status) for status in statuses)})")
+    assignee_ids = params.get("filter_assignee_ids") or []
+    if assignee_ids:
+        clauses.append(f"assignee in ({','.join(_quote_jql_value(assignee) for assignee in assignee_ids)})")
+    updated_from = since or params.get("filter_updated_from")
+    if updated_from:
+        clauses.append(f'updated >= "{_format_timestamp(updated_from)}"')
     return " AND ".join(clauses)
+
+
+def _quote_jql_value(value: str) -> str:
+    escaped = str(value).replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _iter_issue_search(
@@ -501,6 +564,66 @@ def _normalize_jira_parameters(policy: Dict[str, Any]) -> Dict[str, Any]:
     params.setdefault("scope_org_id", "dev")
     params["auth_type"] = str(params.get("auth_type") or "basic").lower()
     return params
+
+
+def _normalize_ingestion_filter(raw: Optional[Dict[str, Any]]) -> Optional[JiraIngestionFilter]:
+    if not raw or not isinstance(raw, dict):
+        return None
+    project_keys = _normalize_project_keys(raw.get("projectKeys") or raw.get("project_keys"))
+    statuses = _normalize_filter_values(raw.get("statuses"))
+    assignee_ids = _normalize_filter_values(raw.get("assigneeIds") or raw.get("assignees"))
+    updated_from = _normalize_timestamp_value(raw.get("updatedFrom") or raw.get("updated_from"))
+    if not project_keys and not statuses and not assignee_ids and not updated_from:
+        return None
+    return JiraIngestionFilter(
+        project_keys=project_keys,
+        statuses=statuses,
+        assignee_ids=assignee_ids,
+        updated_from=updated_from,
+    )
+
+
+def _apply_ingestion_filter(params: Dict[str, Any], ingestion_filter: JiraIngestionFilter) -> None:
+    if ingestion_filter.project_keys:
+        params["project_keys"] = ingestion_filter.project_keys
+    if ingestion_filter.statuses:
+        params["filter_statuses"] = ingestion_filter.statuses
+    if ingestion_filter.assignee_ids:
+        params["filter_assignee_ids"] = ingestion_filter.assignee_ids
+    if ingestion_filter.updated_from:
+        params["filter_updated_from"] = ingestion_filter.updated_from
+
+
+def _normalize_filter_values(raw: Any) -> List[str]:
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        raw_list = raw.split(",")
+    elif isinstance(raw, list):
+        raw_list = raw
+    else:
+        return []
+    values = []
+    for entry in raw_list:
+        entry_str = str(entry).strip()
+        if entry_str:
+            values.append(entry_str)
+    return values
+
+
+def _normalize_timestamp_value(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    if isinstance(value, str):
+        candidate = value.strip()
+        try:
+            parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+            return parsed.isoformat()
+        except ValueError:
+            return candidate
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return None
 
 
 def _normalize_project_keys(raw: Any) -> List[str]:
@@ -1022,6 +1145,8 @@ def _run_projects_unit(
     endpoint_id: str,
     params: Dict[str, Any],
     cursor: Dict[str, Any],
+    ingestion_filter: Optional[JiraIngestionFilter] = None,
+    state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     records, stats = _sync_jira_projects(session, base_url, host, org_id, scope_project, endpoint_id, params)
     new_cursor = {"lastRunAt": datetime.now().isoformat()}
@@ -1038,20 +1163,63 @@ def _run_issues_unit(
     endpoint_id: str,
     params: Dict[str, Any],
     cursor: Dict[str, Any],
+    ingestion_filter: Optional[JiraIngestionFilter] = None,
+    state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
-    since = cursor.get("lastUpdated")
-    records, latest = _sync_jira_issues(
-        session,
-        base_url,
-        host,
-        org_id,
-        scope_project,
-        endpoint_id,
-        params,
-        since,
-    )
-    new_cursor = {"lastUpdated": latest or since}
-    stats = {"lastUpdated": latest or since, "issuesSynced": len(records)}
+    state = state or JiraTransientState()
+    records: List[Dict[str, Any]] = []
+    new_cursor: Dict[str, Any] = {}
+    if "lastUpdated" in cursor:
+        new_cursor["lastUpdated"] = cursor.get("lastUpdated")
+    project_cursors = cursor.get("projects") if isinstance(cursor.get("projects"), dict) else {}
+    updated_projects: Dict[str, Dict[str, Any]] = dict(project_cursors or {})
+    project_keys = []
+    if ingestion_filter and ingestion_filter.project_keys:
+        project_keys = ingestion_filter.project_keys
+    elif params.get("project_keys"):
+        project_keys = params.get("project_keys") or []
+    project_keys = [key for key in project_keys if key]
+    projects = project_keys or [None]
+    for project_key in projects:
+        scoped_params = dict(params)
+        if project_key:
+            scoped_params["project_keys"] = [project_key]
+        since = None
+        if project_key:
+            since = state.get_project_cursor(project_key).get("lastUpdated")
+            if not since and isinstance(project_cursors, dict):
+                project_state = project_cursors.get(project_key) or project_cursors.get(str(project_key).upper())
+                if isinstance(project_state, dict):
+                    since = project_state.get("lastUpdated")
+            if not since and ingestion_filter and ingestion_filter.updated_from:
+                since = ingestion_filter.updated_from
+        else:
+            since = state.serialize().get("lastUpdated") or cursor.get("lastUpdated") or (
+                ingestion_filter.updated_from if ingestion_filter else None
+            )
+        project_records, latest = _sync_jira_issues(
+            session,
+            base_url,
+            host,
+            org_id,
+            scope_project,
+            endpoint_id,
+            scoped_params,
+            since,
+        )
+        records.extend(project_records)
+        latest_value = latest or since
+        if project_key:
+            if latest_value:
+                state.set_project_cursor(project_key, latest_value)
+                updated_projects[str(project_key).upper()] = {"lastUpdated": latest_value}
+        else:
+            if latest_value:
+                state.set_global_cursor(latest_value)
+                new_cursor["lastUpdated"] = latest_value
+    if updated_projects:
+        new_cursor["projects"] = updated_projects
+    stats = {"lastUpdated": new_cursor.get("lastUpdated"), "issuesSynced": len(records)}
     return records, new_cursor, stats
 
 
@@ -1065,6 +1233,8 @@ def _run_users_unit(
     endpoint_id: str,
     params: Dict[str, Any],
     cursor: Dict[str, Any],
+    ingestion_filter: Optional[JiraIngestionFilter] = None,
+    state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     records, stats = _sync_jira_users(session, base_url, host, org_id, scope_project, endpoint_id, params)
     new_cursor = {"lastRunAt": datetime.now().isoformat()}
@@ -1081,6 +1251,8 @@ def _run_comments_unit(
     endpoint_id: str,
     params: Dict[str, Any],
     cursor: Dict[str, Any],
+    ingestion_filter: Optional[JiraIngestionFilter] = None,
+    state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     since = cursor.get("lastUpdated")
     records, latest = _sync_jira_comments(
@@ -1108,6 +1280,8 @@ def _run_worklogs_unit(
     endpoint_id: str,
     params: Dict[str, Any],
     cursor: Dict[str, Any],
+    ingestion_filter: Optional[JiraIngestionFilter] = None,
+    state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     since = cursor.get("lastStarted")
     records, latest = _sync_jira_worklogs(
