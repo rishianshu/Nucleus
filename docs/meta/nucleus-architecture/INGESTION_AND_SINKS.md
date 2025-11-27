@@ -45,12 +45,12 @@ This ensures orchestration never targets phantom datasets and keeps ingestion po
 
 ### CDM bindings
 
-`EndpointUnitDescriptor` now includes an optional `cdm_model_id` (surfaced to GraphQL/console as `cdmModelId`). When a source knows how to map its normalized records into the work CDM (`docs/meta/nucleus-architecture/CDM-WORK-MODEL.md`), it should tag each unit accordingly. Jira HTTP does this for projects/issues/users/comments/worklogs so downstream sinks and reporting can reason about the target schema. Units without a CDM mapping leave the field `null`, signalling that only KB enrichment (or a bespoke sink) is available.
+`EndpointUnitDescriptor` now includes an optional `cdm_model_id` (surfaced to GraphQL/console as `cdmModelId`). When a source knows how to map its normalized records into one of the CDM families—work (`docs/meta/nucleus-architecture/CDM-WORK-MODEL.md`) or docs (`docs/meta/nucleus-architecture/CDM-DOCS-MODEL.md`)—it should tag each unit accordingly. Jira HTTP already advertises `cdm.work.*`, and the new Confluence/OneDrive subsystems advertise `cdm.doc.space`, `cdm.doc.item`, `cdm.doc.revision`, and `cdm.doc.link`. Units without a CDM mapping leave the field `null`, signalling that only KB enrichment (or a bespoke sink) is available.
 
 When a unit advertises `cdm_model_id`, ingestion configs now expose a **data mode** selector:
 
 - `raw` (default) keeps the existing source-shaped payloads.
-- `cdm` instructs the Python worker to apply the appropriate mapper (e.g., Jira→CDM work) before emitting rows.
+- `cdm` instructs the Python worker to apply the appropriate mapper (e.g., Jira→CDM work, Confluence→CDM docs) before emitting rows.
 
 Because CDM rows typically land in downstream data stores rather than the KB, sinks also declare their CDM support. Sink registrations call `registerIngestionSink(id, factory, { supportedCdmModels: [...] })`, and the GraphQL API exposes these descriptors via the `ingestionSinks` query so the UI can filter/validate selections. When a user chooses `mode="cdm"`, the server enforces that:
 
@@ -70,11 +70,11 @@ Because CDM rows typically land in downstream data stores rather than the KB, si
 
 > **CDM sink write path**
 >
-> Temporal now forwards `sinkEndpointId`, `dataMode`, and `cdmModelId` to both the Python worker and the sink. The worker applies the Jira (or future source) CDM mapper and emits normalized CDM records; the `cdm` sink writes them into the provisioned Postgres tables using parameterized upserts (`INSERT … ON CONFLICT (cdm_id) DO UPDATE`). Raw-mode runs continue to target the Knowledge Base sink unchanged.
+> Temporal now forwards `sinkEndpointId`, `dataMode`, and `cdmModelId` to both the Python worker and the sink. The worker applies the relevant mapper (Jira→work CDM, Confluence/OneDrive→docs CDM, etc.) and emits normalized CDM records; the `cdm` sink writes them into the provisioned Postgres tables using parameterized upserts (`INSERT … ON CONFLICT (cdm_id) DO UPDATE`). Raw-mode runs continue to target the Knowledge Base sink unchanged.
 
 > **Local dev fallback**
 >
-> When experimenting locally (or in automated tests) without a registered CDM sink endpoint, the metadata API can fall back to `CDM_WORK_DATABASE_URL` (or `METADATA_DATABASE_URL`) plus optional `CDM_WORK_DATABASE_SCHEMA` / `CDM_WORK_DATABASE_TABLE_PREFIX` env vars. This lets developers point the CDM explorer at a known Postgres schema (default `cdm_work.cdm_*`) while production environments should continue to register explicit `cdm.jdbc` endpoints.
+> When experimenting locally (or in automated tests) without a registered CDM sink endpoint, the metadata API can fall back to `CDM_WORK_DATABASE_URL` (or `METADATA_DATABASE_URL`) plus optional `CDM_WORK_DATABASE_SCHEMA` / `CDM_WORK_DATABASE_TABLE_PREFIX` env vars. This currently powers the CDM Work explorer and can also surface docs CDM tables while we wire official doc sinks. Production environments should continue to register explicit `cdm.jdbc` endpoints.
 
 The Temporal worker receives both the run-mode (full/incremental) and data-mode; Jira ingestion now produces CDM records (updating `entityType` and payload) only when the config requests it, keeping the raw path unchanged for other sinks.
 

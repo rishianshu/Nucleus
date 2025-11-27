@@ -1,0 +1,5 @@
+- [x] Review existing CDM modules/tests to align docs model patterns; capture any open questions.
+- [x] Implement Python CDM docs dataclasses (space/item/revision/link) + ID helpers + unit tests.
+- [x] Add Confluence → CDM docs mapping helpers with deterministic IDs and coverage.
+- [x] Add OneDrive → CDM docs mapping helpers with deterministic IDs and coverage.
+- [x] Update architecture docs describing docs CDM + bindings; sync LOG/STATE/STORY after verification.

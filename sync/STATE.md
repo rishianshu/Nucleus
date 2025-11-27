@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-none (idle)
+cdm-docs-model-and-semantic-binding-v1 (success @ 2025-11-27T19:04Z)
 
 ## Last Run
-- slug: ingestion-filters-and-incremental-jira-v1
+- slug: cdm-docs-model-and-semantic-binding-v1
 - status: success
-- duration: ~3h (Jira filters + transient state + docs + full CI)
-- tests: pnpm --filter @apps/metadata-api exec tsx --test src/ingestion/transientState.test.ts src/temporal/activities.test.ts src/ingestion/ingestionResolvers.test.ts; pnpm ci-check
+- duration: ~45m (CDM docs models + Confluence/OneDrive mappers + docs/tests)
+- tests: python3 -m pytest platform/spark-ingestion/packages/core/tests/test_cdm_docs.py platform/spark-ingestion/tests/test_cdm_confluence_mapper.py platform/spark-ingestion/tests/test_cdm_onedrive_mapper.py
 - commits: not yet
 - decisions: 0
-- next_step: ready for review / queue next slug
+- next_step: queue the next slug / begin planner wiring when ready
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-11-27T19:04Z run success (cdm-docs-model-and-semantic-binding-v1, docs CDM + Confluence/OneDrive mappers + docs/tests)
+- 2025-11-27T18:19Z run started (cdm-docs-model-and-semantic-binding-v1, boot + artifact sync)
 - 2025-11-27T16:52Z run success (ingestion-filters-and-incremental-jira-v1, Jira filters + transient state + docs + ci-check)
 - 2025-11-27T16:52Z run heartbeat (ingestion-filters-and-incremental-jira-v1, unit/GraphQL tests + pnpm ci-check after resolving port/keycloak bring-up)
 - 2025-11-27T16:40Z run heartbeat (ingestion-filters-and-incremental-jira-v1, docs updated + transient/filter tests passing via tsx runner)

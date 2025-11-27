@@ -1,0 +1,43 @@
+- title: CDM docs model & semantic binding v1
+- slug: cdm-docs-model-and-semantic-binding-v1
+- type: feature
+- context:
+  - runtime_core/cdm/* (existing work CDM)
+  - platform/spark-ingestion/runtime_common/endpoints/* (Confluence/OneDrive/Jira endpoints)
+  - platform/spark-ingestion/packages/metadata-service/src/metadata_service/cdm/*
+  - apps/metadata-api (endpoint + ingestion GraphQL)
+  - docs/meta/nucleus-architecture/*
+- why_now: We have a CDM for work (projects, items, comments, worklogs) and a working ingestion design with planner + filters + KV for Jira. The next semantic sources (Confluence and OneDrive) are document/knowledge oriented. Before building their endpoints/ingestion, we need a stable, source-agnostic CDM for documents (spaces, pages/files, revisions, links) and pure mapping helpers for Confluence and OneDrive so Nucleus stays semantic-first, not source-shaped.
+- scope_in:
+  - Define a CDM docs module in Python for:
+    - document space/container (wiki space, site, drive),
+    - document item (page/file),
+    - document revision,
+    - document link/reference.
+  - Design CDM IDs and relationships (space → item → revision, cross-links).
+  - Implement mapping helpers for:
+    - Confluence → CDM docs (spaces/pages/attachments),
+    - OneDrive → CDM docs (drives/folders/files).
+  - Document how docs CDM fits with ingestion planner and sinks (no sink implementation in this slug).
+- scope_out:
+  - Building Confluence/OneDrive endpoints or ingestion units (dedicated slugs).
+  - Implementing CDM docs sinks or UI explorers.
+  - Vector indexing and signal extraction from docs.
+- acceptance:
+  1. CDM docs models for space, item, revision, and link exist in a shared Python module and pass unit tests.
+  2. Confluence→CDM mapping helpers convert normalized Confluence payloads into CDM docs models with deterministic IDs.
+  3. OneDrive→CDM mapping helpers convert normalized OneDrive payloads into CDM docs models with deterministic IDs.
+  4. Architecture docs explain the docs CDM and how Confluence/OneDrive/Jira bindings are expected to use it, including how it will plug into ingestion planner and sinks.
+- constraints:
+  - CDM docs must be source-agnostic; Confluence/OneDrive specifics live in `properties` dicts, not top-level fields.
+  - CDM evolution must be additive (new optional fields only).
+  - No ingestion or DB schema changes in this slug.
+- non_negotiables:
+  - CDM docs must support both wiki-style pages and file-style docs without hacks.
+  - Mapping helpers must be pure functions (no I/O, no direct sink/KB writes).
+- refs:
+  - intents/cdm-core-model-and-semantic-binding-v1/*
+  - intents/ingestion-filters-and-incremental-jira-v1/*
+  - docs/meta/nucleus-architecture/INGESTION_AND_SINKS.md
+  - docs/meta/nucleus-architecture/CDM-WORK-MODEL.md
+- status: in-progress
