@@ -313,6 +313,7 @@ export type IngestionUnitDescriptor = {
   defaultScheduleIntervalMinutes?: number | null;
   defaultPolicy?: Record<string, unknown> | null;
   stats?: Record<string, unknown> | null;
+  cdmModelId?: string;
 };
 
 export type IngestionScope = {

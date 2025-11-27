@@ -26,6 +26,10 @@ Endpoint descriptors are collected by `runtime_common/endpoints/registry.py` and
 | `http.rest` | HTTP / Generic API | `runtime_common/endpoints/http_rest.py` | `metadata` (schema introspection), `preview` (sample calls). | No metadata subsystem; relies on custom API responses. | Descriptor fields cover base URL, HTTP method, auth modes, pagination hints. |
 | `stream.kafka` | Streaming / Kafka | `runtime_common/endpoints/stream_kafka.py` | `metadata` (topic description), `preview` (sample). | Stream metadata handled via runtime-common stream helpers. | Connects to Kafka brokers; emits topic/partition details. |
 
+### CDM-aware ingestion units
+
+Source endpoints that expose ingestion units should populate the optional `cdm_model_id` so downstream sinks know which CDM table(s) a unit feeds. Jira (`jira.http`) already ships `cdm.work.project`, `cdm.work.item`, `cdm.work.user`, `cdm.work.comment`, and `cdm.work.worklog` bindings; see `docs/meta/nucleus-architecture/CDM-WORK-MODEL.md` for the canonical schemas and ID formats. Future connectors should follow the same pattern: define a mapping helper, tag each unit, and document the relationship so orchestrators/UI can present CDM-aware choices.
+
 ## Sink Endpoints (Spark ingestion plane)
 
 | Template | Family / Target | Location | Capabilities | Notes |

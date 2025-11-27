@@ -298,6 +298,7 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
       defaultPolicy
       defaultScheduleKind
       defaultScheduleIntervalMinutes
+      cdmModelId
     }
     ingestionStatuses(endpointId: $endpointId) {
       endpointId

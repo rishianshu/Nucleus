@@ -40,6 +40,20 @@ import type { IngestionUnitStateRow } from "./ingestion/stateStore.js";
 import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, saveIngestionUnitConfig, type IngestionUnitConfigRow } from "./ingestion/configStore.js";
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 
+type IngestionStateStoreImpl = {
+  getUnitState: typeof getUnitState;
+  listUnitStates: typeof listUnitStates;
+  markUnitState: typeof markUnitState;
+  ensureUnitState: typeof ensureUnitState;
+};
+
+type IngestionConfigStoreImpl = {
+  findConfigByDataset: typeof findConfigByDataset;
+  getIngestionUnitConfig: typeof getIngestionUnitConfig;
+  listIngestionUnitConfigs: typeof listIngestionUnitConfigs;
+  saveIngestionUnitConfig: typeof saveIngestionUnitConfig;
+};
+
 const CATALOG_DATASET_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
 const DEFAULT_PROJECT_ID = process.env.METADATA_DEFAULT_PROJECT ?? "global";
 const ENABLE_SAMPLE_FALLBACK = process.env.METADATA_SAMPLE_FALLBACK !== "0";
@@ -619,6 +633,7 @@ export const typeDefs = `#graphql
     defaultPolicy: JSON
     defaultScheduleKind: String
     defaultScheduleIntervalMinutes: Int
+    cdmModelId: String
   }
 
   type IngestionStatus {
@@ -722,8 +737,27 @@ export const typeDefs = `#graphql
   }
 `;
 
-export function createResolvers(store: MetadataStore, options?: { graphStore?: GraphStore }) {
+export function createResolvers(
+  store: MetadataStore,
+  options?: {
+    graphStore?: GraphStore;
+    ingestionStateStore?: Partial<IngestionStateStoreImpl>;
+    ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
+  },
+) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
+  const stateStore = {
+    getUnitState: options?.ingestionStateStore?.getUnitState ?? getUnitState,
+    listUnitStates: options?.ingestionStateStore?.listUnitStates ?? listUnitStates,
+    markUnitState: options?.ingestionStateStore?.markUnitState ?? markUnitState,
+    ensureUnitState: options?.ingestionStateStore?.ensureUnitState ?? ensureUnitState,
+  };
+  const configStore = {
+    findConfigByDataset: options?.ingestionConfigStore?.findConfigByDataset ?? findConfigByDataset,
+    getIngestionUnitConfig: options?.ingestionConfigStore?.getIngestionUnitConfig ?? getIngestionUnitConfig,
+    listIngestionUnitConfigs: options?.ingestionConfigStore?.listIngestionUnitConfigs ?? listIngestionUnitConfigs,
+    saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
+  };
   const registerEndpointWithInput = async (
     input: GraphQLMetadataEndpointInput,
     ctx: ResolverContext,
@@ -1371,7 +1405,7 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        const configs = await listIngestionUnitConfigs(endpointRowId);
+        const configs = await configStore.listIngestionUnitConfigs(endpointRowId);
         const configMap = new Map(configs.map((config) => [config.unitId, config]));
         const units = await resolveAvailableIngestionUnits(store, endpoint, endpointRowId, driver);
         if (units.length === 0) {
@@ -1381,10 +1415,10 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
           units.map((unit) => {
             const config = configMap.get(unit.unitId);
             const sinkId = resolveIngestionSinkId(config?.sinkId);
-            return ensureUnitState({ endpointId: endpointRowId, unitId: unit.unitId, sinkId });
+            return stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: unit.unitId, sinkId });
           }),
         );
-        const rows = await listUnitStates(endpointRowId);
+        const rows = await stateStore.listUnitStates(endpointRowId);
         return rows.map(mapIngestionStateRow);
       },
       ingestionStatus: async (_parent: unknown, args: { endpointId: string; unitId: string }, ctx: ResolverContext) => {
@@ -1393,21 +1427,21 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
         await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
-        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
         const sinkId = resolveIngestionSinkId(config?.sinkId);
-        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
-        const row = await getUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        const row = await stateStore.getUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         return row ? mapIngestionStateRow(row) : null;
       },
       ingestionUnitConfigs: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
         enforceIngestionAdmin(ctx);
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
-        const configs = await listIngestionUnitConfigs(endpointRowId);
+        const configs = await configStore.listIngestionUnitConfigs(endpointRowId);
         if (configs.length === 0) {
           return [];
         }
-        const stateRows = await listUnitStates(endpointRowId);
+        const stateRows = await stateStore.listUnitStates(endpointRowId);
         const stateMap = new Map(stateRows.map((row) => [row.unitId, mapIngestionStateRow(row)]));
         return configs.map((config) => mapIngestionUnitConfig(config, stateMap.get(config.unitId) ?? null));
       },
@@ -1565,17 +1599,17 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
         await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
-        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
         if ((!config || !config.enabled) && !ctx.bypassWrites) {
           throw new GraphQLError("Ingestion unit is not enabled.", {
             extensions: { code: "E_INGESTION_UNIT_DISABLED", unitId: args.unitId },
           });
         }
         const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
-        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         if (ctx.bypassWrites) {
           const bypassRunId = `bypass-${randomUUID()}`;
-          await markUnitState(
+          await stateStore.markUnitState(
             { endpointId: endpointRowId, unitId: args.unitId, sinkId },
             { state: "SUCCEEDED", lastRunId: bypassRunId, lastRunAt: new Date(), lastError: null },
           );
@@ -1588,7 +1622,7 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
           workflowId,
           args: [{ endpointId: endpointRowId, unitId: args.unitId, sinkId }],
         });
-        await markUnitState(
+        await stateStore.markUnitState(
           { endpointId: endpointRowId, unitId: args.unitId, sinkId },
           { state: "RUNNING", lastRunId: workflowId, lastRunAt: new Date(), lastError: null },
         );
@@ -1600,10 +1634,10 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
         await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
-        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
         const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
-        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
-        await markUnitState(
+        await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        await stateStore.markUnitState(
           { endpointId: endpointRowId, unitId: args.unitId, sinkId },
           { state: "PAUSED", lastError: null },
         );
@@ -1619,16 +1653,16 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
         await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
-        const config = await getIngestionUnitConfig(endpointRowId, args.unitId);
+        const config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
         const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
-        await ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+        await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         await clearIngestionCheckpoint({
           endpointId: endpointRowId,
           unitId: args.unitId,
           vendor: resolveVendorKeyForEndpoint(endpoint),
           sinkId,
         });
-        await markUnitState(
+        await stateStore.markUnitState(
           { endpointId: endpointRowId, unitId: args.unitId, sinkId },
           { checkpoint: null, state: "IDLE", lastError: null },
         );
@@ -1642,7 +1676,7 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         const unit = await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.input.unitId);
         const datasetId = unit.datasetId ?? unit.unitId;
         await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
-        const existing = await getIngestionUnitConfig(endpointRowId, args.input.unitId);
+        const existing = await configStore.getIngestionUnitConfig(endpointRowId, args.input.unitId);
         const sinkId = resolveIngestionSinkId(args.input.sinkId ?? existing?.sinkId ?? unit.defaultSinkId);
         const supportedModes = inferSupportedModes(unit).map((entry) => entry.toUpperCase());
         const requestedMode = (args.input.mode ?? existing?.mode ?? unit.defaultMode ?? inferDefaultMode(unit)).toUpperCase();
@@ -1657,7 +1691,7 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
             ? Math.max(1, args.input.scheduleIntervalMinutes ?? existing?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15)
             : null;
         const policy = (args.input.policy as Record<string, unknown> | null | undefined) ?? existing?.policy ?? unit.defaultPolicy ?? null;
-        const saved = await saveIngestionUnitConfig({
+        const saved = await configStore.saveIngestionUnitConfig({
           endpointId: endpointRowId,
           datasetId,
           unitId: args.input.unitId,
@@ -1668,13 +1702,13 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
           scheduleIntervalMinutes,
           policy,
         });
-        await ensureUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
+        await stateStore.ensureUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
         if (saved.enabled && saved.scheduleKind === "INTERVAL") {
           await syncIngestionUnitSchedule(saved);
         } else {
           await removeIngestionUnitSchedule(saved.endpointId, saved.unitId);
         }
-        const state = await getUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
+        const state = await stateStore.getUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
         return mapIngestionUnitConfig(saved, state ? mapIngestionStateRow(state) : null);
       },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
@@ -2009,11 +2043,11 @@ export function createResolvers(store: MetadataStore, options?: { graphStore?: G
         if (!parent.sourceEndpointId || !parent.id) {
           return null;
         }
-        const config = await findConfigByDataset(parent.sourceEndpointId, parent.id);
+        const config = await configStore.findConfigByDataset(parent.sourceEndpointId, parent.id);
         if (!config) {
           return null;
         }
-        const state = await getUnitState({ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId });
+        const state = await stateStore.getUnitState({ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId });
         return mapIngestionUnitConfig(config, state ? mapIngestionStateRow(state) : null);
       },
     },
@@ -3164,6 +3198,7 @@ function mapIngestionUnit(unit: IngestionUnitDescriptor, endpointId: string, dri
     defaultPolicy: unit.defaultPolicy ?? null,
     defaultScheduleKind: unit.defaultScheduleKind ?? "MANUAL",
     defaultScheduleIntervalMinutes: unit.defaultScheduleIntervalMinutes ?? null,
+    cdmModelId: unit.cdmModelId ?? null,
   };
 }
 

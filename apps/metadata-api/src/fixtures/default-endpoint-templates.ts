@@ -309,6 +309,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
           displayName: "Projects",
           description: "Project catalog (key, name, lead, type).",
           supportsIncremental: false,
+          cdmModelId: "cdm.work.project",
         },
         {
           unitId: "jira.issues",
@@ -318,6 +319,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
           description: "Work items (issues/epics/tasks) with incremental sync.",
           supportsIncremental: true,
           defaultPolicy: { cursor: "fields.updated" },
+          cdmModelId: "cdm.work.item",
         },
         {
           unitId: "jira.users",
@@ -326,6 +328,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
           displayName: "Users",
           description: "Directory of Jira users referenced by work items.",
           supportsIncremental: false,
+          cdmModelId: "cdm.work.user",
         },
         {
           unitId: "jira.comments",
@@ -335,6 +338,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
           description: "Issue comments with incremental sync on updated timestamp.",
           supportsIncremental: true,
           defaultPolicy: { cursor: "updated" },
+          cdmModelId: "cdm.work.comment",
         },
         {
           unitId: "jira.worklogs",
@@ -344,6 +348,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
           description: "Time tracking entries recorded against issues.",
           supportsIncremental: true,
           defaultPolicy: { cursor: "started" },
+          cdmModelId: "cdm.work.worklog",
         },
       ],
     },

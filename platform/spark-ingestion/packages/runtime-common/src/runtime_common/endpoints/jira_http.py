@@ -313,6 +313,7 @@ class JiraEndpoint(SourceEndpoint):
             scope = ingestion_meta.get("scope")
             supports_incremental = bool(ingestion_meta.get("supports_incremental"))
             default_policy = ingestion_meta.get("default_policy")
+            cdm_model_id = ingestion_meta.get("cdm_model_id")
             units.append(
                 EndpointUnitDescriptor(
                     unit_id=unit_id,
@@ -322,6 +323,7 @@ class JiraEndpoint(SourceEndpoint):
                     scope=scope,
                     supports_incremental=supports_incremental,
                     default_policy=default_policy,
+                    cdm_model_id=cdm_model_id,
                 )
             )
         return units
@@ -410,6 +412,7 @@ def _build_static_unit_overview() -> List[Dict[str, Any]]:
                 "supportsIncremental": bool(ingestion_meta.get("supports_incremental")),
                 "defaultPolicy": ingestion_meta.get("default_policy"),
                 "scope": ingestion_meta.get("scope"),
+                "cdmModelId": ingestion_meta.get("cdm_model_id"),
             }
         )
     return units

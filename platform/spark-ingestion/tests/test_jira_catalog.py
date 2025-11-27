@@ -33,3 +33,15 @@ def test_handler_map_only_contains_known_units():
     }
     for handler_key in JIRA_INGESTION_HANDLERS.keys():
         assert handler_key in valid_keys, f"Unexpected Jira ingestion handler registered: {handler_key}"
+
+
+def test_ingestion_units_expose_cdm_model_id():
+    """Projects/issues/users/comments/worklogs must declare their CDM targets."""
+    required = {"jira.projects", "jira.issues", "jira.users", "jira.comments", "jira.worklogs"}
+    missing = []
+    for dataset_id in required:
+        definition = JIRA_DATASET_DEFINITIONS.get(dataset_id) or {}
+        ingestion = definition.get("ingestion") or {}
+        if not ingestion.get("cdm_model_id"):
+            missing.append(dataset_id)
+    assert not missing, f"Expected cdm_model_id for Jira datasets: {missing}"

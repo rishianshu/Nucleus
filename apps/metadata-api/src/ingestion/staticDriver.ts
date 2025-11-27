@@ -23,6 +23,7 @@ type RawUnit = {
   supportsIncremental?: boolean;
   defaultPolicy?: unknown;
   scope?: unknown;
+  cdmModelId?: string;
 };
 
 export class StaticIngestionDriver implements IngestionDriver {
@@ -90,6 +91,7 @@ function normalizeUnits(units: unknown): IngestionUnitDescriptor[] {
       defaultScheduleIntervalMinutes: entry.defaultScheduleIntervalMinutes ?? null,
       defaultPolicy: normalizePolicy(entry.defaultPolicy),
       stats: buildUnitStats(entry),
+      cdmModelId: typeof entry.cdmModelId === "string" ? entry.cdmModelId : undefined,
     }));
 }
 

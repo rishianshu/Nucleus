@@ -43,6 +43,10 @@ Ingestion is grounded in the metadata catalog. Before a unit can appear in the c
 
 This ensures orchestration never targets phantom datasets and keeps ingestion policies in sync with what the metadata workspace knows about the source.
 
+### CDM bindings
+
+`EndpointUnitDescriptor` now includes an optional `cdm_model_id` (surfaced to GraphQL/console as `cdmModelId`). When a source knows how to map its normalized records into the work CDM (`docs/meta/nucleus-architecture/CDM-WORK-MODEL.md`), it should tag each unit accordingly. Jira HTTP does this for projects/issues/users/comments/worklogs so downstream sinks and reporting can reason about the target schema. Units without a CDM mapping leave the field `null`, signalling that only KB enrichment (or a bespoke sink) is available.
+
 ## Python Worker Highlights
 
 - `metadata_worker.py` registers Temporal activities (`collectCatalogSnapshots`, `previewDataset`, `runIngestionUnit`).

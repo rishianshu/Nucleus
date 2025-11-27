@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from runtime_core.cdm import (
+    CDM_WORK_COMMENT,
+    CDM_WORK_ITEM,
+    CDM_WORK_LOG,
+    CDM_WORK_PROJECT,
+    CDM_WORK_USER,
+)
+
 JIRA_API_LIBRARY: Dict[str, Dict[str, str]] = {
     "project_search": {
         "method": "GET",
@@ -146,6 +154,7 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "supports_incremental": False,
             "default_policy": None,
             "handler": "projects",
+            "cdm_model_id": CDM_WORK_PROJECT,
         },
     },
     "jira.issues": {
@@ -174,6 +183,7 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "supports_incremental": True,
             "default_policy": {"cursor": "fields.updated"},
             "handler": "issues",
+            "cdm_model_id": CDM_WORK_ITEM,
         },
     },
     "jira.users": {
@@ -196,6 +206,7 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "supports_incremental": False,
             "default_policy": None,
             "handler": "users",
+            "cdm_model_id": CDM_WORK_USER,
         },
     },
     "jira.issue_types": {
@@ -294,6 +305,7 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "supports_incremental": True,
             "default_policy": {"cursor": "updated"},
             "handler": "comments",
+            "cdm_model_id": CDM_WORK_COMMENT,
         },
     },
     "jira.worklogs": {
@@ -317,6 +329,7 @@ JIRA_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "supports_incremental": True,
             "default_policy": {"cursor": "started"},
             "handler": "worklogs",
+            "cdm_model_id": CDM_WORK_LOG,
         },
     },
 }

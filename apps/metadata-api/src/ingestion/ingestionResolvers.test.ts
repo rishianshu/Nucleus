@@ -2,14 +2,69 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
-import { FileMetadataStore, createGraphStore, type MetadataEndpointTemplateDescriptor } from "@metadata/core";
+import test, { mock } from "node:test";
+import {
+  FileMetadataStore,
+  createGraphStore,
+  registerIngestionDriver,
+  type IngestionUnitDescriptor,
+  type MetadataEndpointTemplateDescriptor,
+} from "@metadata/core";
 import { createResolvers } from "../schema.js";
 import { DEFAULT_ENDPOINT_TEMPLATES } from "../fixtures/default-endpoint-templates.js";
-import * as stateStore from "./stateStore.js";
+import { registerDefaultIngestionSinks } from "./index.js";
+import type { IngestionUnitConfigRow } from "./configStore.js";
+
+const ensureUnitStateStub = mock.fn(async () => ({
+  endpointId: "",
+  unitId: "",
+  sinkId: "kb",
+  state: "IDLE",
+  checkpoint: null,
+  lastRunId: null,
+  lastRunAt: null,
+  lastError: null,
+  stats: null,
+}));
+const markUnitStateStub = mock.fn(async () => {});
+const getUnitStateStub = mock.fn(async () => null);
+const listUnitStatesStub = mock.fn(async () => []);
+const configStoreRows = new Map<string, IngestionUnitConfigRow>();
+
+registerDefaultIngestionSinks();
+const JIRA_TEMPLATE = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
+const JIRA_TEMPLATE_EXTRAS = (JIRA_TEMPLATE?.extras ?? {}) as Record<string, unknown>;
+const TEMPLATE_UNITS = Array.isArray(JIRA_TEMPLATE_EXTRAS.ingestionUnits)
+  ? (JIRA_TEMPLATE_EXTRAS.ingestionUnits as Record<string, unknown>[])
+  : [];
+const TEST_STATIC_UNITS: IngestionUnitDescriptor[] = TEMPLATE_UNITS.map((entry) => ({
+  unitId: String(entry.unitId),
+  datasetId: typeof entry.datasetId === "string" ? entry.datasetId : String(entry.unitId),
+  kind: typeof entry.kind === "string" ? entry.kind : "dataset",
+  displayName: typeof entry.displayName === "string" ? entry.displayName : String(entry.unitId),
+  defaultMode: typeof entry.defaultMode === "string" ? entry.defaultMode : undefined,
+  supportedModes:
+    entry.supportsIncremental === true
+      ? ["FULL", "INCREMENTAL"]
+      : Array.isArray(entry.supportedModes) && entry.supportedModes.length > 0
+        ? (entry.supportedModes as string[])
+        : ["FULL"],
+  defaultPolicy: (entry.defaultPolicy as Record<string, unknown>) ?? null,
+  defaultScheduleKind: typeof entry.defaultScheduleKind === "string" ? entry.defaultScheduleKind : undefined,
+  defaultScheduleIntervalMinutes:
+    typeof entry.defaultScheduleIntervalMinutes === "number" ? entry.defaultScheduleIntervalMinutes : undefined,
+  stats:
+    typeof entry.description === "string"
+      ? { description: entry.description, supportsIncremental: Boolean(entry.supportsIncremental) }
+      : null,
+  cdmModelId: typeof entry.cdmModelId === "string" ? entry.cdmModelId : undefined,
+}));
+registerIngestionDriver("static", () => new TestStaticDriver(TEST_STATIC_UNITS));
 
 const TEST_TENANT = "tenant-ingestion";
 const TEST_PROJECT = "project-ingestion";
+const CATALOG_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
+const JIRA_DATASETS = ["jira.projects", "jira.issues", "jira.users", "jira.comments", "jira.worklogs"];
 
 test("ingestionUnits returns template extras for Jira endpoints", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-resolvers-"));
@@ -18,7 +73,13 @@ test("ingestionUnits returns template extras for Jira endpoints", async (t) => {
   });
   const store = new FileMetadataStore({ rootDir });
   const graphStore = createGraphStore({ metadataStore: store });
-  const resolvers = createResolvers(store, { graphStore });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
   const ctx = buildIngestionContext();
   const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
   assert.ok(jiraTemplate, "jira template should exist in default fixtures");
@@ -41,6 +102,9 @@ test("ingestionUnits returns template extras for Jira endpoints", async (t) => {
     },
     capabilities: ["metadata"],
   });
+  for (const datasetId of JIRA_DATASETS) {
+    await seedCatalogDataset(store, endpoint.id!, datasetId);
+  }
 
   const units = await resolvers.Query.ingestionUnits(null, { endpointId: endpoint.id! }, ctx as any);
   assert.ok(units.length >= 2, "jira units should be surfaced");
@@ -49,6 +113,7 @@ test("ingestionUnits returns template extras for Jira endpoints", async (t) => {
   assert.equal(projectsUnit?.kind, "dataset");
   assert.equal(projectsUnit?.driverId, "static");
   assert.equal(projectsUnit?.sinkId, "kb");
+  assert.equal(projectsUnit?.cdmModelId, "cdm.work.project");
 });
 
 test("startIngestion bypass path succeeds for Jira units", async (t) => {
@@ -58,7 +123,13 @@ test("startIngestion bypass path succeeds for Jira units", async (t) => {
   });
   const store = new FileMetadataStore({ rootDir });
   const graphStore = createGraphStore({ metadataStore: store });
-  const resolvers = createResolvers(store, { graphStore });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
   const ctx = buildIngestionContext({ bypassWrites: true, roles: ["viewer", "editor", "admin"] });
   const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
   assert.ok(jiraTemplate);
@@ -81,8 +152,16 @@ test("startIngestion bypass path succeeds for Jira units", async (t) => {
     },
     capabilities: ["metadata"],
   });
-  const ensureSpy = t.mock.method(stateStore, "ensureUnitState", async () => {});
-  const markSpy = t.mock.method(stateStore, "markUnitState", async () => {});
+  for (const datasetId of JIRA_DATASETS) {
+    await seedCatalogDataset(store, endpoint.id!, datasetId);
+  }
+  ensureUnitStateStub.mock.resetCalls();
+  markUnitStateStub.mock.resetCalls();
+  const availableUnits = await resolvers.Query.ingestionUnits(null, { endpointId: endpoint.id! }, ctx as any);
+  assert.ok(
+    availableUnits.some((unit) => unit.unitId === "jira.projects"),
+    "jira.projects unit should be available before start",
+  );
   const result = await resolvers.Mutation.startIngestion(
     null,
     { endpointId: endpoint.id!, unitId: "jira.projects" },
@@ -90,9 +169,109 @@ test("startIngestion bypass path succeeds for Jira units", async (t) => {
   );
   assert.equal(result.state, "SUCCEEDED");
   assert.equal(result.message, "Bypass mode enabled");
-  assert.equal(ensureSpy.mock.callCount(), 1);
-  assert.equal(markSpy.mock.callCount(), 1);
+  assert.equal(ensureUnitStateStub.mock.callCount(), 1);
+  assert.equal(markUnitStateStub.mock.callCount(), 1);
 });
+
+function stateStoreOverrides() {
+  return {
+    getUnitState: getUnitStateStub,
+    listUnitStates: listUnitStatesStub,
+    markUnitState: markUnitStateStub,
+    ensureUnitState: ensureUnitStateStub,
+  };
+}
+
+function resetStateStoreMocks() {
+  ensureUnitStateStub.mock.resetCalls();
+  markUnitStateStub.mock.resetCalls();
+  getUnitStateStub.mock.resetCalls();
+  listUnitStatesStub.mock.resetCalls();
+}
+
+function configStoreOverrides() {
+  return {
+    findConfigByDataset: async (endpointId: string, datasetId: string) =>
+      Array.from(configStoreRows.values()).find(
+        (row) => row.endpointId === endpointId && row.datasetId === datasetId,
+      ) ?? null,
+    getIngestionUnitConfig: async (endpointId: string, unitId: string) =>
+      configStoreRows.get(configKey(endpointId, unitId)) ?? null,
+    listIngestionUnitConfigs: async (endpointId: string) =>
+      Array.from(configStoreRows.values()).filter((row) => row.endpointId === endpointId),
+    saveIngestionUnitConfig: async (input: {
+      endpointId: string;
+      datasetId: string;
+      unitId: string;
+      enabled?: boolean;
+      mode?: string;
+      sinkId?: string;
+      scheduleKind?: string;
+      scheduleIntervalMinutes?: number | null;
+      policy?: Record<string, unknown> | null;
+    }) => {
+      const row: IngestionUnitConfigRow = {
+        id: configKey(input.endpointId, input.unitId),
+        endpointId: input.endpointId,
+        datasetId: input.datasetId,
+        unitId: input.unitId,
+        enabled: input.enabled ?? false,
+        mode: (input.mode ?? "FULL").toUpperCase(),
+        sinkId: input.sinkId ?? "kb",
+        scheduleKind: (input.scheduleKind ?? "MANUAL").toUpperCase(),
+        scheduleIntervalMinutes:
+          (input.scheduleKind ?? "MANUAL").toUpperCase() === "INTERVAL" ? input.scheduleIntervalMinutes ?? 15 : null,
+        policy: input.policy ?? null,
+      };
+      configStoreRows.set(configKey(row.endpointId, row.unitId), row);
+      return row;
+    },
+  };
+}
+
+function resetConfigStore() {
+  configStoreRows.clear();
+}
+
+function configKey(endpointId: string, unitId: string) {
+  return `${endpointId}:${unitId}`;
+}
+
+class TestStaticDriver {
+  constructor(private readonly units: IngestionUnitDescriptor[]) {}
+
+  async listUnits(): Promise<IngestionUnitDescriptor[]> {
+    return this.units;
+  }
+
+  async syncUnit() {
+    return {
+      newCheckpoint: {},
+      stats: null,
+      batches: [],
+      sourceEventIds: [],
+      errors: [],
+    };
+  }
+}
+
+async function seedCatalogDataset(store: FileMetadataStore, endpointId: string, datasetId: string) {
+  await store.upsertRecord({
+    id: datasetId,
+    projectId: TEST_PROJECT,
+    domain: CATALOG_DOMAIN,
+    labels: [`endpoint:${endpointId}`],
+    payload: {
+      metadata_endpoint_id: endpointId,
+      dataset: {
+        id: datasetId,
+        name: datasetId,
+        schema: "jira",
+        entity: datasetId.split(".").pop(),
+      },
+    },
+  });
+}
 
 function buildIngestionContext(overrides?: { bypassWrites?: boolean; roles?: string[] }) {
   return {

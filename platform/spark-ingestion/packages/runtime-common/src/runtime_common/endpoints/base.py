@@ -218,6 +218,7 @@ class EndpointUnitDescriptor:
     scope: Optional[Dict[str, Any]] = None
     supports_incremental: bool = False
     default_policy: Optional[Dict[str, Any]] = None
+    cdm_model_id: Optional[str] = None
 
 
 @dataclass

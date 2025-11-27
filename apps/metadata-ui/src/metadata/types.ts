@@ -268,6 +268,7 @@ export type IngestionUnitSummary = {
   defaultPolicy?: Record<string, unknown> | null;
   defaultScheduleKind?: string | null;
   defaultScheduleIntervalMinutes?: number | null;
+  cdmModelId?: string | null;
 };
 
 export type IngestionStatusSummary = {
