@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ingestion-filters-and-incremental-jira-v1 (in-progress @ 2025-11-27T15:00Z)
+none (idle)
 
 ## Last Run
-- slug: cdm-work-explorer-v1
+- slug: ingestion-filters-and-incremental-jira-v1
 - status: success
-- duration: ~2h (CDM work explorer store/schema/UI + docs/tests/ci-check)
-- tests: pnpm --filter @apps/metadata-api build; pnpm --filter @apps/metadata-ui build; pnpm ci-check
+- duration: ~3h (Jira filters + transient state + docs + full CI)
+- tests: pnpm --filter @apps/metadata-api exec tsx --test src/ingestion/transientState.test.ts src/temporal/activities.test.ts src/ingestion/ingestionResolvers.test.ts; pnpm ci-check
 - commits: not yet
 - decisions: 0
-- next_step: focus shifted to ingestion-filters-and-incremental-jira-v1
+- next_step: ready for review / queue next slug
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-11-27T16:52Z run success (ingestion-filters-and-incremental-jira-v1, Jira filters + transient state + docs + ci-check)
 - 2025-11-27T16:52Z run heartbeat (ingestion-filters-and-incremental-jira-v1, unit/GraphQL tests + pnpm ci-check after resolving port/keycloak bring-up)
 - 2025-11-27T16:40Z run heartbeat (ingestion-filters-and-incremental-jira-v1, docs updated + transient/filter tests passing via tsx runner)
 - 2025-11-27T15:00Z run started (ingestion-filters-and-incremental-jira-v1, boot + artifact sync)

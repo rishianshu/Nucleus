@@ -3,3 +3,4 @@
 - [x] Add KV-backed `TransientState` abstraction (TS + Python) and pass it through ingestion workflow/activity to Jira endpoint units.
 - [x] Implement per-project incremental cursors + filter-aware ingestion for Jira issues/comments/... with tests covering new dimension behavior + filter changes.
 - [x] Update docs (INGESTION_AND_SINKS, Jira HLD/LLD) + run targeted + full tests (`pnpm ci-check`), logging evidence in LOG/STATE/STORY.
+- [x] Capture acceptance evidence + update STORY/state artifacts.

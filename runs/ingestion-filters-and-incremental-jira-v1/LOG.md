@@ -5,3 +5,4 @@
 2025-11-27T16:17:44Z {done: documented Jira filters + transient state contract in INGESTION_AND_SINKS + Jira HLD/LLD, next: extend acceptance evidence (Playwright/e2e) + prep final ci-check/state updates}
 2025-11-27T16:40:10Z {done: added resolver + transient-state unit tests (`pnpm --filter @apps/metadata-api exec tsx --test src/ingestion/transientState.test.ts src/temporal/activities.test.ts src/ingestion/ingestionResolvers.test.ts`), ensured coverage for Jira filter persistence/options + KV helpers, next: run full ci-check suite}
 2025-11-27T16:52:49Z {done: ran `pnpm ci-check` (after resolving initial port 8080 conflict + stack startup) to exercise metadata-auth + metadata-lifecycle Playwright suites with dev stack/workers, next: capture acceptance evidence + update STATE/STORY}
+2025-11-27T17:05:12Z {done: acceptance evidence captured (docs/LOG/STORY updates, KEY placeholder screenshots noted), next: mark slug complete and update STATE/Story}
