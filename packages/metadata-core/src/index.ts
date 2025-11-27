@@ -375,6 +375,9 @@ export type IngestionSinkContext = {
   unitId: string;
   sinkId: string;
   runId: string;
+  sinkEndpointId?: string | null;
+  dataMode?: string | null;
+  cdmModelId?: string | null;
 };
 
 export interface IngestionSink {

@@ -1,0 +1,5 @@
+- [x] Add CDM sink template + GraphQL/Temporal/UI plumbing for sink endpoint selection.
+- [x] Implement CDM sink writer with capability metadata.
+- [x] Implement GraphQL mutation + service logic to autoprovision CDM tables and register catalog datasets.
+- [x] Update ingestion pipeline to route CDM-mode runs to the CDM sink (writes via CDM Postgres sink + tests).
+- [x] Document the CDM sink/autoprovision flow and add unit/integration tests (including ci-check).

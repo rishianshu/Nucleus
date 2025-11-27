@@ -158,17 +158,19 @@ export const METADATA_CATALOG_DATASET_QUERY = `
         id
         unitId
         enabled
+        runMode
         mode
-        sinkId
+      sinkId
+      sinkEndpointId
       scheduleKind
       scheduleIntervalMinutes
       lastStatus {
-        state
-        lastRunAt
-        lastRunId
-        lastError
+          state
+          lastRunAt
+          lastRunId
+          lastError
+        }
       }
-    }
       sourceEndpoint {
         id
         name
@@ -290,6 +292,7 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
       defaultPolicy
       defaultScheduleKind
       defaultScheduleIntervalMinutes
+      cdmModelId
     }
     ingestionStatuses(endpointId: $endpointId) {
       endpointId
@@ -308,8 +311,10 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
       datasetId
       unitId
       enabled
+      runMode
       mode
       sinkId
+      sinkEndpointId
       scheduleKind
       scheduleIntervalMinutes
       policy
@@ -319,6 +324,10 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
         lastRunId
         lastError
       }
+    }
+    ingestionSinks {
+      id
+      supportedCdmModels
     }
   }
 `;
@@ -358,6 +367,7 @@ export const CONFIGURE_INGESTION_UNIT_MUTATION = `
       datasetId
       unitId
       enabled
+      runMode
       mode
       sinkId
       scheduleKind

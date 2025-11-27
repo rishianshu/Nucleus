@@ -111,6 +111,9 @@ class IngestionUnitRequest:
     stagingProviderId: Optional[str] = None
     policy: Optional[Dict[str, Any]] = None
     mode: Optional[str] = None
+    dataMode: Optional[str] = None
+    sinkEndpointId: Optional[str] = None
+    cdmModelId: Optional[str] = None
 
 
 @dataclass
@@ -323,8 +326,8 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
             mode=normalized_mode or None,
         )
         records = result.records
-        if str(request.mode or "").lower() == "cdm":
-            cdm_model_id = _resolve_cdm_model_id(request.unitId)
+        if str(request.dataMode or "").lower() == "cdm":
+            cdm_model_id = request.cdmModelId or _resolve_cdm_model_id(request.unitId)
             records = _apply_jira_cdm_mapping(request.unitId, result.records, cdm_model_id)
         logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
         return IngestionUnitResult(newCheckpoint=result.cursor, stats=result.stats, records=records).__dict__

@@ -42,6 +42,7 @@ import {
 import type { IngestionUnitStateRow } from "./ingestion/stateStore.js";
 import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, saveIngestionUnitConfig, type IngestionUnitConfigRow } from "./ingestion/configStore.js";
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
+import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -667,6 +668,7 @@ export const typeDefs = `#graphql
     runMode: String!
     mode: String!
     sinkId: String!
+    sinkEndpointId: ID
     scheduleKind: String!
     scheduleIntervalMinutes: Int
     policy: JSON
@@ -680,6 +682,7 @@ export const typeDefs = `#graphql
     runMode: String
     mode: String
     sinkId: String
+    sinkEndpointId: ID
     scheduleKind: String
     scheduleIntervalMinutes: Int
     policy: JSON
@@ -688,6 +691,18 @@ export const typeDefs = `#graphql
   type IngestionSink {
     id: ID!
     supportedCdmModels: [String!]
+  }
+
+  input ProvisionCdmSinkInput {
+    sinkEndpointId: ID!
+    cdmModelId: String!
+  }
+
+  type ProvisionCdmSinkResult {
+    ok: Boolean!
+    datasetId: ID!
+    schema: String!
+    tableName: String!
   }
 
   type Query {
@@ -745,6 +760,7 @@ export const typeDefs = `#graphql
     pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
+    provisionCdmSink(input: ProvisionCdmSinkInput!): ProvisionCdmSinkResult!
   }
 `;
 
@@ -754,6 +770,7 @@ export function createResolvers(
     graphStore?: GraphStore;
     ingestionStateStore?: Partial<IngestionStateStoreImpl>;
     ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
+    cdmProvisioner?: typeof provisionCdmSinkTables;
   },
 ) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
@@ -769,6 +786,7 @@ export function createResolvers(
     listIngestionUnitConfigs: options?.ingestionConfigStore?.listIngestionUnitConfigs ?? listIngestionUnitConfigs,
     saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
   };
+  const provisionCdmSinkFn = options?.cdmProvisioner ?? provisionCdmSinkTables;
   const registerEndpointWithInput = async (
     input: GraphQLMetadataEndpointInput,
     ctx: ResolverContext,
@@ -1690,6 +1708,8 @@ export function createResolvers(
         await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
         const existing = await configStore.getIngestionUnitConfig(endpointRowId, args.input.unitId);
         const sinkId = resolveIngestionSinkId(args.input.sinkId ?? existing?.sinkId ?? unit.defaultSinkId);
+        const sinkEndpointId = args.input.sinkEndpointId ?? existing?.sinkEndpointId ?? null;
+        const sinkEndpoint = sinkEndpointId ? await fetchEndpointForProject(store, ctx, sinkEndpointId) : null;
         const sinkCapabilities = getIngestionSinkCapabilities(sinkId);
         const supportedRunModes = inferSupportedModes(unit).map((entry) => entry.toUpperCase());
         const requestedRunMode = (args.input.runMode ?? existing?.runMode ?? unit.defaultMode ?? inferDefaultMode(unit)).toUpperCase();
@@ -1710,6 +1730,20 @@ export function createResolvers(
               extensions: { code: "E_CDM_SINK_UNSUPPORTED", sinkId, cdmModelId: unit.cdmModelId },
             });
           }
+          if (!sinkEndpointId) {
+            throw new GraphQLError("CDM mode requires a sink endpoint.", {
+              extensions: { code: "E_CDM_SINK_ENDPOINT_REQUIRED", unitId: args.input.unitId },
+            });
+          }
+          if (!sinkEndpoint || !endpointSupportsCdmSink(sinkEndpoint)) {
+            throw new GraphQLError("Selected sink endpoint is not CDM-capable.", {
+              extensions: { code: "E_CDM_SINK_ENDPOINT_UNSUPPORTED", sinkEndpointId },
+            });
+          }
+        } else if (sinkEndpoint && !endpointSupportsCdmSink(sinkEndpoint)) {
+          throw new GraphQLError("Selected sink endpoint only supports CDM mode.", {
+            extensions: { code: "E_SINK_ENDPOINT_MODE_MISMATCH", sinkEndpointId },
+          });
         }
         const scheduleKind = (args.input.scheduleKind ?? existing?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
         const scheduleIntervalMinutes =
@@ -1725,6 +1759,7 @@ export function createResolvers(
           runMode: requestedRunMode,
           mode: requestedDataMode,
           sinkId,
+          sinkEndpointId,
           scheduleKind,
           scheduleIntervalMinutes,
           policy,
@@ -1737,6 +1772,23 @@ export function createResolvers(
         }
         const state = await stateStore.getUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
         return mapIngestionUnitConfig(saved, state ? mapIngestionStateRow(state) : null);
+      },
+      provisionCdmSink: async (_parent: unknown, args: { input: { sinkEndpointId: string; cdmModelId: string } }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const sinkEndpoint = await fetchEndpointForProject(store, ctx, args.input.sinkEndpointId);
+        if (!endpointSupportsCdmSink(sinkEndpoint)) {
+          throw new GraphQLError("Selected endpoint is not a CDM sink.", {
+            extensions: { code: "E_CDM_SINK_ENDPOINT_REQUIRED", sinkEndpointId: args.input.sinkEndpointId },
+          });
+        }
+        const targetProjectId = sinkEndpoint.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID;
+        const result = await provisionCdmSinkFn({
+          store,
+          sinkEndpoint,
+          cdmModelId: args.input.cdmModelId,
+          projectId: targetProjectId,
+        });
+        return { ok: true, datasetId: result.datasetId, schema: result.schema, tableName: result.tableName };
       },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
@@ -2414,8 +2466,10 @@ type IngestionUnitConfigInput = {
   endpointId: string;
   unitId: string;
   enabled?: boolean | null;
+  runMode?: string | null;
   mode?: string | null;
   sinkId?: string | null;
+  sinkEndpointId?: string | null;
   scheduleKind?: string | null;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
@@ -3239,6 +3293,7 @@ function mapIngestionUnitConfig(config: IngestionUnitConfigRow, status: ReturnTy
     runMode: config.runMode,
     mode: config.mode ?? "raw",
     sinkId: config.sinkId,
+    sinkEndpointId: config.sinkEndpointId ?? null,
     scheduleKind: config.scheduleKind,
     scheduleIntervalMinutes: config.scheduleIntervalMinutes ?? null,
     policy: config.policy ?? null,
@@ -3300,6 +3355,15 @@ function mapIngestionStateRow(row: IngestionUnitStateRow) {
 
 function resolveVendorKeyForEndpoint(endpoint: MetadataEndpointDescriptor): string {
   return endpoint.domain ?? endpoint.sourceId ?? endpoint.id ?? "default";
+}
+
+function endpointSupportsCdmSink(endpoint: MetadataEndpointDescriptor): boolean {
+  const capabilityLabels = endpoint.capabilities ?? [];
+  if (capabilityLabels.some((entry) => entry === "sink.cdm" || entry.startsWith("sink.cdm."))) {
+    return true;
+  }
+  const labels = endpoint.labels ?? [];
+  return labels.some((label) => label === "sink:cdm" || label === "cdm-sink");
 }
 
 async function finalizeCollectionRun(

@@ -63,6 +63,9 @@ type PythonIngestionRequest = {
   stagingProviderId?: string | null;
   policy?: Record<string, unknown> | null;
   mode?: string | null;
+  dataMode?: string | null;
+  sinkEndpointId?: string | null;
+  cdmModelId?: string | null;
 };
 
 type PythonIngestionResult = {
@@ -211,6 +214,9 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       stagingProviderId: context.stagingProviderId ?? null,
       policy: context.policy ?? null,
       mode: context.mode ?? null,
+      dataMode: context.dataMode ?? null,
+      sinkEndpointId: context.sinkEndpointId ?? null,
+      cdmModelId: context.cdmModelId ?? null,
     });
     if (ingestionResult.records && ingestionResult.records.length > 0) {
       if (!context.sinkId) {
@@ -223,6 +229,9 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
         runId: context.runId,
         records: ingestionResult.records,
         stats: ingestionResult.stats ?? null,
+        sinkEndpointId: context.sinkEndpointId ?? null,
+        dataMode: context.dataMode ?? null,
+        cdmModelId: context.cdmModelId ?? null,
       });
     }
     await completeIngestionRunActivity({

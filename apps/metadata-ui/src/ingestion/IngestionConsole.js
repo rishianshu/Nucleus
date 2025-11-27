@@ -32,12 +32,47 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     const [configForm, setConfigForm] = useState(null);
     const [configSaving, setConfigSaving] = useState(false);
     const [configError, setConfigError] = useState(null);
+    const [sinkDescriptors, setSinkDescriptors] = useState([]);
+    const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
+    const cdmSinkEndpoints = useMemo(() => endpoints.filter((endpoint) => {
+        const labels = endpoint.labels ?? [];
+        return labels.includes("sink:cdm") || labels.includes("cdm-sink");
+    }), [endpoints]);
+    const sinkSupportsCdm = useCallback((sinkId, modelId) => {
+        const descriptor = sinkDescriptorMap.get(sinkId);
+        if (!descriptor?.supportedCdmModels || descriptor.supportedCdmModels.length === 0) {
+            return false;
+        }
+        return descriptor.supportedCdmModels.some((pattern) => matchesCdmPattern(pattern, modelId));
+    }, [sinkDescriptorMap]);
     const drawerSinkOptions = useMemo(() => {
         if (!configuringUnit || !configForm) {
             return [];
         }
-        return Array.from(new Set([configForm.sinkId, configuringUnit.sinkId, "kb"].filter((value) => typeof value === "string" && value.length > 0)));
-    }, [configuringUnit, configForm]);
+        const baseOptions = sinkDescriptors.map((sink) => sink.id);
+        const extras = [configForm.sinkId, configuringUnit.sinkId, "kb"].filter((value) => typeof value === "string" && value.length > 0);
+        let merged = Array.from(new Set([...baseOptions, ...extras]));
+        if (configForm.mode === "cdm" && configuringUnit.cdmModelId) {
+            const compatible = merged.filter((sinkId) => sinkSupportsCdm(sinkId, configuringUnit.cdmModelId));
+            if (compatible.length > 0) {
+                return compatible;
+            }
+        }
+        return merged;
+    }, [configuringUnit, configForm, sinkDescriptors, sinkSupportsCdm]);
+    const cdmCompatibleSinkIds = useMemo(() => {
+        if (!configuringUnit?.cdmModelId) {
+            return [];
+        }
+        return sinkDescriptors
+            .filter((sink) => sinkSupportsCdm(sink.id, configuringUnit.cdmModelId))
+            .map((sink) => sink.id);
+    }, [configuringUnit, sinkDescriptors, sinkSupportsCdm]);
+    const cdmModeActive = Boolean(configForm && configuringUnit?.cdmModelId && configForm.mode === "cdm");
+    const selectedSinkSupportsCdm = !cdmModeActive || !configForm || !configuringUnit?.cdmModelId
+        ? true
+        : sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId);
+    const saveDisabled = !configForm || configSaving || (cdmModeActive && !selectedSinkSupportsCdm);
     const toastQueue = useToastQueue();
     const isAdmin = userRole === "ADMIN";
     const abortRef = useRef(null);
@@ -144,6 +179,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
             });
             combined.sort((a, b) => a.displayName.localeCompare(b.displayName));
             setUnits(combined);
+            setSinkDescriptors(payload.ingestionSinks ?? []);
             setUnitsError(null);
         }
         catch (error) {
@@ -162,6 +198,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     useEffect(() => {
         if (!selectedEndpointId) {
             setUnits([]);
+            setSinkDescriptors([]);
             setUnitsError(null);
             return;
         }
@@ -283,10 +320,12 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         setConfiguringUnit(unit);
         setConfigForm({
             enabled: unit.config?.enabled ?? false,
-            mode: (unit.config?.mode ?? unit.defaultMode ?? "FULL").toUpperCase(),
+            runMode: (unit.config?.runMode ?? unit.defaultMode ?? "FULL").toUpperCase(),
+            mode: unit.config?.mode ?? "raw",
             scheduleKind: (unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase(),
             scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15,
             sinkId: unit.config?.sinkId ?? unit.sinkId,
+            sinkEndpointId: unit.config?.sinkEndpointId ?? null,
             policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
         });
         setConfigError(null);
@@ -313,13 +352,23 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                 return;
             }
         }
+        if (configForm.mode === "cdm" && configuringUnit.cdmModelId && !sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId)) {
+            setConfigError("Select a sink that supports this CDM model.");
+            return;
+        }
+        if (configForm.mode === "cdm" && !configForm.sinkEndpointId) {
+            setConfigError("Select a sink endpoint for CDM mode.");
+            return;
+        }
         setConfigSaving(true);
         setConfigError(null);
         try {
             await persistConfig(configuringUnit, {
                 enabled: configForm.enabled,
-                mode: configForm.mode,
+                runMode: configForm.runMode,
+                mode: configForm.mode ?? "raw",
                 sinkId: configForm.sinkId,
+                sinkEndpointId: configForm.sinkEndpointId ?? null,
                 scheduleKind: configForm.scheduleKind,
                 scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
                 policy: parsedPolicy,
@@ -369,7 +418,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                                                     const config = unit.config;
                                                     const isConfigured = Boolean(config);
                                                     const isEnabled = Boolean(config?.enabled);
-                                                    const effectiveMode = formatIngestionMode(config?.mode ?? unit.defaultMode ?? "FULL");
+                                                    const effectiveMode = formatIngestionMode(config?.runMode ?? unit.defaultMode ?? "FULL");
                                                     const scheduleKind = (config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
                                                     const scheduleInterval = scheduleKind === "INTERVAL"
                                                         ? config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15
@@ -386,9 +435,24 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                             if (!configSaving) {
                                 closeConfigureDrawer();
                             }
-                        } }), _jsxs("div", { className: "relative ml-auto flex h-full w-full max-w-md flex-col bg-slate-950/95 p-6 text-slate-100 shadow-2xl", children: [_jsxs("div", { className: "flex items-start justify-between gap-4", children: [_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.4em] text-slate-400", children: "Configure ingestion" }), _jsx("h2", { className: "text-xl font-semibold text-white", children: configuringUnit.displayName }), _jsx("p", { className: "text-xs text-slate-400", children: configuringUnit.datasetId ?? configuringUnit.unitId })] }), _jsx("button", { type: "button", onClick: closeConfigureDrawer, disabled: configSaving, className: "rounded-full border border-white/20 p-2 text-slate-200 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40", "aria-label": "Close configure drawer", children: _jsx(LuX, { className: "h-4 w-4", "aria-hidden": "true" }) })] }), configError ? (_jsx("div", { className: "mt-4 rounded-2xl border border-rose-500/50 bg-rose-500/20 px-4 py-3 text-sm text-rose-100", role: "alert", children: configError })) : null, _jsxs("div", { className: "mt-5 flex-1 space-y-5 overflow-y-auto", children: [_jsx("section", { className: "rounded-2xl border border-white/10 p-4", children: _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Enable ingestion" }), _jsx("p", { className: "text-[13px] text-slate-400", children: "Toggle to allow schedules and manual runs." })] }), _jsxs("button", { type: "button", onClick: () => updateConfigForm({ enabled: !configForm.enabled }), className: `inline-flex items-center gap-3 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] transition ${configForm.enabled ? "border-emerald-400/40 text-emerald-100" : "border-slate-500/50 text-slate-200"}`, children: [_jsx("span", { className: `flex h-5 w-10 items-center rounded-full ${configForm.enabled ? "bg-emerald-500/70" : "bg-slate-600/80"}`, children: _jsx("span", { className: `h-4 w-4 rounded-full bg-white transition ${configForm.enabled ? "translate-x-5" : "translate-x-1"}` }) }), configForm.enabled ? "Enabled" : "Disabled"] })] }) }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Mode & policy" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Mode", _jsx("select", { value: configForm.mode, onChange: (event) => updateConfigForm({ mode: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: Array.from(new Set((configuringUnit.supportedModes ?? [configuringUnit.defaultMode ?? "FULL"]).map((mode) => (mode ?? "FULL").toUpperCase()))).map((mode) => (_jsx("option", { value: mode, children: mode === "INCREMENTAL" ? "Incremental (cursor)" : mode === "FULL" ? "Full refresh" : mode }, mode))) })] }), _jsxs("label", { className: "block text-sm text-slate-200", children: ["Policy (JSON)", _jsx("textarea", { value: configForm.policyText, onChange: (event) => updateConfigForm({ policyText: event.target.value }), rows: 4, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", placeholder: '{"cursorField":"updated","primaryKeys":["id"]}' }), _jsxs("span", { className: "mt-1 block text-xs text-slate-400", children: ["Leave empty to use the endpoint defaults (", summarizePolicy(configuringUnit.defaultPolicy ?? null).join(" · ") || "no cursor", ")."] })] })] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Schedule" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Trigger", _jsxs("select", { value: configForm.scheduleKind, onChange: (event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "MANUAL", children: "Manual only" }), _jsx("option", { value: "INTERVAL", children: "Fixed interval" })] })] }), configForm.scheduleKind === "INTERVAL" ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Interval (minutes)", _jsx("input", { type: "number", min: 1, value: configForm.scheduleIntervalMinutes, onChange: (event) => updateConfigForm({
+                        } }), _jsxs("div", { className: "relative ml-auto flex h-full w-full max-w-md flex-col bg-slate-950/95 p-6 text-slate-100 shadow-2xl", children: [_jsxs("div", { className: "flex items-start justify-between gap-4", children: [_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.4em] text-slate-400", children: "Configure ingestion" }), _jsx("h2", { className: "text-xl font-semibold text-white", children: configuringUnit.displayName }), _jsx("p", { className: "text-xs text-slate-400", children: configuringUnit.datasetId ?? configuringUnit.unitId })] }), _jsx("button", { type: "button", onClick: closeConfigureDrawer, disabled: configSaving, className: "rounded-full border border-white/20 p-2 text-slate-200 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40", "aria-label": "Close configure drawer", children: _jsx(LuX, { className: "h-4 w-4", "aria-hidden": "true" }) })] }), configError ? (_jsx("div", { className: "mt-4 rounded-2xl border border-rose-500/50 bg-rose-500/20 px-4 py-3 text-sm text-rose-100", role: "alert", children: configError })) : null, _jsxs("div", { className: "mt-5 flex-1 space-y-5 overflow-y-auto", children: [_jsx("section", { className: "rounded-2xl border border-white/10 p-4", children: _jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Enable ingestion" }), _jsx("p", { className: "text-[13px] text-slate-400", children: "Toggle to allow schedules and manual runs." })] }), _jsxs("button", { type: "button", onClick: () => updateConfigForm({ enabled: !configForm.enabled }), className: `inline-flex items-center gap-3 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] transition ${configForm.enabled ? "border-emerald-400/40 text-emerald-100" : "border-slate-500/50 text-slate-200"}`, children: [_jsx("span", { className: `flex h-5 w-10 items-center rounded-full ${configForm.enabled ? "bg-emerald-500/70" : "bg-slate-600/80"}`, children: _jsx("span", { className: `h-4 w-4 rounded-full bg-white transition ${configForm.enabled ? "translate-x-5" : "translate-x-1"}` }) }), configForm.enabled ? "Enabled" : "Disabled"] })] }) }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Mode & policy" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Mode", _jsx("select", { value: configForm.runMode, onChange: (event) => updateConfigForm({ runMode: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: Array.from(new Set((configuringUnit.supportedModes ?? [configuringUnit.defaultMode ?? "FULL"]).map((mode) => (mode ?? "FULL").toUpperCase()))).map((mode) => (_jsx("option", { value: mode, children: mode === "INCREMENTAL" ? "Incremental (cursor)" : mode === "FULL" ? "Full refresh" : mode }, mode))) })] }), configuringUnit.cdmModelId ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Data format", _jsxs("select", { value: configForm.mode, onChange: (event) => {
+                                                                    const nextMode = event.target.value;
+                                                                    if (nextMode === "cdm" &&
+                                                                        configuringUnit.cdmModelId &&
+                                                                        cdmCompatibleSinkIds.length > 0 &&
+                                                                        !sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId)) {
+                                                                        updateConfigForm({ mode: nextMode, sinkId: cdmCompatibleSinkIds[0] });
+                                                                        return;
+                                                                    }
+                                                                    updateConfigForm({ mode: nextMode });
+                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "raw", children: "Store raw source data" }), _jsxs("option", { value: "cdm", disabled: cdmCompatibleSinkIds.length === 0, children: ["Apply CDM (", configuringUnit.cdmModelId, ")"] })] }), configForm.mode === "cdm" && cdmCompatibleSinkIds.length === 0 ? (_jsx("span", { className: "mt-1 block text-xs text-amber-300", children: "No sinks currently support this CDM model." })) : null] })) : null, _jsxs("label", { className: "block text-sm text-slate-200", children: ["Policy (JSON)", _jsx("textarea", { value: configForm.policyText, onChange: (event) => updateConfigForm({ policyText: event.target.value }), rows: 4, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", placeholder: '{"cursorField":"updated","primaryKeys":["id"]}' }), _jsxs("span", { className: "mt-1 block text-xs text-slate-400", children: ["Leave empty to use the endpoint defaults (", summarizePolicy(configuringUnit.defaultPolicy ?? null).join(" · ") || "no cursor", ")."] })] })] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Schedule" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Trigger", _jsxs("select", { value: configForm.scheduleKind, onChange: (event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "MANUAL", children: "Manual only" }), _jsx("option", { value: "INTERVAL", children: "Fixed interval" })] })] }), configForm.scheduleKind === "INTERVAL" ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Interval (minutes)", _jsx("input", { type: "number", min: 1, value: configForm.scheduleIntervalMinutes, onChange: (event) => updateConfigForm({
                                                                     scheduleIntervalMinutes: Math.max(1, Number(event.target.value) || 1),
-                                                                }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" })] })) : null] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Sink" }), _jsxs("label", { className: "mt-3 block text-sm text-slate-200", children: ["Destination", _jsx("select", { value: configForm.sinkId, onChange: (event) => updateConfigForm({ sinkId: event.target.value }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: drawerSinkOptions.map((sink) => (_jsx("option", { value: sink, children: formatIngestionSink(sink) }, sink))) }), _jsx("span", { className: "mt-1 block text-xs text-slate-400", children: "Registered sinks determine where normalized records land (Knowledge Base is the default)." })] })] })] }), _jsxs("div", { className: "mt-6 flex justify-end gap-3", children: [_jsx("button", { type: "button", onClick: closeConfigureDrawer, disabled: configSaving, className: "rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40", children: "Cancel" }), _jsxs("button", { type: "button", onClick: handleSaveConfig, disabled: configSaving, className: "inline-flex items-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-40", children: [configSaving ? _jsx(LuRefreshCcw, { className: "h-4 w-4 animate-spin" }) : null, "Save"] })] })] })] })) : null] }));
+                                                                }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" })] })) : null] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Sink" }), _jsxs("label", { className: "mt-3 block text-sm text-slate-200", children: ["Destination", _jsx("select", { value: configForm.sinkId, onChange: (event) => updateConfigForm({ sinkId: event.target.value }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: drawerSinkOptions.map((sink) => {
+                                                            const disabled = configForm.mode === "cdm" && configuringUnit.cdmModelId
+                                                                ? !sinkSupportsCdm(sink, configuringUnit.cdmModelId)
+                                                                : false;
+                                                            return (_jsx("option", { value: sink, disabled: disabled, children: formatIngestionSink(sink) }, sink));
+                                                        }) }), _jsx("span", { className: "mt-1 block text-xs text-slate-400", children: "Registered sinks determine where normalized records land (Knowledge Base is the default)." }), configForm.mode === "cdm" && configuringUnit.cdmModelId && !sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId) ? (_jsxs("span", { className: "mt-1 block text-xs text-amber-300", children: ["Select a sink that supports ", configuringUnit.cdmModelId, " to enable CDM mode."] })) : null, configForm.mode === "cdm" ? (_jsx("div", { className: "mt-4", children: _jsxs("label", { className: "block text-sm text-slate-200", children: ["Sink endpoint", cdmSinkEndpoints.length > 0 ? (_jsxs("select", { value: configForm.sinkEndpointId ?? "", onChange: (event) => updateConfigForm({ sinkEndpointId: event.target.value || null }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "", children: "Select CDM sink endpoint" }), cdmSinkEndpoints.map((endpoint) => (_jsx("option", { value: endpoint.id, children: endpoint.name }, endpoint.id)))] })) : (_jsxs("p", { className: "mt-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200", children: ["No CDM sink endpoints found. Register a ", _jsx("code", { className: "font-mono text-amber-100", children: "cdm.jdbc" }), " endpoint to enable CDM mode."] }))] }) })) : null] })] })] }), _jsxs("div", { className: "mt-6 flex justify-end gap-3", children: [_jsx("button", { type: "button", onClick: closeConfigureDrawer, disabled: configSaving, className: "rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white disabled:cursor-not-allowed disabled:opacity-40", children: "Cancel" }), _jsxs("button", { type: "button", onClick: handleSaveConfig, disabled: saveDisabled, className: "inline-flex items-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-40", children: [configSaving ? _jsx(LuRefreshCcw, { className: "h-4 w-4 animate-spin" }) : null, "Save"] })] })] })] })) : null] }));
 }
 function summarizeStats(stats) {
     if (!stats) {
@@ -438,8 +502,10 @@ function extractNested(payload, path) {
 function buildConfigInput(unit, overrides) {
     const fallback = {
         enabled: unit.config?.enabled ?? false,
-        mode: unit.config?.mode ?? unit.defaultMode ?? "FULL",
+        runMode: unit.config?.runMode ?? unit.defaultMode ?? "FULL",
+        mode: unit.config?.mode ?? "raw",
         sinkId: unit.config?.sinkId ?? unit.sinkId ?? "kb",
+        sinkEndpointId: unit.config?.sinkEndpointId ?? null,
         scheduleKind: unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL",
         scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
         policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
@@ -453,14 +519,25 @@ function buildConfigInput(unit, overrides) {
         datasetId: unit.datasetId ?? unit.unitId,
         unitId: unit.unitId,
         enabled: overrides.enabled ?? fallback.enabled,
-        mode: formatIngestionMode(overrides.mode ?? fallback.mode),
+        runMode: formatIngestionMode(overrides.runMode ?? fallback.runMode),
+        mode: (overrides.mode ?? fallback.mode ?? "raw").toLowerCase(),
         sinkId: (overrides.sinkId ?? fallback.sinkId ?? "kb").trim(),
+        sinkEndpointId: overrides.sinkEndpointId === undefined ? fallback.sinkEndpointId : overrides.sinkEndpointId,
         scheduleKind: nextScheduleKind,
         scheduleIntervalMinutes: nextScheduleKind === "INTERVAL"
             ? Math.max(1, Math.trunc(typeof intervalValue === "number" && !Number.isNaN(intervalValue) ? intervalValue : 15))
             : null,
         policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
     };
+}
+function matchesCdmPattern(pattern, target) {
+    if (pattern === "*" || pattern === target) {
+        return true;
+    }
+    if (pattern.endsWith("*")) {
+        return target.startsWith(pattern.slice(0, -1));
+    }
+    return pattern === target;
 }
 function normalizeScheduleKind(kind) {
     return (kind ?? "MANUAL").toUpperCase() === "INTERVAL" ? "INTERVAL" : "MANUAL";

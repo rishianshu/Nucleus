@@ -250,6 +250,7 @@ export type IngestionUnitConfigSummary = {
   runMode: string;
   mode: string;
   sinkId: string;
+  sinkEndpointId?: string | null;
   scheduleKind: string;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;

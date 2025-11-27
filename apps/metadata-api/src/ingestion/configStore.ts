@@ -9,6 +9,7 @@ export type IngestionUnitConfigRow = {
   runMode: string;
   mode: string;
   sinkId: string;
+  sinkEndpointId: string | null;
   scheduleKind: string;
   scheduleIntervalMinutes: number | null;
   policy: Record<string, unknown> | null;
@@ -22,6 +23,7 @@ type SaveConfigInput = {
   runMode?: string;
   mode?: string;
   sinkId?: string;
+  sinkEndpointId?: string | null;
   scheduleKind?: string;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
@@ -78,6 +80,7 @@ export async function saveIngestionUnitConfig(input: SaveConfigInput): Promise<I
       runMode: normalized.runMode,
       mode: normalized.mode,
       sinkId: normalized.sinkId,
+      sinkEndpointId: normalized.sinkEndpointId,
       scheduleKind: normalized.scheduleKind,
       scheduleIntervalMinutes: normalized.scheduleIntervalMinutes,
       policy: normalized.policy,
@@ -96,6 +99,7 @@ function normalizeConfigInput(input: SaveConfigInput) {
     runMode: (input.runMode ?? "FULL").toUpperCase(),
     mode: normalizeDataMode(input.mode),
     sinkId: input.sinkId ?? process.env.INGESTION_DEFAULT_SINK ?? "kb",
+    sinkEndpointId: input.sinkEndpointId ?? null,
     scheduleKind: normalizeScheduleKind(input.scheduleKind),
     scheduleIntervalMinutes: normalizeInterval(input.scheduleKind, input.scheduleIntervalMinutes),
     policy: input.policy ?? null,

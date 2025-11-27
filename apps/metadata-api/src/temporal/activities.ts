@@ -4,12 +4,15 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { execa } from "execa";
 import {
+  getIngestionDriver,
   getIngestionSink,
   type GraphStore,
   type MetadataRecord,
+  type MetadataEndpointDescriptor,
   type TenantContext,
   type IngestionSinkContext,
 } from "@metadata/core";
+import { resolveEndpointDriverId } from "../ingestion/helpers.js";
 import { getPrismaClient } from "../prismaClient.js";
 import { getMetadataStore, getGraphStore } from "../context.js";
 import { deriveDatasetIdentity, imprintDatasetIdentity } from "../metadata/datasetIdentity.js";
@@ -39,6 +42,7 @@ const REGISTRY_PYTHONPATH_ENTRIES = [
 
 const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 const DEFAULT_STAGING_PROVIDER = process.env.INGESTION_DEFAULT_STAGING_PROVIDER ?? "in_memory";
+const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
 
 export type MetadataActivities = {
   createCollectionRun(input: {
@@ -109,6 +113,9 @@ type StartIngestionRunResult = {
   stagingProviderId: string;
   policy: Record<string, unknown> | null;
   mode: string | null;
+  dataMode: string | null;
+  sinkEndpointId: string | null;
+  cdmModelId: string | null;
 };
 
 type CompleteIngestionRunInput = {
@@ -163,6 +170,9 @@ type PersistIngestionBatchesInput = {
   runId: string;
   records: NormalizedRecordInput[];
   stats?: Record<string, unknown> | null;
+  sinkEndpointId?: string | null;
+  dataMode?: string | null;
+  cdmModelId?: string | null;
 };
 
 type PrismaClient = Awaited<ReturnType<typeof getPrismaClient>>;
@@ -425,6 +435,9 @@ export const activities: MetadataActivities = {
     const policyOverrides =
       config?.policy && typeof config.policy === "object" ? (config.policy as Record<string, unknown>) : null;
     const policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
+    const sinkEndpointId = config?.sinkEndpointId ?? null;
+    const dataMode = typeof config?.mode === "string" ? config.mode : null;
+    const cdmModelId = await resolveCdmModelIdForUnit(endpoint, endpointId, unitId);
     const checkpointKey: IngestionCheckpointKey = {
       endpointId,
       unitId,
@@ -451,6 +464,9 @@ export const activities: MetadataActivities = {
       stagingProviderId,
       policy,
       mode: config?.runMode ?? null,
+      dataMode: dataMode ?? null,
+      sinkEndpointId,
+      cdmModelId,
     };
   },
   async completeIngestionRun({
@@ -515,6 +531,9 @@ export const activities: MetadataActivities = {
     runId,
     records,
     stats,
+    sinkEndpointId,
+    dataMode,
+    cdmModelId,
   }: PersistIngestionBatchesInput): Promise<void> {
     if (!records || records.length === 0) {
       return;
@@ -528,6 +547,9 @@ export const activities: MetadataActivities = {
       unitId,
       sinkId,
       runId,
+      sinkEndpointId: sinkEndpointId ?? null,
+      dataMode: dataMode ?? null,
+      cdmModelId: cdmModelId ?? null,
     };
     await sink.begin(context);
     await sink.writeBatch({ records }, context);
@@ -536,6 +558,27 @@ export const activities: MetadataActivities = {
     }
   },
 };
+
+async function resolveCdmModelIdForUnit(
+  endpoint: MetadataEndpointDescriptor,
+  endpointId: string,
+  unitId: string,
+): Promise<string | null> {
+  const driverId = resolveEndpointDriverId(endpoint) ?? DEFAULT_INGESTION_DRIVER;
+  const driver = getIngestionDriver(driverId);
+  if (!driver || typeof driver.listUnits !== "function") {
+    return null;
+  }
+  try {
+    const units = await driver.listUnits(endpointId);
+    const match = units.find((unit) => unit.unitId === unitId);
+    return match?.cdmModelId ?? null;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Failed to resolve cdmModelId for ingestion unit", { endpointId, unitId, error });
+    return null;
+  }
+}
 
 function resolveSchemas(run: any): string[] {
   const filterSchemas = run.filters?.schemas;

@@ -154,6 +154,7 @@ model IngestionUnitConfig {
   runMode                 String           @default("FULL")
   mode                    String           @default("raw")
   sinkId                  String           @default("kb")
+  sinkEndpointId          String?
   scheduleKind            String           @default("MANUAL")
   scheduleIntervalMinutes Int?
   policy                  Json?

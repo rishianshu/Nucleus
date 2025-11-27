@@ -54,8 +54,23 @@ When a unit advertises `cdm_model_id`, ingestion configs now expose a **data mod
 
 Because CDM rows typically land in downstream data stores rather than the KB, sinks also declare their CDM support. Sink registrations call `registerIngestionSink(id, factory, { supportedCdmModels: [...] })`, and the GraphQL API exposes these descriptors via the `ingestionSinks` query so the UI can filter/validate selections. When a user chooses `mode="cdm"`, the server enforces that:
 
-1. the source unit has `cdm_model_id`, and
-2. the chosen sink’s `supportedCdmModels` includes that model (exact match or prefix wildcard like `cdm.work.*`).
+1. the source unit has `cdm_model_id`,
+2. the chosen sink’s `supportedCdmModels` includes that model (exact match or prefix wildcard like `cdm.work.*`), and
+3. a **CDM sink endpoint** (e.g., the built-in `cdm.jdbc` template) is selected so the data plane knows where to land the rows.
+
+> **Autoprovisioning CDM sinks**
+>
+> CDM sinks are modeled as metadata endpoints. The `cdm.jdbc` template captures the Postgres connection string, schema, and table prefix; admins then call the new `provisionCdmSink` GraphQL mutation to:
+>
+> 1. verify the sink can handle the requested `cdm_model_id`,
+> 2. run idempotent DDL (`CREATE SCHEMA/TABLE IF NOT EXISTS … PRIMARY KEY (cdm_id)`), and
+> 3. upsert a `catalog.dataset` record for the CDM table (labels include `sink-endpoint:<id>` and `cdm_model:<id>`).
+>
+> Provisioning is explicit in v1—configs must reference an already-provisioned sink endpoint to enable CDM mode. Future work can auto-trigger provisioning when toggling CDM mode or expose richer UI hints.
+
+> **CDM sink write path**
+>
+> Temporal now forwards `sinkEndpointId`, `dataMode`, and `cdmModelId` to both the Python worker and the sink. The worker applies the Jira (or future source) CDM mapper and emits normalized CDM records; the `cdm` sink writes them into the provisioned Postgres tables using parameterized upserts (`INSERT … ON CONFLICT (cdm_id) DO UPDATE`). Raw-mode runs continue to target the Knowledge Base sink unchanged.
 
 The Temporal worker receives both the run-mode (full/incremental) and data-mode; Jira ingestion now produces CDM records (updating `entityType` and payload) only when the config requests it, keeping the raw path unchanged for other sinks.
 

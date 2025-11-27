@@ -1,13 +1,13 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-ingestion-modes-and-sinks-v1 (success @ 2025-11-27T10:32Z)
+cdm-sinks-and-autoprovision-v1 (success @ 2025-11-27T12:45Z)
 
 ## Last Run
-- slug: metadata-planner-endpoint-hooks-v1
+- slug: cdm-sinks-and-autoprovision-v1
 - status: success
-- duration: ~3h (planner hook refactor + Jira/JDBC subs + docs/tests/ci)
-- tests: pytest platform/spark-ingestion/tests/test_metadata_planning.py platform/spark-ingestion/tests/test_metadata_preview.py; pnpm ci-check
+- duration: ~2h (CDM sink writer + provision mutation + docs/tests/ci-check)
+- tests: pnpm --filter @apps/metadata-api build; pnpm ci-check
 - commits: not yet
 - decisions: 0
 - next_step: none (slug closed)
@@ -20,7 +20,8 @@ NEXT:
 LATER:
 - 
 
-## Events
+- 2025-11-27T12:45Z run success (cdm-sinks-and-autoprovision-v1, CDM sink + autoprovision + docs + ci-check)
+- 2025-11-27T10:35Z run started (cdm-sinks-and-autoprovision-v1, boot + artifact sync)
 - 2025-11-27T10:32Z run success (cdm-ingestion-modes-and-sinks-v1, CDM mode wiring + ci-check)
 - 2025-11-27T08:53Z run started (cdm-ingestion-modes-and-sinks-v1, boot + artifact sync)
 - 2025-11-27T06:05Z run success (cdm-core-model-and-semantic-binding-v1, CDM models + Jira bindings + docs/tests)

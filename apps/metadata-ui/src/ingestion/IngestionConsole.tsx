@@ -93,6 +93,7 @@ type ConfigFormState = {
   scheduleKind: string;
   scheduleIntervalMinutes: number;
   sinkId: string;
+  sinkEndpointId: string | null;
   policyText: string;
 };
 
@@ -101,6 +102,7 @@ type ConfigOverrides = {
   runMode?: string;
   mode?: string;
   sinkId?: string;
+  sinkEndpointId?: string | null;
   scheduleKind?: string;
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
@@ -134,6 +136,14 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
   const [configError, setConfigError] = useState<string | null>(null);
   const [sinkDescriptors, setSinkDescriptors] = useState<IngestionSinkDescriptor[]>([]);
   const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
+  const cdmSinkEndpoints = useMemo(
+    () =>
+      endpoints.filter((endpoint) => {
+        const labels = endpoint.labels ?? [];
+        return labels.includes("sink:cdm") || labels.includes("cdm-sink");
+      }),
+    [endpoints],
+  );
   const sinkSupportsCdm = useCallback(
     (sinkId: string, modelId: string) => {
       const descriptor = sinkDescriptorMap.get(sinkId);
@@ -496,6 +506,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
       scheduleKind: (unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase(),
       scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15,
       sinkId: unit.config?.sinkId ?? unit.sinkId,
+      sinkEndpointId: unit.config?.sinkEndpointId ?? null,
       policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
     });
     setConfigError(null);
@@ -528,6 +539,10 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
       setConfigError("Select a sink that supports this CDM model.");
       return;
     }
+    if (configForm.mode === "cdm" && !configForm.sinkEndpointId) {
+      setConfigError("Select a sink endpoint for CDM mode.");
+      return;
+    }
     setConfigSaving(true);
     setConfigError(null);
     try {
@@ -538,6 +553,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
           runMode: configForm.runMode,
           mode: configForm.mode ?? "raw",
           sinkId: configForm.sinkId,
+          sinkEndpointId: configForm.sinkEndpointId ?? null,
           scheduleKind: configForm.scheduleKind,
           scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
           policy: parsedPolicy,
@@ -1150,6 +1166,31 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                       Select a sink that supports {configuringUnit.cdmModelId} to enable CDM mode.
                     </span>
                   ) : null}
+                  {configForm.mode === "cdm" ? (
+                    <div className="mt-4">
+                      <label className="block text-sm text-slate-200">
+                        Sink endpoint
+                        {cdmSinkEndpoints.length > 0 ? (
+                          <select
+                            value={configForm.sinkEndpointId ?? ""}
+                            onChange={(event) => updateConfigForm({ sinkEndpointId: event.target.value || null })}
+                            className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                          >
+                            <option value="">Select CDM sink endpoint</option>
+                            {cdmSinkEndpoints.map((endpoint) => (
+                              <option key={endpoint.id} value={endpoint.id}>
+                                {endpoint.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="mt-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                            No CDM sink endpoints found. Register a <code className="font-mono text-amber-100">cdm.jdbc</code> endpoint to enable CDM mode.
+                          </p>
+                        )}
+                      </label>
+                    </div>
+                  ) : null}
                 </label>
               </section>
             </div>
@@ -1233,6 +1274,7 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
     runMode: unit.config?.runMode ?? unit.defaultMode ?? "FULL",
     mode: unit.config?.mode ?? "raw",
     sinkId: unit.config?.sinkId ?? unit.sinkId ?? "kb",
+    sinkEndpointId: unit.config?.sinkEndpointId ?? null,
     scheduleKind: unit.config?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL",
     scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
     policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
@@ -1250,6 +1292,7 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
     runMode: formatIngestionMode(overrides.runMode ?? fallback.runMode),
     mode: (overrides.mode ?? fallback.mode ?? "raw").toLowerCase(),
     sinkId: (overrides.sinkId ?? fallback.sinkId ?? "kb").trim(),
+    sinkEndpointId: overrides.sinkEndpointId === undefined ? fallback.sinkEndpointId : overrides.sinkEndpointId,
     scheduleKind: nextScheduleKind,
     scheduleIntervalMinutes:
       nextScheduleKind === "INTERVAL"

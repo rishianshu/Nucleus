@@ -164,10 +164,11 @@ export const METADATA_CATALOG_DATASET_QUERY = `
         enabled
         runMode
         mode
-        sinkId
-        scheduleKind
-        scheduleIntervalMinutes
-        lastStatus {
+      sinkId
+      sinkEndpointId
+      scheduleKind
+      scheduleIntervalMinutes
+      lastStatus {
           state
           lastRunAt
           lastRunId
@@ -321,6 +322,7 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
       runMode
       mode
       sinkId
+      sinkEndpointId
       scheduleKind
       scheduleIntervalMinutes
       policy

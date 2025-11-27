@@ -54,3 +54,13 @@ When a new connector ships, it should:
 2. Provide mapping helpers similar to `jira_work_mapper.py`.
 3. Tag each ingestion unit with the appropriate `cdm_model_id`.
 4. Document the mapping so downstream tools know how to materialize CDM tables.
+
+## CDM sink endpoints & provisioning
+
+CDM rows need a physical sink. The metadata API now ships an internal Postgres sink template (`cdm.jdbc`) that captures the connection URL, schema, and table prefix for CDM tables (default schema `cdm_work`, prefix `cdm_`). After registering a sink endpoint, admins call the `provisionCdmSink` GraphQL mutation to:
+
+1. verify the sink supports the requested `cdm_model_id`,
+2. run idempotent DDL (`CREATE SCHEMA/TABLE IF NOT EXISTS … PRIMARY KEY (cdm_id)`) for the model, and
+3. upsert a `catalog.dataset` record labeling the dataset with `sink-endpoint:<id>` and `cdm_model:<id>`.
+
+Provisioning is explicit—ingestion configs must reference an already-provisioned sink endpoint to enable CDM mode. Once provisioned, CDM-mode ingestion runs route normalized CDM rows through the `cdm` sink, which issues parameterized `INSERT … ON CONFLICT (cdm_id) DO UPDATE` statements into the provisioned tables.

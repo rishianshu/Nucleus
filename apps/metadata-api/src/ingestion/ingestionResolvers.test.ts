@@ -21,7 +21,7 @@ const ensureUnitStateStub = mock.fn(async () => ({
   endpointId: "",
   unitId: "",
   sinkId: "kb",
-  state: "IDLE",
+  state: "IDLE" as const,
   checkpoint: null,
   lastRunId: null,
   lastRunAt: null,
@@ -251,9 +251,78 @@ test("ingestionSinks exposes registered sink capabilities", async (t) => {
   const resolvers = createResolvers(store, { graphStore });
   const sinks = await resolvers.Query.ingestionSinks();
   assert.ok(Array.isArray(sinks));
-  const kbSink = sinks.find((sink) => sink.id === "kb");
-  assert.ok(kbSink);
-  assert.ok(kbSink?.supportedCdmModels?.includes("cdm.work.item"));
+  const cdmSink = sinks.find((sink) => sink.id === "cdm");
+  assert.ok(cdmSink, "cdm sink should be registered");
+  assert.ok(cdmSink?.supportedCdmModels?.includes("cdm.work.item"));
+});
+
+test("provisionCdmSink delegates to provisioner service", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-provision-cdm-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const sinkEndpoint = await store.registerEndpoint({
+    id: "sink-endpoint-1",
+    name: "CDM Sink",
+    verb: "POST",
+    url: "postgres://localhost:5432/jira_plus_plus",
+    projectId: TEST_PROJECT,
+    labels: ["sink:cdm"],
+    config: {
+      templateId: "cdm.jdbc",
+      parameters: {
+        connection_url: "postgres://postgres:postgres@localhost:5432/jira_plus_plus",
+        schema: "cdm_work",
+      },
+    },
+  });
+  const provisioner = mock.fn(async () => ({
+    datasetId: "cdm_work.cdm_work_item",
+    schema: "cdm_work",
+    tableName: "cdm_work_item",
+  }));
+  const resolvers = createResolvers(store, { graphStore, cdmProvisioner: provisioner });
+  const ctx = buildIngestionContext();
+  const result = await resolvers.Mutation.provisionCdmSink(
+    null,
+    { input: { sinkEndpointId: sinkEndpoint.id!, cdmModelId: "cdm.work.item" } },
+    ctx as any,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.datasetId, "cdm_work.cdm_work_item");
+  assert.equal(result.schema, "cdm_work");
+  assert.equal(result.tableName, "cdm_work_item");
+  assert.equal(provisioner.mock.callCount(), 1);
+});
+
+test("provisionCdmSink rejects non-CDM endpoints", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-provision-cdm-invalid-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const sinkEndpoint = await store.registerEndpoint({
+    id: "sink-endpoint-raw",
+    name: "Raw Sink",
+    verb: "POST",
+    url: "postgres://localhost:5432/raw",
+    projectId: TEST_PROJECT,
+    labels: [],
+  });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildIngestionContext();
+  await assert.rejects(
+    () =>
+      resolvers.Mutation.provisionCdmSink(
+        null,
+        { input: { sinkEndpointId: sinkEndpoint.id!, cdmModelId: "cdm.work.item" } },
+        ctx as any,
+      ),
+    /CDM sink/,
+  );
 });
 
 function stateStoreOverrides() {
@@ -290,6 +359,7 @@ function configStoreOverrides() {
       runMode?: string;
       mode?: string;
       sinkId?: string;
+      sinkEndpointId?: string | null;
       scheduleKind?: string;
       scheduleIntervalMinutes?: number | null;
       policy?: Record<string, unknown> | null;
@@ -303,6 +373,7 @@ function configStoreOverrides() {
         runMode: (input.runMode ?? "FULL").toUpperCase(),
         mode: (input.mode ?? "raw"),
         sinkId: input.sinkId ?? "kb",
+        sinkEndpointId: input.sinkEndpointId ?? null,
         scheduleKind: (input.scheduleKind ?? "MANUAL").toUpperCase(),
         scheduleIntervalMinutes:
           (input.scheduleKind ?? "MANUAL").toUpperCase() === "INTERVAL" ? input.scheduleIntervalMinutes ?? 15 : null,
