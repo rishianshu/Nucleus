@@ -1,0 +1,5 @@
+- [x] Decide data access strategy for CDM tables (Prisma models vs raw SQL) and scaffold helper(s).
+- [x] Add GraphQL schema/resolvers for CDM work projects, work items (with filters/pagination), and item detail (comments/worklogs).
+- [x] Implement metadata UI CDM Work list + detail views with filters/navigation.
+- [x] Add GraphQL + Playwright tests covering list/detail flows with seeded CDM data.
+- [x] Update docs (CDM sections) and run `pnpm ci-check`; record final artifacts (LOG/STATE/STORY).

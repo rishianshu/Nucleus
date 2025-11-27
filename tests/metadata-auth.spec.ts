@@ -1,6 +1,7 @@
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { loginViaKeycloak, ensureRealmUser, keycloakBase, metadataBase } from "./helpers/webAuth";
 import { graphql } from "./helpers/metadata";
+import { seedCdmData } from "./helpers/cdmSeed";
 
 const POSTGRES_CONNECTION_DEFAULTS = {
   host: process.env.METADATA_PG_HOST ?? "localhost",
@@ -25,6 +26,7 @@ const PLAYWRIGHT_JIRA_PROJECT_KEYS = process.env.PLAYWRIGHT_JIRA_PROJECT_KEYS ??
 
 test.beforeAll(async ({ request }) => {
   await cleanupPlaywrightArtifacts(request);
+  await seedCdmData();
 });
 
 test.beforeEach(async ({ page }) => {
@@ -756,6 +758,19 @@ test("Temporal UI shows Jira ingestion workflow runs", async ({ page, request })
   await expect(page.getByText("Workflow Id").first()).toBeVisible({ timeout: 30_000 });
   const workflowRow = page.locator(`text=${runId}`).first();
   await expect(workflowRow).toBeVisible({ timeout: 30_000 });
+});
+
+test("cdm work explorer surfaces seeded data", async ({ page }) => {
+  await openMetadataWorkspace(page);
+  await page.getByRole("button", { name: "CDM → Work" }).click();
+  const table = page.getByTestId("cdm-work-table");
+  await expect(table).toBeVisible({ timeout: 20_000 });
+  const row = page.getByTestId("cdm-work-row").filter({ hasText: "Seeded issue summary" }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await row.click();
+  const detail = page.getByTestId("cdm-work-detail");
+  await expect(detail).toBeVisible({ timeout: 20_000 });
+  await expect(detail).toContainText("Seeded comment body");
 });
 
 async function ensureWorkspaceReady(page: Page) {

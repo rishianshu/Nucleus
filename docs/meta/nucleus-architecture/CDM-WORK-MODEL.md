@@ -64,3 +64,13 @@ CDM rows need a physical sink. The metadata API now ships an internal Postgres s
 3. upsert a `catalog.dataset` record labeling the dataset with `sink-endpoint:<id>` and `cdm_model:<id>`.
 
 Provisioning is explicit—ingestion configs must reference an already-provisioned sink endpoint to enable CDM mode. Once provisioned, CDM-mode ingestion runs route normalized CDM rows through the `cdm` sink, which issues parameterized `INSERT … ON CONFLICT (cdm_id) DO UPDATE` statements into the provisioned tables.
+
+## CDM work explorer
+
+To make CDM data visible without direct SQL access, the metadata UI now includes a **CDM → Work** section:
+
+- The API exposes read-only GraphQL queries (`cdmWorkProjects`, `cdmWorkItems`, `cdmWorkItem`) backed by the CDM sink tables.
+- The UI lists projects and work items with filters (project, status, text search) and links into a detail view with comments + worklogs.
+- The explorer honors existing auth (viewer/admin roles) and relies solely on CDM tables—no Jira API calls—so it reflects whatever CDM ingestion has produced.
+
+A small seed helper (`tests/helpers/cdmSeed.ts`) keeps automated tests deterministic by inserting a sample CDM project/item/comment/worklog. Production deployments can disable the helper and rely on real ingestion runs.

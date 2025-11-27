@@ -72,6 +72,10 @@ Because CDM rows typically land in downstream data stores rather than the KB, si
 >
 > Temporal now forwards `sinkEndpointId`, `dataMode`, and `cdmModelId` to both the Python worker and the sink. The worker applies the Jira (or future source) CDM mapper and emits normalized CDM records; the `cdm` sink writes them into the provisioned Postgres tables using parameterized upserts (`INSERT … ON CONFLICT (cdm_id) DO UPDATE`). Raw-mode runs continue to target the Knowledge Base sink unchanged.
 
+> **Local dev fallback**
+>
+> When experimenting locally (or in automated tests) without a registered CDM sink endpoint, the metadata API can fall back to `CDM_WORK_DATABASE_URL` (or `METADATA_DATABASE_URL`) plus optional `CDM_WORK_DATABASE_SCHEMA` / `CDM_WORK_DATABASE_TABLE_PREFIX` env vars. This lets developers point the CDM explorer at a known Postgres schema (default `cdm_work.cdm_*`) while production environments should continue to register explicit `cdm.jdbc` endpoints.
+
 The Temporal worker receives both the run-mode (full/incremental) and data-mode; Jira ingestion now produces CDM records (updating `entityType` and payload) only when the config requests it, keeping the raw path unchanged for other sinks.
 
 ## Python Worker Highlights

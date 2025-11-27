@@ -43,6 +43,7 @@ import type { IngestionUnitStateRow } from "./ingestion/stateStore.js";
 import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, saveIngestionUnitConfig, type IngestionUnitConfigRow } from "./ingestion/configStore.js";
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
+import { CdmWorkStore, encodeCursor as encodeWorkCursor, type CdmWorkItemRow, type CdmWorkCommentRow, type CdmWorkLogRow, type CdmWorkProjectRow, type WorkItemFilter as CdmWorkItemFilterArgs } from "./cdm/workStore.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -693,6 +694,72 @@ export const typeDefs = `#graphql
     supportedCdmModels: [String!]
   }
 
+  type CdmWorkProject {
+    cdmId: ID!
+    sourceSystem: String!
+    sourceProjectKey: String!
+    name: String!
+    description: String
+  }
+
+  type CdmWorkUser {
+    cdmId: ID!
+    displayName: String
+    email: String
+  }
+
+  type CdmWorkItem {
+    cdmId: ID!
+    sourceSystem: String!
+    sourceIssueKey: String!
+    projectCdmId: ID!
+    summary: String!
+    status: String
+    priority: String
+    createdAt: DateTime
+    updatedAt: DateTime
+    closedAt: DateTime
+    reporter: CdmWorkUser
+    assignee: CdmWorkUser
+  }
+
+  type CdmWorkComment {
+    cdmId: ID!
+    body: String!
+    createdAt: DateTime
+    author: CdmWorkUser
+  }
+
+  type CdmWorkLog {
+    cdmId: ID!
+    startedAt: DateTime
+    timeSpentSeconds: Int
+    comment: String
+    author: CdmWorkUser
+  }
+
+  type CdmWorkItemDetail {
+    item: CdmWorkItem!
+    comments: [CdmWorkComment!]!
+    worklogs: [CdmWorkLog!]!
+  }
+
+  input CdmWorkItemFilter {
+    projectCdmId: ID
+    statusIn: [String!]
+    search: String
+  }
+
+  type CdmWorkItemEdge {
+    cursor: String!
+    node: CdmWorkItem!
+  }
+
+  type CdmWorkItemConnection {
+    edges: [CdmWorkItemEdge!]!
+    pageInfo: PageInfo!
+  }
+
   input ProvisionCdmSinkInput {
     sinkEndpointId: ID!
     cdmModelId: String!
@@ -738,6 +805,9 @@ export const typeDefs = `#graphql
     ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
     ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
     ingestionUnitConfigs(endpointId: ID!): [IngestionUnitConfig!]!
+    cdmWorkProjects: [CdmWorkProject!]!
+    cdmWorkItems(filter: CdmWorkItemFilter, first: Int = 25, after: String): CdmWorkItemConnection!
+    cdmWorkItem(cdmId: ID!): CdmWorkItemDetail
   }
 
   type Mutation {
@@ -770,6 +840,7 @@ export function createResolvers(
     graphStore?: GraphStore;
     ingestionStateStore?: Partial<IngestionStateStoreImpl>;
     ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
+     cdmWorkStore?: CdmWorkStore;
     cdmProvisioner?: typeof provisionCdmSinkTables;
   },
 ) {
@@ -787,6 +858,7 @@ export function createResolvers(
     saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
   };
   const provisionCdmSinkFn = options?.cdmProvisioner ?? provisionCdmSinkTables;
+  const cdmWorkStore = options?.cdmWorkStore ?? new CdmWorkStore();
   const registerEndpointWithInput = async (
     input: GraphQLMetadataEndpointInput,
     ctx: ResolverContext,
@@ -1287,6 +1359,49 @@ export function createResolvers(
               : new Date(row.updatedAt as Date | string).toISOString(),
         };
         return mapCatalogRecordToDataset(normalizedRecord);
+      },
+      cdmWorkProjects: async (_parent: unknown, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const rows = await cdmWorkStore.listProjects(ctx.auth.projectId);
+        return rows.map(mapCdmWorkProject);
+      },
+      cdmWorkItems: async (
+        _parent: unknown,
+        args: { filter?: CdmWorkItemFilterArgs | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const { rows, cursorOffset, hasNextPage } = await cdmWorkStore.listWorkItems({
+          projectId: ctx.auth.projectId,
+          filter: args.filter ?? null,
+          first: args.first ?? 25,
+          after: args.after ?? null,
+        });
+        const edges = rows.map((row, index) => ({
+          cursor: encodeWorkCursor(cursorOffset + index + 1),
+          node: mapCdmWorkItem(row),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage,
+            hasPreviousPage: cursorOffset > 0,
+            startCursor: edges[0]?.cursor ?? null,
+            endCursor: edges[edges.length - 1]?.cursor ?? null,
+          },
+        };
+      },
+      cdmWorkItem: async (_parent: unknown, args: { cdmId: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const result = await cdmWorkStore.getWorkItemDetail({ projectId: ctx.auth.projectId, cdmId: args.cdmId });
+        if (!result) {
+          return null;
+        }
+        return {
+          item: mapCdmWorkItem(result.item),
+          comments: result.comments.map(mapCdmWorkComment),
+          worklogs: result.worklogs.map(mapCdmWorkLog),
+        };
       },
       metadataCollectionRuns: async (
         _parent: unknown,
@@ -3350,6 +3465,63 @@ function mapIngestionStateRow(row: IngestionUnitStateRow) {
     lastError: row.lastError ?? null,
     stats: row.stats ?? null,
     checkpoint: row.checkpoint ?? null,
+  };
+}
+
+function mapCdmWorkProject(row: CdmWorkProjectRow) {
+  return {
+    cdmId: row.cdm_id,
+    sourceSystem: row.source_system,
+    sourceProjectKey: row.source_project_key,
+    name: row.name,
+    description: row.description,
+  };
+}
+
+function mapCdmWorkItem(row: CdmWorkItemRow) {
+  return {
+    cdmId: row.cdm_id,
+    sourceSystem: row.source_system,
+    sourceIssueKey: row.source_issue_key,
+    projectCdmId: row.project_cdm_id,
+    summary: row.summary,
+    status: row.status,
+    priority: row.priority,
+    createdAt: row.created_at ? row.created_at.toISOString() : null,
+    updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
+    closedAt: row.closed_at ? row.closed_at.toISOString() : null,
+    reporter: mapCdmWorkUser(row.reporter_cdm_id, row.reporter_display_name, row.reporter_email),
+    assignee: mapCdmWorkUser(row.assignee_cdm_id, row.assignee_display_name, row.assignee_email),
+  };
+}
+
+function mapCdmWorkComment(row: CdmWorkCommentRow) {
+  return {
+    cdmId: row.cdm_id,
+    body: row.body,
+    createdAt: row.created_at ? row.created_at.toISOString() : null,
+    author: mapCdmWorkUser(row.author_cdm_id, row.author_display_name, row.author_email),
+  };
+}
+
+function mapCdmWorkLog(row: CdmWorkLogRow) {
+  return {
+    cdmId: row.cdm_id,
+    startedAt: row.started_at ? row.started_at.toISOString() : null,
+    timeSpentSeconds: row.time_spent_seconds ?? null,
+    comment: row.comment ?? null,
+    author: mapCdmWorkUser(row.author_cdm_id, row.author_display_name, row.author_email),
+  };
+}
+
+function mapCdmWorkUser(cdmId?: string | null, displayName?: string | null, email?: string | null) {
+  if (!cdmId) {
+    return null;
+  }
+  return {
+    cdmId,
+    displayName: displayName ?? null,
+    email: email ?? null,
   };
 }
 

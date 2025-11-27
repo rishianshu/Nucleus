@@ -452,3 +452,100 @@ export const ENDPOINT_DATASETS_QUERY = `
     }
   }
 `;
+export const CDM_WORK_PROJECTS_QUERY = `
+  query CdmWorkProjects {
+    cdmWorkProjects {
+      cdmId
+      sourceSystem
+      sourceProjectKey
+      name
+      description
+    }
+  }
+`;
+export const CDM_WORK_ITEMS_QUERY = `
+  query CdmWorkItems($filter: CdmWorkItemFilter, $first: Int, $after: String) {
+    cdmWorkItems(filter: $filter, first: $first, after: $after) {
+      edges {
+        cursor
+        node {
+          cdmId
+          sourceSystem
+          sourceIssueKey
+          projectCdmId
+          summary
+          status
+          priority
+          createdAt
+          updatedAt
+          closedAt
+          reporter {
+            cdmId
+            displayName
+            email
+          }
+          assignee {
+            cdmId
+            displayName
+            email
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+export const CDM_WORK_ITEM_DETAIL_QUERY = `
+  query CdmWorkItemDetail($cdmId: ID!) {
+    cdmWorkItem(cdmId: $cdmId) {
+      item {
+        cdmId
+        sourceSystem
+        sourceIssueKey
+        projectCdmId
+        summary
+        status
+        priority
+        createdAt
+        updatedAt
+        closedAt
+        reporter {
+          cdmId
+          displayName
+          email
+        }
+        assignee {
+          cdmId
+          displayName
+          email
+        }
+      }
+      comments {
+        cdmId
+        body
+        createdAt
+        author {
+          cdmId
+          displayName
+          email
+        }
+      }
+      worklogs {
+        cdmId
+        startedAt
+        timeSpentSeconds
+        comment
+        author {
+          cdmId
+          displayName
+          email
+        }
+      }
+    }
+  }
+`;

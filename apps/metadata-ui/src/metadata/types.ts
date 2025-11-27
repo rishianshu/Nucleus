@@ -170,6 +170,71 @@ export type MetadataEndpointTemplateField = {
   visibleWhen?: MetadataEndpointFieldVisibilityRule[] | null;
 };
 
+export type CdmWorkProject = {
+  cdmId: string;
+  sourceSystem: string;
+  sourceProjectKey: string;
+  name: string;
+  description?: string | null;
+};
+
+export type CdmWorkUser = {
+  cdmId: string;
+  displayName?: string | null;
+  email?: string | null;
+};
+
+export type CdmWorkItem = {
+  cdmId: string;
+  sourceSystem: string;
+  sourceIssueKey: string;
+  projectCdmId: string;
+  summary: string;
+  status?: string | null;
+  priority?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  closedAt?: string | null;
+  reporter?: CdmWorkUser | null;
+  assignee?: CdmWorkUser | null;
+};
+
+export type CdmWorkItemEdge = {
+  cursor: string;
+  node: CdmWorkItem;
+};
+
+export type CdmWorkItemConnection = {
+  edges: CdmWorkItemEdge[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string | null;
+    endCursor?: string | null;
+  };
+};
+
+export type CdmWorkComment = {
+  cdmId: string;
+  body: string;
+  createdAt?: string | null;
+  author?: CdmWorkUser | null;
+};
+
+export type CdmWorkLog = {
+  cdmId: string;
+  startedAt?: string | null;
+  timeSpentSeconds?: number | null;
+  comment?: string | null;
+  author?: CdmWorkUser | null;
+};
+
+export type CdmWorkItemDetail = {
+  item: CdmWorkItem;
+  comments: CdmWorkComment[];
+  worklogs: CdmWorkLog[];
+};
+
 export type CatalogDatasetConnection = {
   nodes: CatalogDataset[];
   pageInfo: {

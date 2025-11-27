@@ -54,6 +54,7 @@ test.describe("Real connector UI smoke", () => {
     await expect(unitRows.first()).toBeVisible({ timeout: 30_000 });
     await expect(unitRows.first()).toContainText(/Healthy|Idle|Ready|Succeeded/i);
   });
+
 });
 
 async function assertEndpointCard(page: Page, endpointName: string) {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { LuCloudUpload, LuDatabase, LuGauge, LuLogOut, LuMoon, LuNetwork, LuSun } from "react-icons/lu";
+import { LuBriefcase, LuCloudUpload, LuDatabase, LuGauge, LuLogOut, LuMoon, LuNetwork, LuSun } from "react-icons/lu";
 import { MetadataWorkspace } from "./metadata/MetadataWorkspace";
 import { MetadataAuthBoundary } from "./metadata/MetadataAuthBoundary";
 import { useAuth, type Role } from "./auth/AuthProvider";
 import { KnowledgeBaseConsole } from "./knowledge-base/KnowledgeBaseConsole";
 import { IngestionConsole } from "./ingestion/IngestionConsole";
+import { CdmWorkConsole } from "./cdm/CdmWorkConsole";
 
 const METADATA_ENDPOINT = import.meta.env.VITE_METADATA_GRAPHQL_ENDPOINT ?? "/metadata/graphql";
 
@@ -42,6 +43,17 @@ function App() {
           />
           <Route
             path="/ingestion/*"
+            element={
+              <MetadataWorkspaceShell
+                metadataEndpoint={METADATA_ENDPOINT}
+                authToken={auth.token}
+                projectSlug={projectSlug}
+                userRole={userRole}
+              />
+            }
+          />
+          <Route
+            path="/cdm/*"
             element={
               <MetadataWorkspaceShell
                 metadataEndpoint={METADATA_ENDPOINT}
@@ -108,6 +120,7 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
     () => [
       { id: "metadata", label: "Metadata", icon: LuDatabase, href: "/", disabled: false },
       { id: "kb", label: "Knowledge Base", icon: LuNetwork, href: "/kb", disabled: false },
+      { id: "cdm", label: "CDM → Work", icon: LuBriefcase, href: "/cdm", disabled: false },
       { id: "ingestion", label: "Ingestion", icon: LuCloudUpload, href: "/ingestion", disabled: !canAccessIngestion },
       { id: "recon", label: "Reconciliation", icon: LuGauge, disabled: true },
     ],
@@ -115,7 +128,8 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
   );
   const isKnowledgeBaseRoute = location.pathname.startsWith("/kb");
   const isIngestionRoute = location.pathname.startsWith("/ingestion");
-  const activeMenuId = isKnowledgeBaseRoute ? "kb" : isIngestionRoute ? "ingestion" : "metadata";
+  const isCdmRoute = location.pathname.startsWith("/cdm");
+  const activeMenuId = isKnowledgeBaseRoute ? "kb" : isIngestionRoute ? "ingestion" : isCdmRoute ? "cdm" : "metadata";
 
   return (
     <div
@@ -239,6 +253,8 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
             projectSlug={projectSlug}
             userRole={userRole}
           />
+        ) : isCdmRoute ? (
+          <CdmWorkConsole metadataEndpoint={metadataEndpoint} authToken={authToken} projectSlug={projectSlug} userRole={userRole} />
         ) : (
           <MetadataWorkspace
             metadataEndpoint={metadataEndpoint}
