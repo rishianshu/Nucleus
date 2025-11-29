@@ -9,6 +9,35 @@ import { createResolvers } from "./schema.js";
 const TEST_TENANT = "tenant-graph";
 const TEST_PROJECT = "project-graph";
 
+test("metadataEndpointTemplates exposes Confluence template", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-templates-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const previousRefreshSetting = process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED;
+  process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED = "1";
+  t.after(() => {
+    process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED = previousRefreshSetting;
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildResolverContext();
+
+  const templates = await (resolvers.Query.metadataEndpointTemplates as any)(null, { family: "HTTP" }, ctx as any);
+  assert.ok(Array.isArray(templates));
+  const confluence = templates.find((template: any) => template.id === "http.confluence");
+  assert.ok(confluence, "expected Confluence template in HTTP family");
+  assert.ok(
+    Array.isArray(confluence.fields) && confluence.fields.some((field: any) => field.key === "include_archived"),
+    "Confluence template should expose include_archived field",
+  );
+  assert.ok(
+    Array.isArray(confluence.capabilities) && confluence.capabilities.some((cap: any) => cap.key === "metadata"),
+    "Confluence template should expose metadata capability",
+  );
+});
+
 test("graphNodes query exposes scope and identity fields", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-graph-nodes-"));
   t.after(async () => {
@@ -36,7 +65,7 @@ test("graphNodes query exposes scope and identity fields", async (t) => {
     tenantContext,
   );
 
-  const nodes = await resolvers.Query.graphNodes(null, { filter: { limit: 10 } }, ctx as any);
+  const nodes = await (resolvers.Query.graphNodes as any)(null, { filter: { limit: 10 } }, ctx as any);
   assert.equal(nodes.length, 1);
   assert.equal(nodes[0].id, entity.id);
   assert.equal(nodes[0].scope.orgId, TEST_TENANT);
@@ -86,7 +115,7 @@ test("graphEdges query returns hashed logical identity", async (t) => {
     tenantContext,
   );
 
-  const edges = await resolvers.Query.graphEdges(null, { filter: { limit: 10 } }, ctx as any);
+  const edges = await (resolvers.Query.graphEdges as any)(null, { filter: { limit: 10 } }, ctx as any);
   assert.equal(edges.length, 1);
   const edge = edges[0];
   assert.equal(edge.sourceEntityId, source.id);
@@ -146,22 +175,22 @@ test("kbNodes and kbEdges expose scope-aware data with pagination and scenes", a
     tenantContext,
   );
 
-  const firstPage = await resolvers.Query.kbNodes(null, { type: "catalog.dataset", first: 1 }, ctx as any);
+  const firstPage = await (resolvers.Query.kbNodes as any)(null, { type: "catalog.dataset", first: 1 }, ctx as any);
   assert.equal(firstPage.edges.length, 1);
   assert.equal(firstPage.totalCount, 2);
-  const nextPage = await resolvers.Query.kbNodes(null, { type: "catalog.dataset", first: 5, after: firstPage.pageInfo.endCursor ?? undefined }, ctx as any);
+  const nextPage = await (resolvers.Query.kbNodes as any)(null, { type: "catalog.dataset", first: 5, after: firstPage.pageInfo.endCursor ?? undefined }, ctx as any);
   assert.equal(nextPage.edges.length, 1);
 
-  const detail = await resolvers.Query.kbNode(null, { id: orders.id }, ctx as any);
+  const detail = await (resolvers.Query.kbNode as any)(null, { id: orders.id }, ctx as any);
   assert.equal(detail?.id, orders.id);
   assert.ok(detail?.identity.logicalKey);
 
-  const edgesConnection = await resolvers.Query.kbEdges(null, { edgeType: "DEPENDENCY_OF", first: 10 }, ctx as any);
+  const edgesConnection = await (resolvers.Query.kbEdges as any)(null, { edgeType: "DEPENDENCY_OF", first: 10 }, ctx as any);
   assert.equal(edgesConnection.totalCount, 1);
   assert.equal(edgesConnection.edges[0].node.sourceEntityId, orders.id);
   assert.equal(edgesConnection.edges[0].node.targetEntityId, customers.id);
 
-  const scene = await resolvers.Query.kbScene(null, { id: orders.id, depth: 2, limit: 10 }, ctx as any);
+  const scene = await (resolvers.Query.kbScene as any)(null, { id: orders.id, depth: 2, limit: 10 }, ctx as any);
   assert.ok(scene.nodes.length >= 2);
   assert.equal(scene.summary.truncated, false);
 });
@@ -176,18 +205,18 @@ test("kbNodes and kbEdges fall back to sample graph data when store is empty", a
   const resolvers = createResolvers(store, { graphStore });
   const ctx = buildResolverContext();
 
-  const nodesConnection = await resolvers.Query.kbNodes(null, { first: 5 }, ctx as any);
+  const nodesConnection = await (resolvers.Query.kbNodes as any)(null, { first: 5 }, ctx as any);
   assert.ok(nodesConnection.totalCount > 0, "sample kb nodes should be available");
   const sampleNodeId = nodesConnection.edges[0]?.node.id;
   assert.ok(sampleNodeId, "sample node id present");
 
-  const nodeDetail = await resolvers.Query.kbNode(null, { id: sampleNodeId! }, ctx as any);
+  const nodeDetail = await (resolvers.Query.kbNode as any)(null, { id: sampleNodeId! }, ctx as any);
   assert.equal(nodeDetail?.id, sampleNodeId);
 
-  const edgesConnection = await resolvers.Query.kbEdges(null, { first: 5 }, ctx as any);
+  const edgesConnection = await (resolvers.Query.kbEdges as any)(null, { first: 5 }, ctx as any);
   assert.ok(edgesConnection.totalCount > 0, "sample kb edges should be available");
 
-  const scene = await resolvers.Query.kbScene(null, { id: sampleNodeId!, depth: 2, limit: 25 }, ctx as any);
+  const scene = await (resolvers.Query.kbScene as any)(null, { id: sampleNodeId!, depth: 2, limit: 25 }, ctx as any);
   assert.ok(scene.nodes.length >= 1);
 });
 
@@ -228,11 +257,11 @@ test("kbFacets aggregates node and edge facets for the active tenant", async (t)
     tenantContext,
   );
 
-  const facets = await resolvers.Query.kbFacets(null, {}, ctx as any);
+  const facets = await (resolvers.Query.kbFacets as any)(null, {}, ctx as any);
   assert.ok(facets.nodeTypes.length > 0, "node facets should exist");
-  const datasetFacet = facets.nodeTypes.find((entry) => entry.value === "catalog.dataset");
+  const datasetFacet = facets.nodeTypes.find((entry: any) => entry.value === "catalog.dataset");
   assert.equal(datasetFacet?.count, 2);
-  const dependencyFacet = facets.edgeTypes.find((entry) => entry.value === "DEPENDENCY_OF");
+  const dependencyFacet = facets.edgeTypes.find((entry: any) => entry.value === "DEPENDENCY_OF");
   assert.equal(dependencyFacet?.count, 1);
 });
 
@@ -246,13 +275,13 @@ test("kbMeta query returns required node and edge types", async (t) => {
   const resolvers = createResolvers(store, { graphStore });
   const ctx = buildResolverContext();
 
-  const meta = await resolvers.Query.kbMeta(null, { scope: null }, ctx as any);
+  const meta = await (resolvers.Query.kbMeta as any)(null, { scope: null }, ctx as any);
   assert.ok(meta.version.length > 0, "version should be populated");
-  const dataset = meta.nodeTypes.find((entry) => entry.value === "catalog.dataset");
-  const endpoint = meta.nodeTypes.find((entry) => entry.value === "metadata.endpoint");
-  const doc = meta.nodeTypes.find((entry) => entry.value === "doc.page");
-  const documentedBy = meta.edgeTypes.find((entry) => entry.value === "DOCUMENTED_BY");
-  const dependency = meta.edgeTypes.find((entry) => entry.value === "DEPENDENCY_OF");
+  const dataset = meta.nodeTypes.find((entry: any) => entry.value === "catalog.dataset");
+  const endpoint = meta.nodeTypes.find((entry: any) => entry.value === "metadata.endpoint");
+  const doc = meta.nodeTypes.find((entry: any) => entry.value === "doc.page");
+  const documentedBy = meta.edgeTypes.find((entry: any) => entry.value === "DOCUMENTED_BY");
+  const dependency = meta.edgeTypes.find((entry: any) => entry.value === "DEPENDENCY_OF");
 
   assert.ok(dataset, "catalog.dataset should exist");
   assert.equal(dataset?.label, "Datasets");

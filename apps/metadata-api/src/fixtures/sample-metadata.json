@@ -22,6 +22,26 @@
           "sslmode": "disable"
         }
       }
+    },
+    {
+      "id": "seed-endpoint-confluence",
+      "sourceId": "seed-endpoint-confluence",
+      "name": "Sample Confluence Workspace",
+      "description": "Synthetic Confluence endpoint so the catalog has document datasets before real collection runs.",
+      "verb": "GET",
+      "url": "https://sample.atlassian.net/wiki",
+      "domain": "docs.confluence",
+      "labels": ["sample", "confluence", "semantic"],
+      "config": {
+        "templateId": "http.confluence",
+        "parameters": {
+          "base_url": "https://sample.atlassian.net/wiki",
+          "auth_type": "api_token",
+          "username": "doc-bot@example.com",
+          "space_keys": "ENG"
+        }
+      },
+      "capabilities": ["metadata", "preview"]
     }
   ],
   "datasets": [
@@ -65,6 +85,56 @@
             "status": "DONE",
             "assignee": "Bruno",
             "updated_at": "2024-09-18T08:30:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sample_catalog_confluence_pages",
+      "labels": ["sample", "confluence", "docs"],
+      "sourceEndpointId": "seed-endpoint-confluence",
+      "payload": {
+        "dataset": {
+          "id": "sample_catalog_confluence_pages",
+          "displayName": "Seeded Confluence Pages",
+          "description": "Synthetic documentation pages for smoke testing doc catalog flows.",
+        "fields": [
+          { "name": "page_id", "type": "STRING", "description": "Confluence page id" },
+          { "name": "space_key", "type": "STRING", "description": "Owning space key" },
+          { "name": "title", "type": "STRING", "description": "Page title" },
+          { "name": "updated_at", "type": "TIMESTAMP", "description": "Last updated timestamp" },
+          { "name": "updated_by", "type": "STRING", "description": "Display name of the last editor" },
+          { "name": "url", "type": "STRING", "description": "Confluence page URL" },
+          { "name": "excerpt", "type": "STRING", "description": "Rendered body preview" }
+        ]
+      },
+      "schema": "CONFLUENCE",
+      "name": "confluence_pages",
+      "description": "Sample knowledge pages used to exercise metadata previews.",
+        "labels": ["confluence", "documentation", "sample"],
+        "statistics": {
+          "record_count": 25,
+          "sample_size": 5,
+          "last_profiled_at": "2024-10-05T00:00:00Z"
+        },
+        "sample_rows": [
+          {
+            "page_id": "DOC-101",
+            "space_key": "ENG",
+            "title": "Sample design doc",
+            "updated_at": "2024-09-20T12:15:00Z",
+            "updated_by": "Casey",
+            "url": "https://sample.atlassian.net/wiki/spaces/ENG/pages/DOC-101",
+            "excerpt": "<p><strong>Summary:</strong> Updated architecture diagram and roll-out checklist.</p>"
+          },
+          {
+            "page_id": "DOC-205",
+            "space_key": "ENG",
+            "title": "Runbook template",
+            "updated_at": "2024-09-18T08:45:00Z",
+            "updated_by": "Morgan",
+            "url": "https://sample.atlassian.net/wiki/spaces/ENG/pages/DOC-205",
+            "excerpt": "<p>Use this runbook template when capturing on-call procedures.</p>"
           }
         ]
       }

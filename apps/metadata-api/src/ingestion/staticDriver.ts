@@ -162,14 +162,63 @@ async function resolveTemplateUnits(endpoint: MetadataEndpointDescriptor): Promi
   if (!template?.extras || typeof template.extras !== "object") {
     return [];
   }
-  const extrasUnits = (template.extras as Record<string, unknown>).ingestionUnits;
-  return normalizeUnits(extrasUnits);
+  const extras = template.extras as Record<string, unknown>;
+  const extrasUnits = normalizeUnits(extras.ingestionUnits);
+  if (extrasUnits.length > 0) {
+    return extrasUnits;
+  }
+  const datasetUnits = buildUnitsFromDatasets(extras.datasets);
+  if (datasetUnits.length > 0) {
+    return datasetUnits;
+  }
+  return [];
 }
 
 function extractTemplateId(config: Record<string, unknown>): string | null {
   const rawTemplateId = config.templateId;
   if (typeof rawTemplateId === "string" && rawTemplateId.trim().length > 0) {
     return rawTemplateId.trim();
+  }
+  return null;
+}
+
+function buildUnitsFromDatasets(datasets: unknown): IngestionUnitDescriptor[] {
+  if (!Array.isArray(datasets)) {
+    return [];
+  }
+  const rawUnits: RawUnit[] = [];
+  datasets.forEach((dataset) => {
+    if (!dataset || typeof dataset !== "object") {
+      return;
+    }
+    const record = dataset as Record<string, unknown>;
+    const datasetId = coerceString(record.datasetId ?? record["dataset_id"]);
+    const ingestion =
+      record.ingestion && typeof record.ingestion === "object"
+        ? (record.ingestion as Record<string, unknown>)
+        : record["ingestion"] && typeof record["ingestion"] === "object"
+          ? (record["ingestion"] as Record<string, unknown>)
+          : null;
+    const unitId = coerceString(ingestion?.unitId ?? ingestion?.unit_id ?? datasetId);
+    if (!unitId) {
+      return;
+    }
+    rawUnits.push({
+      unitId,
+      datasetId: datasetId ?? unitId,
+      displayName: coerceString(ingestion?.displayName ?? ingestion?.display_name ?? record.name) ?? unitId,
+      description: coerceString(ingestion?.description ?? record.description) ?? undefined,
+      supportsIncremental: Boolean(ingestion?.supportsIncremental ?? ingestion?.supports_incremental),
+      defaultPolicy: ingestion?.defaultPolicy ?? ingestion?.default_policy,
+      cdmModelId: coerceString(ingestion?.cdmModelId ?? ingestion?.cdm_model_id) ?? undefined,
+    });
+  });
+  return normalizeUnits(rawUnits);
+}
+
+function coerceString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
   }
   return null;
 }

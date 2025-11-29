@@ -1,0 +1,5 @@
+- [x] Review Jira/HTTP endpoints + metadata planner hooks to mirror descriptor/cap/cfg for Confluence; capture reference snippets.
+- [x] Implement `runtime_common/endpoints/confluence_http.py` (or similar) with descriptor, config schema, metadata + preview hooks.
+- [x] Build Confluence metadata subsystem (spaces/pages/attachments), normalization helpers, and Python unit tests/stubs.
+- [x] Register template + planner hooks in metadata-service/worker; ensure GraphQL exposes template + metadata runs persist catalog datasets.
+- [x] Update catalog UI + preview flow for Confluence datasets, add TS/unit + Playwright coverage, and refresh docs/ci-check evidence.

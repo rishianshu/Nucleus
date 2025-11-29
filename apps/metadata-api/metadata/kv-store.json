@@ -847,20 +847,24 @@
   "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::kb": {
     "value": {
       "cursor": {
-        "lastUpdated": "2025-11-26T18:43:16.665+0530"
-      },
-      "lastRunId": "c808d999-a83e-4b51-82f0-bede3730092e",
-      "stats": {
-        "issuesSynced": 5,
         "lastUpdated": "2025-11-26T18:43:16.665+0530",
-        "recordCount": 5,
+        "projects": {
+          "CUS": {
+            "lastUpdated": "2025-11-28T14:32:10.734+0530"
+          }
+        }
+      },
+      "lastRunId": "0d8abed9-6d7a-4099-b062-e0f2f9986e3b",
+      "stats": {
+        "issuesSynced": 500,
+        "lastUpdated": "2025-11-26T18:43:16.665+0530",
+        "recordCount": 500,
         "unitId": "jira.issues"
       },
-      "lastUpdatedAt": "2025-11-26T16:37:22.399Z",
-      "lastError": "Activity task failed"
+      "lastUpdatedAt": "2025-11-28T09:27:38.204Z"
     },
-    "version": "cc3f218a031d4828a53ade11e706624c",
-    "updatedAt": "2025-11-26T16:37:22.403Z"
+    "version": "978d9056cba041739f67d94cb1fb9906",
+    "updatedAt": "2025-11-28T09:27:38.208Z"
   },
   "ingest::work.jira::endpoint::eaac00ee50f148af9e738b0277b71360::unit::jira.issues::sink::kb": {
     "value": {
@@ -878,5 +882,19 @@
     },
     "version": "71511db4ef0d4719a89225caf1a6e01d",
     "updatedAt": "2025-11-26T15:04:21.334Z"
+  },
+  "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {
+          "CUS": {
+            "lastUpdated": "2025-11-28T14:32:10.734+0530"
+          }
+        }
+      },
+      "lastUpdatedAt": "2025-11-28T09:27:38.211Z"
+    },
+    "version": "59a9a206aece49ea903056314f2dd200",
+    "updatedAt": "2025-11-28T09:27:38.212Z"
   }
 }

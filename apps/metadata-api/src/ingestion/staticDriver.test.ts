@@ -84,3 +84,53 @@ test("listUnits prefers ingestionUnits defined on the endpoint config", async ()
   assert.equal(units[0].stats?.description, "Provided by endpoint config");
   assert.equal(units[0].stats?.supportsIncremental, false);
 });
+
+test("listUnits builds units from template dataset metadata when ingestionUnits missing", async () => {
+  const store = await context.getMetadataStore();
+  const template: MetadataEndpointTemplateDescriptor = {
+    id: "docs.semantic",
+    title: "Docs",
+    family: "HTTP",
+    vendor: "Docs Vendor",
+    description: "Docs template with dataset metadata",
+    categories: ["semantic"],
+    protocols: ["https"],
+    fields: [],
+    capabilities: [],
+    extras: {
+      datasets: [
+        {
+          datasetId: "confluence.space",
+          name: "Spaces",
+          description: "Confluence spaces",
+          ingestion: {
+            unit_id: "confluence.space",
+            display_name: "Spaces",
+            description: "Knowledge spaces",
+            supports_incremental: false,
+            cdm_model_id: "cdm.doc.space",
+          },
+        },
+      ],
+    },
+  };
+  await store.saveEndpointTemplates([template]);
+  const endpoint = await store.registerEndpoint({
+    id: "docs-endpoint",
+    name: "Docs Endpoint",
+    verb: "GET",
+    url: "https://docs.example.com",
+    config: {
+      templateId: template.id,
+      parameters: {},
+    },
+  });
+  const driver = new StaticIngestionDriver();
+  const units = await driver.listUnits(endpoint!.id!);
+  assert.equal(units.length, 1);
+  assert.equal(units[0].unitId, "confluence.space");
+  assert.equal(units[0].datasetId, "confluence.space");
+  assert.equal(units[0].displayName, "Spaces");
+  assert.equal(units[0].cdmModelId, "cdm.doc.space");
+  assert.equal(units[0].stats?.description, "Knowledge spaces");
+});

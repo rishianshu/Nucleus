@@ -500,17 +500,19 @@ def _iter_issue_search(
     params: Dict[str, Any],
     since: Optional[str],
     fields: str,
+    max_records: int = 2000,
+    page_size: int = 200,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     jql = _build_issue_jql(params, since)
     page_token: Optional[str] = None
     fetched = 0
-    page_size = 50
-    max_records = 2000
-    while fetched < max_records:
+    page_size = max(1, min(page_size, max_records)) if max_records else page_size
+    effective_max = max_records or 2000
+    while fetched < effective_max:
         query: Dict[str, Any] = {
             "jql": jql,
-            "maxResults": min(page_size, max_records - fetched),
+            "maxResults": min(page_size, effective_max - fetched),
             "fields": fields,
         }
         if page_token:
@@ -750,6 +752,7 @@ def _sync_jira_issues(
         params,
         since,
         fields="summary,updated,status,assignee,reporter,project",
+        max_records=max_records,
     )
     for issue in issues:
         record = _build_issue_record(issue, base_url, host, org_id, scope_project, endpoint_id)
@@ -819,7 +822,7 @@ def _sync_jira_comments(
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     records: List[Dict[str, Any]] = []
     latest = since
-    issues = _iter_issue_search(session, base_url, params, since, fields="project,updated")
+    issues = _iter_issue_search(session, base_url, params, since, fields="project,updated", max_records=max_records)
     page_size = 50
     for issue in issues:
         issue_key = issue.get("key") or issue.get("id")
@@ -875,7 +878,7 @@ def _sync_jira_worklogs(
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     records: List[Dict[str, Any]] = []
     latest = since
-    issues = _iter_issue_search(session, base_url, params, since, fields="project,updated")
+    issues = _iter_issue_search(session, base_url, params, since, fields="project,updated", max_records=max_records)
     page_size = 50
     for issue in issues:
         issue_key = issue.get("key") or issue.get("id")

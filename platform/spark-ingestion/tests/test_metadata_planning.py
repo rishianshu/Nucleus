@@ -16,6 +16,8 @@ from metadata_service.planning import (
     MetadataPlanningResult,
     plan_metadata_jobs,
 )
+from metadata_service.adapters.confluence import ConfluenceMetadataSubsystem
+from runtime_common.endpoints.confluence_http import ConfluenceEndpoint
 
 
 class StubLogger:
@@ -133,3 +135,23 @@ def test_postgres_subsystem_delegates_to_jdbc_helper(monkeypatch):
     request = SimpleNamespace(connectionUrl="postgresql://example", schemas=["public"])
     result = subsystem.plan_metadata_jobs(parameters={}, request=request, logger=StubLogger())
     assert result is sentinel
+
+
+def test_confluence_metadata_subsystem_plans_datasets():
+    endpoint = ConfluenceEndpoint(
+        tool=None,
+        endpoint_cfg={
+            "base_url": "https://example.atlassian.net/wiki",
+            "auth_type": "api_token",
+            "username": "bot@example.com",
+            "api_token": "token",
+        },
+        table_cfg={"schema": "confluence", "table": "space"},
+    )
+    subsystem = ConfluenceMetadataSubsystem(endpoint)
+    request = SimpleNamespace(endpointId="endpoint-1", sourceId="source-1", projectId="proj-1")
+    result = subsystem.plan_metadata_jobs(parameters={"base_url": "https://example.atlassian.net/wiki"}, request=request, logger=StubLogger())
+    assert isinstance(result, MetadataPlanningResult)
+    assert len(result.jobs) == 3
+    entities = {job.target.entity for job in result.jobs}
+    assert entities == {"SPACE", "PAGE", "ATTACHMENT"}

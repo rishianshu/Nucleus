@@ -10,6 +10,7 @@ from runtime_common.endpoints.jdbc_postgres import PostgresEndpoint
 from runtime_common.endpoints.http_rest import HttpApiEndpoint
 from runtime_common.endpoints.jira_http import JiraEndpoint
 from runtime_common.endpoints.stream_kafka import KafkaStreamEndpoint
+from runtime_common.endpoints.confluence_http import ConfluenceEndpoint
 
 
 REGISTERED_ENDPOINTS: List[Type[DescribedEndpoint]] = [
@@ -19,6 +20,7 @@ REGISTERED_ENDPOINTS: List[Type[DescribedEndpoint]] = [
     JdbcEndpoint,
     HttpApiEndpoint,
     JiraEndpoint,
+    ConfluenceEndpoint,
     KafkaStreamEndpoint,
 ]
 

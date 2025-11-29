@@ -1,0 +1,45 @@
+- title: Semantic Confluence source v1
+- slug: semantic-confluence-source-v1
+- type: feature
+- context:
+  - platform/spark-ingestion/runtime_common/endpoints/* (HTTP/semantic endpoints)
+  - platform/spark-ingestion/packages/metadata-service/*
+  - platform/spark-ingestion/temporal/*
+  - apps/metadata-api (GraphQL for endpoints + collections + catalog)
+  - apps/metadata-ui (Metadata workspace UI)
+  - runtime_core/cdm/docs.py (CDM docs model)
+  - docs/meta/nucleus-architecture/*
+- why_now: Jira + work CDM + CDM sinks + CDM work explorer are live, and docs CDM is now defined. To complete the first “semantic sources trio” we need Confluence as a semantic docs source. That means a Confluence endpoint, metadata subsystem, and catalog integration so spaces/pages/attachments become first-class datasets in Nucleus and can later feed docs CDM ingestion.
+- scope_in:
+  - Add a Confluence HTTP endpoint template (Python) with:
+    - descriptor (family, vendor, config fields, capabilities),
+    - metadata subsystem for spaces/pages/attachments,
+    - preview capability for pages (and optionally attachments).
+  - Wire the template into the endpoint registry so it appears in the Metadata UI “Register Endpoint” flow.
+  - Implement metadata collection for Confluence endpoints via the existing Python metadata worker:
+    - discover spaces/pages/attachments,
+    - emit normalized records / CatalogSnapshots for each dataset type.
+  - Ensure Confluence datasets appear in the catalog UI with basic info (space, title, type) and preview for page content.
+- scope_out:
+  - Confluence data ingestion into docs CDM sinks (separate `confluence-ingestion-v1` slug).
+  - Vector indexing and signals for Confluence content.
+  - Advanced Confluence config (permission mirroring, groups, macros parsing).
+- acceptance:
+  1. A Confluence endpoint template exists in the registry and can be registered via UI/GraphQL with required config (base URL, auth, site/space filters).
+  2. Metadata collection for a Confluence endpoint produces catalog datasets and records for spaces/pages/attachments using the Python worker.
+  3. Confluence datasets appear in the catalog UI and page datasets support preview of content.
+  4. Tests (Python, TS/GraphQL, Playwright) cover endpoint registration, metadata collection, and catalog/preview flows.
+- constraints:
+  - Reuse existing HTTP/semantic endpoint infrastructure; no bespoke client stack if avoidable.
+  - Follow Source → Staging → Sink pattern for metadata; Python endpoints own source-specific logic, TS/GraphQL orchestrate only.
+  - Backward compatible: no breaking changes to existing endpoints or metadata workflows.
+- non_negotiables:
+  - Confluence-specific behavior lives in the Confluence endpoint + metadata subsystem, not scattered across planner/UI.
+  - Metadata output must be normalized per existing MetadataRecord / CatalogSnapshot contracts so downstream tooling (catalog, KB) can consume it uniformly.
+- refs:
+  - intents/semantic-sources-trio-story-v1/*
+  - intents/cdm-docs-model-and-semantic-binding-v1/*
+  - docs/meta/nucleus-architecture/endpoint-HLD.md
+  - docs/meta/nucleus-architecture/INGESTION_AND_SINKS.md
+  - docs/meta/nucleus-architecture/CDM-DOCS-MODEL.md
+- status: in-progress

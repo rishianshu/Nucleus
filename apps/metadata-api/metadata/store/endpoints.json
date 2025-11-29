@@ -29,5 +29,38 @@
     "updatedAt": "2025-11-27T10:13:29.913Z",
     "deletedAt": null,
     "deletionReason": null
+  },
+  {
+    "id": "seed-endpoint-confluence",
+    "sourceId": "seed-endpoint-confluence",
+    "name": "Sample Confluence Workspace",
+    "description": "Synthetic Confluence endpoint so the catalog has document datasets before real collection runs.",
+    "verb": "GET",
+    "url": "https://sample.atlassian.net/wiki",
+    "authPolicy": null,
+    "projectId": "global",
+    "domain": "docs.confluence",
+    "labels": [
+      "sample",
+      "confluence",
+      "semantic"
+    ],
+    "config": {
+      "templateId": "http.confluence",
+      "parameters": {
+        "base_url": "https://sample.atlassian.net/wiki",
+        "auth_type": "api_token",
+        "username": "doc-bot@example.com",
+        "space_keys": "ENG"
+      }
+    },
+    "capabilities": [
+      "metadata",
+      "preview"
+    ],
+    "createdAt": "2025-11-27T10:13:29.913Z",
+    "updatedAt": "2025-11-27T10:13:29.913Z",
+    "deletedAt": null,
+    "deletionReason": null
   }
 ]

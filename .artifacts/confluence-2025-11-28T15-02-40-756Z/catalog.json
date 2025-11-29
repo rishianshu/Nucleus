@@ -1,0 +1,53 @@
+{
+  "totalCount": 3,
+  "nodes": [
+    {
+      "id": "dataset::dev::global::confluence-dev::confluence::confluence-attachments",
+      "displayName": "Confluence Attachments",
+      "description": "Attachments stored on pages (files, media) with MIME types and sizes.",
+      "schema": "confluence",
+      "entity": "Confluence Attachments",
+      "sourceEndpointId": "confluence-dev",
+      "labels": [
+        "confluence",
+        "semantic",
+        "endpoint:confluence-dev",
+        "source:confluence-dev"
+      ],
+      "collectedAt": "2025-11-28T15:02:35.835Z",
+      "sampleRows": []
+    },
+    {
+      "id": "dataset::dev::global::confluence-dev::confluence::confluence-pages",
+      "displayName": "Confluence Pages",
+      "description": "Pages/articles stored within spaces including creator/updater metadata.",
+      "schema": "confluence",
+      "entity": "Confluence Pages",
+      "sourceEndpointId": "confluence-dev",
+      "labels": [
+        "confluence",
+        "semantic",
+        "endpoint:confluence-dev",
+        "source:confluence-dev"
+      ],
+      "collectedAt": "2025-11-28T15:02:36.563Z",
+      "sampleRows": []
+    },
+    {
+      "id": "dataset::dev::global::confluence-dev::confluence::confluence-spaces",
+      "displayName": "Confluence Spaces",
+      "description": "Logical Confluence spaces (wiki areas) with metadata such as status, type, and links.",
+      "schema": "confluence",
+      "entity": "Confluence Spaces",
+      "sourceEndpointId": "confluence-dev",
+      "labels": [
+        "confluence",
+        "semantic",
+        "endpoint:confluence-dev",
+        "source:confluence-dev"
+      ],
+      "collectedAt": "2025-11-28T15:02:37.378Z",
+      "sampleRows": []
+    }
+  ]
+}

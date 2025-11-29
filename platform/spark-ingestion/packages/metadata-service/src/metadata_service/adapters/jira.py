@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -24,6 +25,34 @@ except ModuleNotFoundError:  # pragma: no cover
 from runtime_common.endpoints.jira_catalog import JIRA_API_LIBRARY, JIRA_DATASET_DEFINITIONS
 
 DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = JIRA_DATASET_DEFINITIONS
+
+
+def _normalize_dataset_name(dataset_id: Optional[str]) -> str:
+    """Convert catalog dataset identifiers into canonical Jira dataset keys."""
+    candidate = (dataset_id or "").strip()
+    if not candidate:
+        return "jira.issues"
+    if candidate in DATASET_DEFINITIONS:
+        return candidate
+    if candidate.startswith("dataset::"):
+        parts = candidate.split("::")
+        if parts:
+            candidate = parts[-1]
+    if candidate in DATASET_DEFINITIONS:
+        return candidate
+    if candidate.startswith("jira.") and candidate in DATASET_DEFINITIONS:
+        return candidate
+    namespace = "jira"
+    remainder = candidate
+    if "." in candidate:
+        namespace, remainder = candidate.split(".", 1)
+    elif "-" in candidate:
+        namespace, remainder = candidate.split("-", 1)
+    remainder = remainder.replace("-", "_")
+    normalized = f"{namespace}.{remainder}" if remainder else namespace
+    if normalized in DATASET_DEFINITIONS:
+        return normalized
+    return normalized
 
 
 class JiraMetadataSubsystem(MetadataSubsystem):
@@ -149,7 +178,6 @@ class JiraMetadataSubsystem(MetadataSubsystem):
                 tool=None,
                 endpoint_cfg=parameters,
                 table_cfg=table_cfg,
-                metadata_access=self,
             )
             target = MetadataTarget(
                 source_id=source_id,
@@ -319,18 +347,73 @@ def _collect_preview_rows(
 ) -> List[Dict[str, Any]]:
     if jira_runtime is None:  # pragma: no cover - defensive
         return []
-    normalized = dataset_id if dataset_id in DATASET_DEFINITIONS else f"jira.{dataset_id}" if not dataset_id.startswith("jira.") else dataset_id
+    normalized = _normalize_dataset_name(dataset_id)
     records: List[Dict[str, Any]] = []
     if normalized == "jira.projects":
-        records, _ = jira_runtime._sync_jira_projects(session, base_url, host, org_id, scope_project, endpoint_id, params, max_records=limit)  # type: ignore[attr-defined]
+        records, _ = _invoke_with_rate_limit_retry(
+            jira_runtime._sync_jira_projects,  # type: ignore[attr-defined]
+            session,
+            base_url,
+            host,
+            org_id,
+            scope_project,
+            endpoint_id,
+            params,
+            max_records=limit,
+        )
     elif normalized == "jira.issues":
-        records, _ = jira_runtime._sync_jira_issues(session, base_url, host, org_id, scope_project, endpoint_id, params, None, max_records=limit)  # type: ignore[attr-defined]
+        records, _ = _invoke_with_rate_limit_retry(
+            jira_runtime._sync_jira_issues,  # type: ignore[attr-defined]
+            session,
+            base_url,
+            host,
+            org_id,
+            scope_project,
+            endpoint_id,
+            params,
+            None,
+            max_records=limit,
+        )
     elif normalized == "jira.users":
-        records, _ = jira_runtime._sync_jira_users(session, base_url, host, org_id, scope_project, endpoint_id, params, max_records=limit)  # type: ignore[attr-defined]
+        records, _ = _invoke_with_rate_limit_retry(
+            jira_runtime._sync_jira_users,  # type: ignore[attr-defined]
+            session,
+            base_url,
+            host,
+            org_id,
+            scope_project,
+            endpoint_id,
+            params,
+            max_records=limit,
+        )
     elif normalized == "jira.comments":
-        records, _ = jira_runtime._sync_jira_comments(session, base_url, host, org_id, scope_project, endpoint_id, params, None, max_records=limit)  # type: ignore[attr-defined]
+        records, _ = _invoke_with_rate_limit_retry(
+            jira_runtime._sync_jira_comments,  # type: ignore[attr-defined]
+            session,
+            base_url,
+            host,
+            org_id,
+            scope_project,
+            endpoint_id,
+            params,
+            None,
+            max_records=limit,
+        )
     elif normalized == "jira.worklogs":
-        records, _ = jira_runtime._sync_jira_worklogs(session, base_url, host, org_id, scope_project, endpoint_id, params, None, max_records=limit)  # type: ignore[attr-defined]
+        records, _ = _invoke_with_rate_limit_retry(
+            jira_runtime._sync_jira_worklogs,  # type: ignore[attr-defined]
+            session,
+            base_url,
+            host,
+            org_id,
+            scope_project,
+            endpoint_id,
+            params,
+            None,
+            max_records=limit,
+        )
+    elif normalized in {"jira.statuses", "jira.priorities", "jira.issue_types", "jira.api_surface"}:
+        return _collect_reference_rows(normalized, session, base_url, params, limit)
     else:
         raise ValueError(f"Preview is not supported for dataset '{dataset_id}'")
     rows: List[Dict[str, Any]] = []
@@ -512,6 +595,87 @@ def _build_api_catalog(params: Dict[str, Any]) -> Dict[str, Any]:
         "reference": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
         "datasets": datasets,
     }
+
+
+def _collect_reference_rows(
+    normalized: str,
+    session,
+    base_url: str,
+    params: Dict[str, Any],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    if normalized == "jira.statuses":
+        statuses_raw = _safe_fetch(session, base_url, "/rest/api/3/status") or []
+        simplified = _simplify_statuses(statuses_raw)
+        return [
+            {
+                "statusId": entry.get("id"),
+                "name": entry.get("name"),
+                "category": entry.get("category"),
+                "categoryKey": entry.get("categoryKey"),
+                "categoryColor": entry.get("colorName"),
+                "description": entry.get("description"),
+            }
+            for entry in simplified[:limit]
+        ]
+    if normalized == "jira.priorities":
+        priorities_raw = _safe_fetch(session, base_url, "/rest/api/3/priority") or []
+        simplified = _simplify_priorities(priorities_raw)
+        return [
+            {
+                "priorityId": entry.get("id"),
+                "name": entry.get("name"),
+                "description": entry.get("description"),
+                "color": entry.get("color"),
+            }
+            for entry in simplified[:limit]
+        ]
+    if normalized == "jira.issue_types":
+        issue_types_raw = _safe_fetch(session, base_url, "/rest/api/3/issuetype") or []
+        simplified = _simplify_issue_types(issue_types_raw)
+        return [
+            {
+                "typeId": entry.get("id"),
+                "name": entry.get("name"),
+                "description": entry.get("description"),
+                "hierarchyLevel": entry.get("hierarchyLevel"),
+                "subtask": entry.get("subtask"),
+                "avatarUrl": entry.get("avatarUrl"),
+            }
+            for entry in simplified[:limit]
+        ]
+    if normalized == "jira.api_surface":
+        catalog = _build_api_catalog(params or {})
+        dataset_entries = catalog.get("datasets") or {}
+        flattened: List[Dict[str, Any]] = []
+        for entries in dataset_entries.values():
+            flattened.extend(entries or [])
+        return [
+            {
+                "method": entry.get("method"),
+                "path": entry.get("path"),
+                "scope": entry.get("scope"),
+                "description": entry.get("description"),
+                "docUrl": entry.get("docUrl"),
+            }
+            for entry in flattened[:limit]
+        ]
+    return []
+
+
+def _invoke_with_rate_limit_retry(func, *args, **kwargs):
+    attempts = 3
+    delay_seconds = 2.0
+    for attempt in range(attempts):
+        try:
+            return func(*args, **kwargs)
+        except RuntimeError as error:
+            message = str(error)
+            if "429" not in message and "rate-limited" not in message.lower():
+                raise
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay_seconds * (attempt + 1))
 
 
 __all__ = ["JiraMetadataSubsystem"]

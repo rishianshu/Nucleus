@@ -19,6 +19,7 @@ const expectedAudience =
   process.env.KEYCLOAK_CLIENT_ID ??
   process.env.VITE_KEYCLOAK_CLIENT_ID ??
   null;
+const CLOCK_SKEW_SECONDS = Number(process.env.METADATA_AUTH_CLOCK_SKEW_SECONDS ?? "120");
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
@@ -60,6 +61,9 @@ export async function authenticateRequest(authorizationHeader?: string | null): 
     };
     if (expectedAudience && decoded.aud) {
       verifyOptions.audience = expectedAudience;
+    }
+    if (CLOCK_SKEW_SECONDS > 0) {
+      (verifyOptions as { clockTolerance?: number }).clockTolerance = CLOCK_SKEW_SECONDS;
     }
     const result = await jwtVerify(token, jwkSet, verifyOptions);
     const payload = result.payload as Record<string, unknown>;

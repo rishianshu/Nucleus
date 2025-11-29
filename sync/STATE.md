@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-docs-model-and-semantic-binding-v1 (success @ 2025-11-27T19:04Z)
+semantic-confluence-source-v1 (success @ 2025-11-28T20:05Z)
 
 ## Last Run
-- slug: cdm-docs-model-and-semantic-binding-v1
+- slug: semantic-confluence-source-v1
 - status: success
-- duration: ~45m (CDM docs models + Confluence/OneDrive mappers + docs/tests)
-- tests: python3 -m pytest platform/spark-ingestion/packages/core/tests/test_cdm_docs.py platform/spark-ingestion/tests/test_cdm_confluence_mapper.py platform/spark-ingestion/tests/test_cdm_onedrive_mapper.py
-- commits: not yet
+- duration: ~1d (Confluence template + planner/worker integration + verification)
+- tests: pnpm ci-check (includes metadata-auth + metadata-lifecycle Playwright); pnpm metadata:confluence:collect
+- commits: pending (worktree dirty)
 - decisions: 0
-- next_step: queue the next slug / begin planner wiring when ready
+- next_step: prep PR + share acceptance evidence (artifacts + STORY) before merge
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-11-28T20:05Z run success (semantic-confluence-source-v1, ci-check green + confluence harness artifacts)
+- 2025-11-27T19:16Z run started (semantic-confluence-source-v1, boot + context sync)
 - 2025-11-27T19:04Z run success (cdm-docs-model-and-semantic-binding-v1, docs CDM + Confluence/OneDrive mappers + docs/tests)
 - 2025-11-27T18:19Z run started (cdm-docs-model-and-semantic-binding-v1, boot + artifact sync)
 - 2025-11-27T16:52Z run success (ingestion-filters-and-incremental-jira-v1, Jira filters + transient state + docs + ci-check)

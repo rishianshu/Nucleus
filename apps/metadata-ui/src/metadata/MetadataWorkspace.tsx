@@ -94,6 +94,36 @@ type DatasetPreviewSummary = {
   sampledAt: string | null;
 };
 
+function isConfluenceDataset(dataset: CatalogDataset | null): boolean {
+  if (!dataset) {
+    return false;
+  }
+  if (typeof dataset.schema === "string" && dataset.schema.toUpperCase() === "CONFLUENCE") {
+    return true;
+  }
+  return Boolean(
+    dataset.labels?.some((label) => typeof label === "string" && label.toLowerCase().includes("confluence")),
+  );
+}
+
+function extractConfluenceExcerpt(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const stripped = value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return stripped.length ? stripped : null;
+}
+
+type ConfluencePreviewRow = {
+  pageId?: string | null;
+  title?: string | null;
+  spaceKey?: string | null;
+  url?: string | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  excerpt?: string | null;
+};
+
 type MetadataNavEntry = { id: MetadataSection; type: "section"; label: string; description: string; icon: IconType };
 
   const metadataNavItems: MetadataNavEntry[] = [
@@ -1850,6 +1880,9 @@ export function MetadataWorkspace({
     if (metadataCatalogPreviewingId && metadataCatalogPreviewingId !== datasetId) {
       return;
     }
+    if (metadataCatalogPreviewingId === datasetId) {
+      return;
+    }
     void handlePreviewMetadataDataset(datasetId, { silent: true });
   }, [
     handlePreviewMetadataDataset,
@@ -1939,9 +1972,25 @@ export function MetadataWorkspace({
         ? catalogPreviewState.previewRows
         : catalogDataset?.sampleRows ?? [];
     const previewColumns = previewTableColumns(previewRows);
+    const isConfluencePreview = isConfluenceDataset(catalogDataset);
+    const confluencePreviewRows: ConfluencePreviewRow[] = isConfluencePreview
+      ? (previewRows.filter((row): row is ConfluencePreviewRow => {
+          if (!row || typeof row !== "object") {
+            return false;
+          }
+          const candidate = row as ConfluencePreviewRow;
+          return Boolean(candidate.pageId || candidate.title || candidate.spaceKey);
+        }) as ConfluencePreviewRow[])
+      : [];
+    const showConfluencePreview = isConfluencePreview && confluencePreviewRows.length > 0;
     const selectedDatasetPreviewError = catalogPreviewState.previewError;
     const isPreviewingActive = Boolean(catalogDataset) && catalogPreviewState.previewing;
     const lastCollectionRun = catalogDataset?.lastCollectionRun ?? null;
+    const shouldShowEmptyPreview = !showConfluencePreview && previewRows.length === 0;
+    const previewEmptyMessage = isPreviewingActive
+      ? "Collecting sample rows…"
+      : previewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data.";
+    const shouldRenderEmptyMessage = shouldShowEmptyPreview && (!previewStatusMessage || isPreviewingActive);
     const profileBlockReason =
       (selectedDatasetEndpoint && declaresEndpointCapabilities && !endpointSupportsProfile
         ? `Dataset profiles disabled: ${selectedDatasetEndpoint.name} is missing the "profile" capability.`
@@ -2310,7 +2359,53 @@ export function MetadataWorkspace({
                     {selectedDatasetPreviewError}
                   </p>
                 ) : null}
-                {previewRows.length ? (
+                {showConfluencePreview ? (
+                  <div className="mt-3 space-y-3" data-testid="metadata-confluence-preview">
+                    {confluencePreviewRows.slice(0, 3).map((row, index) => {
+                      const excerpt = extractConfluenceExcerpt(row.excerpt);
+                      const displayTitle = row.title ?? row.pageId ?? `Confluence page ${index + 1}`;
+                      return (
+                        <article
+                          key={`${row.pageId ?? row.url ?? index}`}
+                          className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold text-slate-900 dark:text-slate-100">{displayTitle}</p>
+                              {row.spaceKey ? (
+                                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                                  Space · {row.spaceKey}
+                                </p>
+                              ) : null}
+                            </div>
+                            {row.updatedAt ? (
+                              <span className="text-xs text-slate-500 dark:text-slate-300">
+                                {formatDateTime(row.updatedAt)}
+                              </span>
+                            ) : null}
+                          </div>
+                          {excerpt ? (
+                            <p className="mt-3 text-sm text-slate-600 dark:text-slate-200">{excerpt}</p>
+                          ) : null}
+                          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-300">
+                            {row.updatedBy ? <span>Updated by {row.updatedBy}</span> : null}
+                            {row.url ? (
+                              <a
+                                href={row.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-slate-900 hover:underline dark:text-slate-100"
+                              >
+                                <LuArrowUpRight className="h-3 w-3" />
+                                View in Confluence
+                              </a>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : previewRows.length ? (
                   <div
                     className="mt-3 w-full max-h-64 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
                     data-testid="metadata-preview-table"
@@ -2341,18 +2436,16 @@ export function MetadataWorkspace({
                       </tbody>
                     </table>
                   </div>
-                ) : (
+                ) : shouldRenderEmptyMessage ? (
                   <p
                     className={`mt-2 text-xs ${
                       previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
                     }`}
                     data-testid="metadata-preview-empty"
                   >
-                    {isPreviewingActive
-                      ? "Collecting sample rows…"
-                      : previewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data."}
+                    {previewEmptyMessage}
                   </p>
-                )}
+                ) : null}
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Profile</p>

@@ -28,7 +28,8 @@
     "stop:keycloak": "bash scripts/stop-keycloak.sh",
     "metadata:workers:start": "bash scripts/metadata/start-workers.sh",
     "metadata:workers:stop": "bash scripts/metadata/stop-workers.sh",
-    "metadata:workers:status": "bash scripts/metadata/status-workers.sh"
+    "metadata:workers:status": "bash scripts/metadata/status-workers.sh",
+    "metadata:confluence:collect": "node scripts/metadata/confluence-collection-harness.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

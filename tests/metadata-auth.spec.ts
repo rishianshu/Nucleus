@@ -124,6 +124,22 @@ test("metadata workspace sections render datasets, endpoints, and collections", 
   await expect(page.locator("[data-testid='metadata-register-form']")).toBeVisible();
 });
 
+test("metadata catalog surfaces seeded Confluence doc dataset", async ({ page }) => {
+  await openMetadataWorkspace(page);
+  const docCard = await waitForCatalogDataset(page, "Seeded Confluence Pages");
+  await docCard.click();
+  const viewDetailButton = page.getByRole("button", { name: "View detail" }).first();
+  await expect(viewDetailButton).toBeVisible();
+  await viewDetailButton.click();
+  const detailDrawer = page.getByTestId("metadata-dataset-detail-drawer");
+  await expect(detailDrawer).toBeVisible();
+  await expect(detailDrawer).toContainText("Seeded Confluence Pages");
+  await expect(detailDrawer).toContainText("Sample Confluence Workspace");
+  await expect(detailDrawer).toContainText("page_id");
+  await expect(detailDrawer).toContainText("DOC-101");
+  await detailDrawer.getByRole("button", { name: "Close" }).click();
+});
+
 test("catalog endpoint filter respects endpoint IDs", async ({ page, request }) => {
   const endpointA = await registerEndpointViaApi(request, `Catalog Endpoint A ${Date.now()}`);
   const endpointB = await registerEndpointViaApi(request, `Catalog Endpoint B ${Date.now()}`);

@@ -24,7 +24,7 @@ Once the loop starts, remain in execution mode: only surface progress through th
 
 
 ## Heartbeat
-Append only to LOG.md every 10–15 min: `{timestamp, done, next, risks}`.  
+Append only to LOG.md every 40–45 min: `{timestamp, done, next, risks}`.  
 Treat the heartbeat entry as the sole routine status output and immediately continue with the recorded `next` step—no conversational “still working?” messages in the main console.
 
 ## Guardrails

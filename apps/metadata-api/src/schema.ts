@@ -880,11 +880,13 @@ export function createResolvers(
     graphStore?: GraphStore;
     ingestionStateStore?: Partial<IngestionStateStoreImpl>;
     ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
-     cdmWorkStore?: CdmWorkStore;
+    cdmWorkStore?: CdmWorkStore;
     cdmProvisioner?: typeof provisionCdmSinkTables;
+    temporalClientFactory?: typeof getTemporalClient;
   },
 ) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
+  const resolveTemporalClient = options?.temporalClientFactory ?? getTemporalClient;
   const stateStore = {
     getUnitState: options?.ingestionStateStore?.getUnitState ?? getUnitState,
     listUnitStates: options?.ingestionStateStore?.listUnitStates ?? listUnitStates,
@@ -925,7 +927,7 @@ export function createResolvers(
             extensions: { code: "E_CONN_TEST_FAILED" },
           });
         }
-        const { client, taskQueue } = await getTemporalClient();
+        const { client, taskQueue } = await resolveTemporalClient();
         built = await client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
           taskQueue,
           workflowId: `metadata-endpoint-build-${randomUUID()}`,
@@ -961,6 +963,7 @@ export function createResolvers(
             ? testResult.capabilities
             : ["metadata"];
 
+      const mergedConfig = mergeTemplateConfigPayload(templateId, templateParameters, built?.config, input.config);
       const descriptor: MetadataEndpointDescriptor = {
         id: input.id ?? undefined,
         sourceId: input.sourceId ?? undefined,
@@ -972,7 +975,7 @@ export function createResolvers(
         projectId: input.projectId ?? ctx.auth.projectId ?? undefined,
         domain: input.domain ?? built?.domain ?? undefined,
         labels: built?.labels ?? input.labels ?? undefined,
-        config: built?.config ?? input.config ?? undefined,
+        config: mergedConfig ?? undefined,
         detectedVersion,
         versionHint,
         capabilities: resolvedCapabilities,
@@ -1009,7 +1012,7 @@ export function createResolvers(
           reason: "register",
           descriptor: saved,
           collection: defaultCollection,
-        });
+        }, resolveTemporalClient);
       }
       emitMetadataMetric("metadata.endpoint.register.success", {
         endpointId: saved.id,
@@ -1054,8 +1057,11 @@ export function createResolvers(
     if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
       return filterTemplatesByFamily(cached, family);
     }
+    if (process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
+      return useCachedOrFallback();
+    }
     try {
-      const { client, taskQueue } = await getTemporalClient();
+      const { client, taskQueue } = await resolveTemporalClient();
       const templates = await withTimeout(
         client.workflow.execute(WORKFLOW_NAMES.listEndpointTemplates, {
           taskQueue,
@@ -1165,7 +1171,7 @@ export function createResolvers(
     return triggerCollectionForEndpoint(ctx, store, args.endpointId, {
       filters,
       collection,
-    });
+    }, resolveTemporalClient);
   };
   return {
     DateTime: DateTimeResolver,
@@ -1795,7 +1801,7 @@ export function createResolvers(
         return triggerCollectionForEndpoint(ctx, store, collection.endpointId, {
           filters,
           collection,
-        });
+        }, resolveTemporalClient);
       },
       triggerEndpointCollection: triggerEndpointCollectionMutation,
       startIngestion: async (_parent: unknown, args: { endpointId: string; unitId: string; sinkId?: string | null }, ctx: ResolverContext) => {
@@ -1820,7 +1826,7 @@ export function createResolvers(
           );
           return { ok: true, runId: bypassRunId, state: "SUCCEEDED", message: "Bypass mode enabled" };
         }
-        const { client, taskQueue } = await getTemporalClient();
+        const { client, taskQueue } = await resolveTemporalClient();
         const workflowId = `ingestion-${endpointRowId}-${args.unitId}-${randomUUID()}`;
         await client.workflow.start(WORKFLOW_NAMES.ingestionRun, {
           taskQueue,
@@ -1986,7 +1992,7 @@ export function createResolvers(
           return { success: false, message: "templateId required in config for testing." };
         }
         const parameters = parseTemplateParameters(args.input.config);
-        const { client, taskQueue } = await getTemporalClient();
+        const { client, taskQueue } = await resolveTemporalClient();
         return client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
           taskQueue,
           workflowId: `metadata-endpoint-test-${randomUUID()}`,
@@ -2021,7 +2027,7 @@ export function createResolvers(
         }
         const encodedPreviewPayload = buildPreviewConnectionPayload(endpoint, record.id, schema, table);
         const connectionTarget = encodedPreviewPayload ?? endpoint.url;
-        const { client, taskQueue } = await getTemporalClient();
+        const { client, taskQueue } = await resolveTemporalClient();
         return client.workflow.execute(WORKFLOW_NAMES.previewDataset, {
           taskQueue,
           workflowId: `metadata-dataset-preview-${args.id}-${randomUUID()}`,
@@ -2067,7 +2073,7 @@ export function createResolvers(
           templateId: args.input.templateId,
           parameters,
         };
-        const { client, taskQueue } = await getTemporalClient();
+        const { client, taskQueue } = await resolveTemporalClient();
         try {
           const result = await client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
             taskQueue,
@@ -2329,6 +2335,10 @@ export const __testCatalogFilters = {
 
 export const __testCatalogConnection = {
   buildCatalogDatasetConnection,
+};
+
+export const __testEndpointConfig = {
+  mergeTemplateConfigPayload,
 };
 
 function normalizeTestConnection(connection: Record<string, unknown> | null | undefined): Record<string, string> {
@@ -3153,6 +3163,32 @@ async function buildFallbackEndpointConfig(
   };
 }
 
+function mergeTemplateConfigPayload(
+  templateId: string | null,
+  templateParameters: Record<string, string>,
+  builtConfig: unknown,
+  inputConfig: unknown,
+): Record<string, unknown> | null {
+  const normalizedBuilt = normalizeConfigObject(builtConfig);
+  const normalizedInput = normalizeConfigObject(inputConfig);
+  const merged: Record<string, unknown> = {
+    ...(normalizedInput ?? {}),
+    ...(normalizedBuilt ?? {}),
+  };
+  if (templateId) {
+    merged.templateId = templateId;
+    merged.parameters = { ...templateParameters };
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+function normalizeConfigObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return { ...(value as Record<string, unknown>) };
+}
+
 async function triggerCollectionForEndpoint(
   ctx: ResolverContext,
   store: MetadataStore,
@@ -3164,6 +3200,7 @@ async function triggerCollectionForEndpoint(
     descriptor?: MetadataEndpointDescriptor | null;
     collection?: PrismaCollectionWithEndpoint | null;
   },
+  resolveTemporalClientFn?: typeof getTemporalClient,
 ) {
   const prisma = await getPrismaClient();
   let endpoint = await prisma.metadataEndpoint.findUnique({ where: { id: endpointId } });
@@ -3250,7 +3287,8 @@ async function triggerCollectionForEndpoint(
     const status: MetadataCollectionStatus = bypassReason ? "FAILED" : "SUCCEEDED";
     return finalizeCollectionRun(prisma, run.id, status, bypassReason);
   }
-  const { client, taskQueue } = await getTemporalClient();
+  const temporalResolver = resolveTemporalClientFn ?? getTemporalClient;
+  const { client, taskQueue } = await temporalResolver();
   const workflowIdPrefix = options?.reason === "register" ? "metadata-collection-initial" : "metadata-collection";
   const workflowId = `${workflowIdPrefix}-${run.id}`;
   const handle = await client.workflow.start(WORKFLOW_NAMES.collectionRun, {
