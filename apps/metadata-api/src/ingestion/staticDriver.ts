@@ -7,6 +7,7 @@ import type {
   MetadataEndpointTemplateDescriptor,
 } from "@metadata/core";
 import { getMetadataStore } from "../context.js";
+import { DEFAULT_ENDPOINT_TEMPLATES } from "../fixtures/default-endpoint-templates.js";
 
 type RawUnit = {
   unitId: string;
@@ -70,7 +71,15 @@ async function resolveEndpoint(endpointId: string): Promise<MetadataEndpointDesc
 async function resolveTemplate(templateId: string): Promise<MetadataEndpointTemplateDescriptor | undefined> {
   const store = await getMetadataStore();
   const templates = await store.listEndpointTemplates();
-  return templates.find((template) => template.id === templateId);
+  const stored = templates.find((template) => template.id === templateId);
+  const fallback = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === templateId) as
+    | MetadataEndpointTemplateDescriptor
+    | undefined;
+  if (stored && fallback) {
+    const hasExtras = stored.extras && typeof stored.extras === "object" && Object.keys(stored.extras as Record<string, unknown>).length > 0;
+    return hasExtras ? stored : { ...stored, extras: fallback.extras };
+  }
+  return stored ?? fallback;
 }
 
 function normalizeUnits(units: unknown): IngestionUnitDescriptor[] {

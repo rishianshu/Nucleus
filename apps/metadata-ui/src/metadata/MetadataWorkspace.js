@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LuArrowUpRight, LuCircleAlert, LuCircleCheck, LuHistory, LuInfo, LuNetwork, LuRefreshCcw, LuSearch, LuSquarePlus, LuTable, } from "react-icons/lu";
 import { formatDateTime, formatPreviewValue, formatRelativeTime } from "../lib/format";
 import { fetchMetadataGraphQL } from "./api";
-import { ENDPOINT_DATASETS_QUERY, COLLECTION_RUNS_QUERY, METADATA_ENDPOINT_TEMPLATES_QUERY, METADATA_OVERVIEW_QUERY, METADATA_ENDPOINTS_PAGED_QUERY, METADATA_CATALOG_DATASET_QUERY, PREVIEW_METADATA_DATASET_MUTATION, REGISTER_METADATA_ENDPOINT_MUTATION, UPDATE_METADATA_ENDPOINT_MUTATION, DELETE_METADATA_ENDPOINT_MUTATION, TEST_METADATA_ENDPOINT_MUTATION, TRIGGER_ENDPOINT_COLLECTION_MUTATION, } from "./queries";
+import { ENDPOINT_DATASETS_QUERY, COLLECTION_RUNS_QUERY, METADATA_ENDPOINT_TEMPLATES_QUERY, METADATA_OVERVIEW_QUERY, METADATA_ENDPOINTS_PAGED_QUERY, METADATA_CATALOG_DATASET_QUERY, CATALOG_DATASET_PREVIEW_QUERY, PREVIEW_METADATA_DATASET_MUTATION, REGISTER_METADATA_ENDPOINT_MUTATION, UPDATE_METADATA_ENDPOINT_MUTATION, DELETE_METADATA_ENDPOINT_MUTATION, TEST_METADATA_ENDPOINT_MUTATION, TRIGGER_ENDPOINT_COLLECTION_MUTATION, } from "./queries";
 import { parseListInput, previewTableColumns } from "./utils";
 import { useAsyncAction, useCatalogDatasetConnection, useDebouncedValue, usePagedQuery, useToastQueue, } from "./hooks";
 import { formatIngestionMode, formatIngestionSchedule, formatIngestionSink, ingestionStateTone, } from "../ingestion/stateTone";
@@ -131,6 +131,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     const toastQueue = useToastQueue();
     const [metadataCollections, setMetadataCollections] = useState([]);
     const [metadataRuns, setMetadataRuns] = useState([]);
+    const [metadataRunStatusOverrides, setMetadataRunStatusOverrides] = useState({});
     const [metadataTemplates, setMetadataTemplates] = useState([]);
     const [metadataTemplatesLoading, setMetadataTemplatesLoading] = useState(false);
     const [metadataTemplatesError, setMetadataTemplatesError] = useState(null);
@@ -620,20 +621,34 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         const endpointCapabilities = owner?.capabilities ?? [];
         const declaresCapabilities = endpointCapabilities.length > 0;
         const supportsPreview = !declaresCapabilities || endpointCapabilities.includes("preview");
-        const hasLinkedEndpoint = Boolean(dataset.sourceEndpointId && owner);
+        const declaredEndpointLink = Boolean(dataset.sourceEndpointId);
+        const hasLinkedEndpoint = declaredEndpointLink && Boolean(owner);
         const previewEntry = metadataCatalogPreviewRows[dataset.id];
-        const previewRows = (previewEntry?.rows ?? []);
+        let previewRows = (previewEntry?.rows ?? []);
+        if (previewRows.length === 0) {
+            const cachedSample = datasetDetailCache[dataset.id]?.sampleRows ?? dataset.sampleRows;
+            if (Array.isArray(cachedSample)) {
+                previewRows = cachedSample;
+            }
+        }
         const previewError = metadataCatalogPreviewErrors[dataset.id];
         const previewing = metadataCatalogPreviewingId === dataset.id;
         const hasLiveSample = previewRows.length > 0;
+        let previewSampledAt = previewEntry?.sampledAt ?? null;
         let previewAvailability = hasLiveSample ? "sampled" : "ready";
         let previewStatusMessage = null;
         let previewStatusTone = "info";
         let previewBlockReason = null;
         if (!hasLinkedEndpoint) {
             previewAvailability = "unlinked";
-            previewStatusMessage = "Link this dataset to a registered endpoint before running previews.";
-            previewStatusTone = "warn";
+            if (declaredEndpointLink) {
+                previewStatusMessage = "Resolving endpoint link…";
+                previewStatusTone = "neutral";
+            }
+            else {
+                previewStatusMessage = "Link this dataset to a registered endpoint before running previews.";
+                previewStatusTone = "warn";
+            }
             previewBlockReason = previewStatusMessage;
         }
         else if (!supportsPreview) {
@@ -654,6 +669,10 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             previewStatusTone = "neutral";
         }
         const canPreview = !["unlinked", "unsupported"].includes(previewAvailability);
+        if (!canPreview) {
+            previewRows = [];
+            previewSampledAt = null;
+        }
         return {
             owner,
             endpointCapabilities,
@@ -665,9 +684,9 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             previewStatusMessage,
             previewStatusTone,
             canPreview,
-            sampledAt: previewEntry?.sampledAt ?? null,
+            sampledAt: previewSampledAt,
         };
-    }, [metadataCatalogPreviewErrors, metadataCatalogPreviewRows, metadataCatalogPreviewingId, metadataEndpointLookup]);
+    }, [datasetDetailCache, metadataCatalogPreviewErrors, metadataCatalogPreviewRows, metadataCatalogPreviewingId, metadataEndpointLookup]);
     const metadataCollectionsByEndpoint = useMemo(() => {
         const map = new Map();
         metadataCollections.forEach((collection) => {
@@ -745,16 +764,39 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         });
         metadataEndpoints.forEach((endpoint) => {
             const endpointRuns = endpoint.runs ?? [];
-            if (map.has(endpoint.id) || endpointRuns.length === 0) {
+            if (!endpointRuns.length) {
+                const override = metadataRunStatusOverrides[endpoint.id];
+                if (override) {
+                    map.set(endpoint.id, override);
+                }
                 return;
             }
-            const sorted = [...endpointRuns].sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
-            if (sorted.length > 0) {
-                map.set(endpoint.id, sorted[0]);
+            const sortedRuns = [...endpointRuns].sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
+            const latestEndpointRun = sortedRuns.find((run) => run.status !== "QUEUED" && run.status !== "RUNNING") ?? sortedRuns[0];
+            const existing = map.get(endpoint.id);
+            const override = metadataRunStatusOverrides[endpoint.id];
+            let candidate = latestEndpointRun;
+            if (override) {
+                const overrideTime = new Date(override.requestedAt).getTime();
+                const candidateTime = candidate?.requestedAt ? new Date(candidate.requestedAt).getTime() : 0;
+                if (!candidate || overrideTime >= candidateTime) {
+                    candidate = override;
+                }
+            }
+            if (candidate &&
+                (!existing ||
+                    (candidate.requestedAt &&
+                        new Date(candidate.requestedAt).getTime() > new Date(existing.requestedAt).getTime()))) {
+                map.set(endpoint.id, candidate);
+            }
+        });
+        Object.entries(metadataRunStatusOverrides).forEach(([endpointId, override]) => {
+            if (!map.has(endpointId)) {
+                map.set(endpointId, override);
             }
         });
         return map;
-    }, [metadataEndpoints, metadataRuns]);
+    }, [metadataEndpoints, metadataRuns, metadataRunStatusOverrides]);
     const metadataTemplatesByFamily = useMemo(() => {
         return metadataTemplates.reduce((groups, template) => {
             const family = template.family;
@@ -763,6 +805,44 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         }, { JDBC: [], HTTP: [], STREAM: [] });
     }, [metadataTemplates]);
     const filteredTemplates = metadataTemplatesByFamily[metadataTemplateFamily] ?? [];
+    useEffect(() => {
+        setMetadataRunStatusOverrides((prev) => {
+            if (!Object.keys(prev).length) {
+                return prev;
+            }
+            let mutated = false;
+            const next = { ...prev };
+            metadataEndpoints.forEach((endpoint) => {
+                if (!endpoint.id) {
+                    return;
+                }
+                const override = prev[endpoint.id];
+                if (!override) {
+                    return;
+                }
+                const endpointRuns = endpoint.runs ?? [];
+                if (!endpointRuns.length) {
+                    return;
+                }
+                const latestEndpointRun = [...endpointRuns].sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime())[0];
+                if (!latestEndpointRun) {
+                    return;
+                }
+                if (latestEndpointRun.status === "RUNNING" || latestEndpointRun.status === "QUEUED") {
+                    return;
+                }
+                const latestTimestamp = latestEndpointRun.requestedAt
+                    ? new Date(latestEndpointRun.requestedAt).getTime()
+                    : 0;
+                const overrideTimestamp = override.requestedAt ? new Date(override.requestedAt).getTime() : 0;
+                if (latestTimestamp >= overrideTimestamp) {
+                    next[endpoint.id] = latestEndpointRun;
+                    mutated = true;
+                }
+            });
+            return mutated ? next : prev;
+        });
+    }, [metadataEndpoints]);
     const ensureTemplatesLoaded = useCallback((options) => {
         if (!metadataEndpoint || !authToken) {
             return;
@@ -1036,6 +1116,39 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         metadataView,
         refreshMetadataRuns,
     ]);
+    const pollCollectionRunCompletion = useCallback(async (endpointId, runId) => {
+        if (!metadataEndpoint || !authToken || !runId) {
+            return;
+        }
+        console.info("[metadata-ui] polling collection run", { endpointId, runId });
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+            try {
+                const payload = await fetchMetadataGraphQL(metadataEndpoint, COLLECTION_RUNS_QUERY, { filter: { endpointId }, first: 5 }, undefined, { token: authToken ?? undefined });
+                const match = payload.collectionRuns?.find((run) => run.id === runId);
+                if (match && match.status !== "QUEUED" && match.status !== "RUNNING") {
+                    setMetadataRuns((prev) => {
+                        const next = prev.filter((run) => run.id !== match.id);
+                        return [match, ...next];
+                    });
+                    console.info("[metadata-ui] collection run completed", {
+                        endpointId,
+                        runId,
+                        status: match.status,
+                    });
+                    setMetadataRunStatusOverrides((prev) => ({
+                        ...prev,
+                        [endpointId]: match,
+                    }));
+                    refreshMetadataWorkspace();
+                    return;
+                }
+            }
+            catch {
+                // ignore fetch errors and retry
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+    }, [authToken, metadataEndpoint, refreshMetadataWorkspace, setMetadataRuns, setMetadataRunStatusOverrides]);
     const handleWorkspaceRefresh = useCallback(() => {
         refreshMetadataWorkspace();
         refreshCatalogDatasets();
@@ -1054,6 +1167,41 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         setMetadataTemplateValues((prev) => ({ ...prev, [key]: value }));
         setMetadataTestResult(null);
     }, []);
+    const handleLoadCatalogDatasetPreview = useCallback(async (datasetId) => {
+        if (!datasetId) {
+            return;
+        }
+        if (!metadataEndpoint || !authToken) {
+            return;
+        }
+        try {
+            const payload = await fetchMetadataGraphQL(metadataEndpoint, CATALOG_DATASET_PREVIEW_QUERY, { id: datasetId }, undefined, { token: authToken });
+            setMetadataCatalogPreviewRows((prev) => ({
+                ...prev,
+                [datasetId]: payload.catalogDatasetPreview ?? { rows: [] },
+            }));
+            setMetadataCatalogPreviewErrors((prev) => ({ ...prev, [datasetId]: "" }));
+        }
+        catch (error) {
+            setMetadataCatalogPreviewErrors((prev) => ({
+                ...prev,
+                [datasetId]: error instanceof Error ? error.message : String(error),
+            }));
+        }
+    }, [authToken, metadataEndpoint]);
+    useEffect(() => {
+        if (!metadataCatalogSelectedDataset) {
+            return;
+        }
+        const datasetId = metadataCatalogSelectedDataset.id;
+        if (!datasetId) {
+            return;
+        }
+        if (metadataCatalogPreviewRows[datasetId]) {
+            return;
+        }
+        void handleLoadCatalogDatasetPreview(datasetId);
+    }, [handleLoadCatalogDatasetPreview, metadataCatalogPreviewRows, metadataCatalogSelectedDataset]);
     const handlePreviewMetadataDataset = useCallback(async (datasetId, options) => {
         if (!datasetId) {
             return;
@@ -1072,11 +1220,8 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             }));
             return;
         }
-        const silent = options?.silent ?? false;
         const limit = options?.limit ?? 20;
-        if (!silent) {
-            setMetadataCatalogPreviewingId(datasetId);
-        }
+        setMetadataCatalogPreviewingId(datasetId);
         setMetadataCatalogPreviewErrors((prev) => ({ ...prev, [datasetId]: "" }));
         try {
             const payload = await fetchMetadataGraphQL(metadataEndpoint, PREVIEW_METADATA_DATASET_MUTATION, { id: datasetId, limit }, undefined, { token: authToken });
@@ -1092,9 +1237,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             }));
         }
         finally {
-            if (!silent) {
-                setMetadataCatalogPreviewingId((prev) => (prev === datasetId ? null : prev));
-            }
+            setMetadataCatalogPreviewingId((prev) => (prev === datasetId ? null : prev));
         }
     }, [authToken, metadataEndpoint]);
     const handleSubmitMetadataEndpoint = useCallback(async (event) => {
@@ -1247,6 +1390,18 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             throw new Error(`Cannot trigger collection because the collection for ${targetEndpoint.name} is disabled.`);
         }
         setMetadataMutationError(null);
+        console.info("[metadata-ui] collection run started", { endpointId, name: targetEndpoint.name });
+        setMetadataRunStatusOverrides((prev) => ({
+            ...prev,
+            [endpointId]: {
+                id: `pending-${Date.now()}`,
+                status: "RUNNING",
+                requestedAt: new Date().toISOString(),
+                endpoint: { id: endpointId, name: targetEndpoint.name },
+                completedAt: null,
+                error: null,
+            },
+        }));
         const override = metadataRunOverrides[endpointId];
         const schemaOverride = override
             ? override
@@ -1259,6 +1414,11 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             schemaOverride,
         }, undefined, { token: authToken ?? undefined });
         refreshMetadataWorkspace();
+        const runId = payload.triggerEndpointCollection?.id ?? null;
+        if (runId) {
+            void pollCollectionRunCompletion(endpointId, runId);
+        }
+        refreshMetadataRuns();
         return { endpoint: targetEndpoint, run: payload.triggerEndpointCollection };
     }, {
         onSuccess: (result) => {
@@ -1522,10 +1682,10 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         if (metadataCatalogPreviewingId === datasetId) {
             return;
         }
-        void handlePreviewMetadataDataset(datasetId, { silent: true });
+        void handleLoadCatalogDatasetPreview(datasetId);
     }, [
-        handlePreviewMetadataDataset,
         authToken,
+        handleLoadCatalogDatasetPreview,
         metadataCatalogPreviewRows,
         metadataCatalogSelectedDataset,
         metadataCatalogPreviewingId,
@@ -1619,11 +1779,12 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         const selectedDatasetPreviewError = catalogPreviewState.previewError;
         const isPreviewingActive = Boolean(catalogDataset) && catalogPreviewState.previewing;
         const lastCollectionRun = catalogDataset?.lastCollectionRun ?? null;
-        const shouldShowEmptyPreview = !showConfluencePreview && previewRows.length === 0;
-        const previewEmptyMessage = isPreviewingActive
-            ? "Collecting sample rows…"
-            : previewStatusMessage ?? "No preview sampled yet. Run a preview to inspect live data.";
-        const shouldRenderEmptyMessage = shouldShowEmptyPreview && (!previewStatusMessage || isPreviewingActive);
+        const shouldShowEmptyPreview = !showConfluencePreview && (previewRows.length === 0 || !canPreviewDataset);
+        const previewEmptyMessage = !canPreviewDataset
+            ? previewStatusMessage ?? catalogPreviewState.previewBlockReason ?? "Preview disabled for this dataset."
+            : previewStatusMessage ??
+                (isPreviewingActive ? "Collecting sample rows…" : "No preview sampled yet. Run a preview to inspect live data.");
+        const shouldRenderEmptyMessage = shouldShowEmptyPreview;
         const profileBlockReason = (selectedDatasetEndpoint && declaresEndpointCapabilities && !endpointSupportsProfile
             ? `Dataset profiles disabled: ${selectedDatasetEndpoint.name} is missing the "profile" capability.`
             : null) ??
@@ -1654,7 +1815,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                                                 : "border-slate-200 bg-white text-slate-700 hover:border-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"}`, children: [_jsx("span", { className: "text-sm font-semibold", children: dataset.displayName }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.3em] text-slate-400", children: owner ? `Endpoint · ${owner.name}` : "Unlinked" }), _jsx("span", { className: "text-[10px] uppercase tracking-[0.3em] text-slate-400", children: dataset.labels?.length ? `Labels · ${dataset.labels.slice(0, 3).join(", ")}` : dataset.source ?? dataset.id })] }, dataset.id));
                                     }), catalogDatasetsLoading ? (_jsx("p", { className: "text-xs text-slate-500", children: "Loading more datasets\u2026" })) : null, catalogDatasetsPageInfo.hasNextPage ? (_jsx("button", { type: "button", onClick: () => fetchMoreCatalogDatasets(), disabled: catalogDatasetsLoading, className: "mt-2 w-full rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200", children: "Load more datasets" })) : null] })) })] }), _jsx("section", { className: "min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900", children: catalogDataset ? (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "flex flex-wrap items-center justify-between gap-3", children: [_jsxs("div", { children: [_jsx("p", { className: "text-xl font-semibold text-slate-900 dark:text-white", children: catalogDataset.displayName }), catalogDatasetDisplayId ? (_jsx("p", { className: "text-xs uppercase tracking-[0.3em] text-slate-500", children: catalogDatasetDisplayId })) : null] }), _jsxs("div", { className: "flex flex-wrap gap-2", children: [_jsx("button", { type: "button", onClick: () => handleOpenDatasetDetail(catalogDataset.id), disabled: pendingDatasetNavigationId === catalogDataset.id, className: "inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200", children: pendingDatasetNavigationId === catalogDataset.id ? (_jsxs(_Fragment, { children: [_jsx(LuHistory, { className: "h-4 w-4 animate-spin" }), "Opening\u2026"] })) : ("View detail") }), _jsxs("button", { type: "button", onClick: () => handlePreviewMetadataDataset(catalogDataset.id), className: `inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] transition ${canPreviewDataset
                                                     ? "border-slate-300 text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
-                                                    : "border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600"}`, disabled: !canPreviewDataset || isPreviewingActive, "data-testid": "metadata-preview-button", children: [isPreviewingActive ? _jsx(LuHistory, { className: "h-3 w-3 animate-spin" }) : _jsx(LuTable, { className: "h-3 w-3" }), isPreviewingActive ? "Fetching…" : "Preview dataset"] })] })] }), _jsx("p", { className: "text-sm text-slate-600 dark:text-slate-300", children: catalogDataset.description ?? "No description provided." }), _jsxs("div", { className: "flex flex-wrap items-center gap-3 text-xs text-slate-500", children: [_jsxs("span", { children: ["Endpoint \u00B7 ", selectedDatasetEndpoint?.name ?? "Unlinked"] }), catalogDataset.collectedAt ? _jsxs("span", { children: ["Collected ", formatDateTime(catalogDataset.collectedAt)] }) : null, lastCollectionRun ? (_jsxs("span", { children: ["Last collection \u00B7 ", lastCollectionRun.status, " ", lastCollectionRun.completedAt ? formatDateTime(lastCollectionRun.completedAt) : ""] })) : null] }), catalogDataset.labels?.length ? (_jsx("div", { className: "flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-slate-500", children: catalogDataset.labels.map((label) => (_jsx("span", { className: "rounded-full border border-slate-300 px-2 py-0.5 dark:border-slate-600", children: label }, label))) })) : null, _jsx(IngestionSummaryCard, { dataset: catalogDataset, className: "mt-4" }), _jsxs("div", { children: [_jsxs("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Fields (", catalogDatasetFields.length, ")"] }), _jsxs("div", { className: "mt-3 space-y-2", children: [catalogDatasetFields.map((field) => (_jsxs("div", { className: "rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("p", { className: "font-medium text-slate-900 dark:text-slate-100", children: field.name }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.3em] text-slate-400", children: field.type })] }), field.description ? _jsx("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: field.description }) : null] }, field.name))), catalogDatasetFields.length === 0 ? (_jsx("p", { className: "rounded-xl border border-dashed border-slate-300 px-4 py-4 text-xs text-slate-500 dark:border-slate-700", children: "No field metadata discovered yet." })) : null] })] }), datasetDetailLoading ? (_jsx("p", { className: "rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700", children: "Loading dataset metadata\u2026" })) : null, datasetDetailError ? (_jsx("p", { className: "rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200", children: datasetDetailError })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Preview" }), _jsx("div", { className: "mt-2 flex flex-wrap items-center gap-3", children: catalogPreviewState.sampledAt ? (_jsxs("span", { className: "text-xs text-slate-500 dark:text-slate-300", children: ["Sampled ", formatRelativeTime(catalogPreviewState.sampledAt)] })) : previewStatusMessage ? (_jsx("span", { className: `text-xs ${previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, children: previewStatusMessage })) : (_jsx("span", { className: "text-xs text-slate-500 dark:text-slate-300", children: "Preview pulls 20 live rows per request." })) }), selectedDatasetPreviewError ? (_jsx("p", { className: "mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200", children: selectedDatasetPreviewError })) : null, showConfluencePreview ? (_jsx("div", { className: "mt-3 space-y-3", "data-testid": "metadata-confluence-preview", children: confluencePreviewRows.slice(0, 3).map((row, index) => {
+                                                    : "border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600"}`, disabled: !canPreviewDataset || isPreviewingActive, "data-testid": "metadata-preview-button", children: [isPreviewingActive ? _jsx(LuHistory, { className: "h-3 w-3 animate-spin" }) : _jsx(LuTable, { className: "h-3 w-3" }), isPreviewingActive ? "Fetching…" : "Preview dataset"] })] })] }), _jsx("p", { className: "text-sm text-slate-600 dark:text-slate-300", children: catalogDataset.description ?? "No description provided." }), _jsxs("div", { className: "flex flex-wrap items-center gap-3 text-xs text-slate-500", children: [_jsxs("span", { children: ["Endpoint \u00B7 ", selectedDatasetEndpoint?.name ?? "Unlinked"] }), catalogDataset.collectedAt ? _jsxs("span", { children: ["Collected ", formatDateTime(catalogDataset.collectedAt)] }) : null, lastCollectionRun ? (_jsxs("span", { children: ["Last collection \u00B7 ", lastCollectionRun.status, " ", lastCollectionRun.completedAt ? formatDateTime(lastCollectionRun.completedAt) : ""] })) : null] }), catalogDataset.labels?.length ? (_jsx("div", { className: "flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-slate-500", children: catalogDataset.labels.map((label) => (_jsx("span", { className: "rounded-full border border-slate-300 px-2 py-0.5 dark:border-slate-600", children: label }, label))) })) : null, _jsx(IngestionSummaryCard, { dataset: catalogDataset, className: "mt-4" }), _jsxs("div", { children: [_jsxs("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Fields (", catalogDatasetFields.length, ")"] }), _jsxs("div", { className: "mt-3 space-y-2", children: [catalogDatasetFields.map((field) => (_jsxs("div", { className: "rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("p", { className: "font-medium text-slate-900 dark:text-slate-100", children: field.name }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.3em] text-slate-400", children: field.type })] }), field.description ? _jsx("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: field.description }) : null] }, field.name))), catalogDatasetFields.length === 0 ? (_jsx("p", { className: "rounded-xl border border-dashed border-slate-300 px-4 py-4 text-xs text-slate-500 dark:border-slate-700", children: "No field metadata discovered yet." })) : null] })] }), datasetDetailLoading ? (_jsx("p", { className: "rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700", children: "Loading dataset metadata\u2026" })) : null, datasetDetailError ? (_jsx("p", { className: "rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200", children: datasetDetailError })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Preview" }), _jsx("div", { className: "mt-2 flex flex-wrap items-center gap-3", children: catalogPreviewState.sampledAt ? (_jsxs("span", { className: "text-xs text-slate-500 dark:text-slate-300", children: ["Sampled ", formatRelativeTime(catalogPreviewState.sampledAt)] })) : previewStatusMessage ? (_jsx("span", { className: `text-xs ${previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, "data-testid": shouldRenderEmptyMessage ? "metadata-preview-empty" : undefined, children: previewStatusMessage })) : (_jsx("span", { className: "text-xs text-slate-500 dark:text-slate-300", children: "Preview pulls 20 live rows per request." })) }), shouldRenderEmptyMessage ? (_jsx("p", { className: `mt-2 text-xs ${previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"}`, "data-testid": "metadata-preview-empty", children: previewEmptyMessage })) : null, selectedDatasetPreviewError ? (_jsx("p", { className: "mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/60 dark:bg-rose-950/40 dark:text-rose-200", children: selectedDatasetPreviewError })) : null, showConfluencePreview ? (_jsx("div", { className: "mt-3 space-y-3", "data-testid": "metadata-confluence-preview", children: confluencePreviewRows.slice(0, 3).map((row, index) => {
                                             const excerpt = extractConfluenceExcerpt(row.excerpt);
                                             const displayTitle = row.title ?? row.pageId ?? `Confluence page ${index + 1}`;
                                             return (_jsxs("article", { className: "rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60", children: [_jsxs("div", { className: "flex flex-wrap items-start justify-between gap-2", children: [_jsxs("div", { children: [_jsx("p", { className: "font-semibold text-slate-900 dark:text-slate-100", children: displayTitle }), row.spaceKey ? (_jsxs("p", { className: "text-xs uppercase tracking-[0.3em] text-slate-500", children: ["Space \u00B7 ", row.spaceKey] })) : null] }), row.updatedAt ? (_jsx("span", { className: "text-xs text-slate-500 dark:text-slate-300", children: formatDateTime(row.updatedAt) })) : null] }), excerpt ? (_jsx("p", { className: "mt-3 text-sm text-slate-600 dark:text-slate-200", children: excerpt })) : null, _jsxs("div", { className: "mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-300", children: [row.updatedBy ? _jsxs("span", { children: ["Updated by ", row.updatedBy] }) : null, row.url ? (_jsxs("a", { href: row.url, target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 text-slate-900 hover:underline dark:text-slate-100", children: [_jsx(LuArrowUpRight, { className: "h-3 w-3" }), "View in Confluence"] })) : null] })] }, `${row.pageId ?? row.url ?? index}`));

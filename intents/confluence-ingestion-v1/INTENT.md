@@ -1,0 +1,44 @@
+- title: Confluence ingestion v1
+- slug: confluence-ingestion-v1
+- type: feature
+- context:
+  - platform/spark-ingestion/temporal/*
+  - platform/spark-ingestion/runtime_common/endpoints/* (Confluence + Jira endpoints)
+  - platform/spark-ingestion/packages/metadata-service/*
+  - apps/metadata-api/src/ingestion/*
+  - apps/metadata-ui/src/features/ingestion/*
+  - runtime_core/cdm/docs.py
+  - docs/meta/nucleus-architecture/*
+- why_now: Confluence is now a semantic endpoint with metadata + catalog integration, and the docs CDM is defined. Ingestion core + CDM sinks are working for Jira/work. To make Nucleus useful as a “brain” over docs, we need Confluence ingestion units that can pull page/attachment content from Confluence into sinks (especially the docs CDM sink) with basic filters and incremental behavior, reusing the Source→Staging→Sink pattern.
+- scope_in:
+  - Define ingestion units for Confluence (pages, optionally attachments) driven from the Confluence dataset/catalog metadata.
+  - Extend ingestion config + GraphQL to allow picking a Confluence endpoint, sink endpoint, mode (`raw|cdm`), and simple filters (spaces, updatedFrom).
+  - Implement Confluence ingestion handlers in the Python worker:
+    - fetch content via Confluence REST,
+    - in `raw` mode: emit source-shaped records,
+    - in `cdm` mode: map records to docs CDM (`CdmDocSpace`/`CdmDocItem`/`CdmDocRevision`) using existing mappers.
+  - Wire ingestion runs into existing sinks, including the CDM docs sink (if present).
+  - Add minimal incremental behavior (per-space updatedAt watermark) via KV, consistent with Jira’s ingestion pattern.
+- scope_out:
+  - Rich ingestion UI (advanced JQL-like filters, multi-sink fan-out).
+  - Deep probing / volume-aware slicing; v1 can use simple per-space slices.
+  - Vector indexing and signals over Confluence docs (later slugs).
+- acceptance:
+  1. Confluence ingestion units appear in the GraphQL API and can be configured via the ingestion UI for an existing Confluence endpoint.
+  2. Ingestion runs can write Confluence content into a configured sink in `raw` mode.
+  3. When `mode="cdm"`, Confluence ingestion writes docs CDM rows into the CDM docs sink using the existing mappers.
+  4. Incremental behavior per space (updatedFrom + updatedAt watermark) is in place so re-runs only fetch new/updated pages.
+- constraints:
+  - Reuse the existing ingestion core (no new workflow types).
+  - Keep behavior backward-compatible with current ingestion API; additions only.
+  - Keep the planning/execution split: planner/strategy decides segments; endpoint executes segments.
+- non_negotiables:
+  - KB is not used as a data sink; only semantic metadata may be emitted there, not full docs.
+  - CDM mapping logic lives in Python (using `runtime_core/cdm/docs.py` + mappers), not in TS/GraphQL.
+- refs:
+  - intents/semantic-confluence-source-v1/*
+  - intents/ingestion-core-v1/*
+  - intents/ingestion-source-staging-sink-v1/*
+  - intents/cdm-docs-model-and-semantic-binding-v1/*
+  - intents/cdm-ingestion-modes-and-sinks-v1/*
+- status: in-progress

@@ -16,14 +16,19 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
 fi
 DOCKER_BUILDKIT=1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d
 URL="${KEYCLOAK_BASE_URL:-http://localhost:8081}/realms/master/.well-known/openid-configuration"
+WAIT_ATTEMPTS="${KEYCLOAK_WAIT_ATTEMPTS:-120}"
+WAIT_INTERVAL="${KEYCLOAK_WAIT_INTERVAL_SECONDS:-2}"
 echo "Waiting for Keycloak at $URL ..."
-for attempt in {1..60}; do
+attempt=1
+while (( attempt <= WAIT_ATTEMPTS )); do
   if curl -sfS "$URL" >/dev/null; then
     echo "Keycloak is ready."
     exit 0
   fi
-  sleep 2
-  echo "still waiting ($attempt/60)"
+  sleep "$WAIT_INTERVAL"
+  echo "still waiting (${attempt}/${WAIT_ATTEMPTS})"
+  attempt=$((attempt + 1))
 done
-echo "Timed out waiting for Keycloak" >&2
+total_wait=$((WAIT_ATTEMPTS * WAIT_INTERVAL))
+echo "Timed out waiting for Keycloak after ${total_wait}s" >&2
 exit 1

@@ -135,6 +135,9 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem):
                 "api_keys": definition.get("api_keys"),
                 "ingestion": definition.get("ingestion"),
             },
+            "extras": {
+                "datasetId": dataset_name,
+            },
         }
         datasource = {
             "id": f"{self.DIALECT}:{manifest['entity']}",

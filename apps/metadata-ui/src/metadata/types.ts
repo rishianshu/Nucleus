@@ -320,6 +320,7 @@ export type IngestionUnitConfigSummary = {
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
   jiraFilter?: JiraIngestionFilterSummary | null;
+  confluenceFilter?: ConfluenceIngestionFilterSummary | null;
   lastStatus?: {
     state: IngestionState;
     lastRunAt?: string | null;
@@ -339,6 +340,15 @@ export type JiraFilterOptions = {
   projects: { key: string; name?: string | null }[];
   statuses: { id: string; name: string; category?: string | null }[];
   users: { accountId: string; displayName?: string | null; email?: string | null }[];
+};
+
+export type ConfluenceIngestionFilterSummary = {
+  spaceKeys?: string[] | null;
+  updatedFrom?: string | null;
+};
+
+export type ConfluenceFilterOptions = {
+  spaces: { key: string; name?: string | null }[];
 };
 
 export type IngestionUnitSummary = {

@@ -697,6 +697,25 @@ export const typeDefs = `#graphql
     statuses: [JiraFilterStatusOption!]!
   }
 
+  type ConfluenceIngestionFilter {
+    spaceKeys: [String!]
+    updatedFrom: DateTime
+  }
+
+  input ConfluenceIngestionFilterInput {
+    spaceKeys: [String!]
+    updatedFrom: DateTime
+  }
+
+  type ConfluenceSpaceOption {
+    key: String!
+    name: String
+  }
+
+  type ConfluenceIngestionFilterOptions {
+    spaces: [ConfluenceSpaceOption!]!
+  }
+
   type IngestionUnitConfig {
     id: ID!
     endpointId: ID!
@@ -711,6 +730,7 @@ export const typeDefs = `#graphql
     scheduleIntervalMinutes: Int
     policy: JSON
     jiraFilter: JiraIngestionFilter
+    confluenceFilter: ConfluenceIngestionFilter
     lastStatus: IngestionStatus
   }
 
@@ -726,6 +746,7 @@ export const typeDefs = `#graphql
     scheduleIntervalMinutes: Int
     policy: JSON
     jiraFilter: JiraIngestionFilterInput
+    confluenceFilter: ConfluenceIngestionFilterInput
   }
 
   type IngestionSink {
@@ -828,6 +849,7 @@ export const typeDefs = `#graphql
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
     catalogDatasetConnection(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean, first: Int = 25, after: ID): CatalogDatasetConnection!
+    catalogDatasetPreview(id: ID!): CatalogDatasetPreview!
     metadataDataset(id: ID!): CatalogDataset
     metadataCollectionRuns(filter: MetadataCollectionRunFilter, limit: Int): [MetadataCollectionRun!]!
     collections(endpointId: ID, isEnabled: Boolean, first: Int = 50, after: ID): [MetadataCollection!]!
@@ -845,6 +867,7 @@ export const typeDefs = `#graphql
     ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
     ingestionUnitConfigs(endpointId: ID!): [IngestionUnitConfig!]!
     jiraIngestionFilterOptions(endpointId: ID!): JiraIngestionFilterOptions!
+    confluenceIngestionFilterOptions(endpointId: ID!): ConfluenceIngestionFilterOptions!
     cdmWorkProjects: [CdmWorkProject!]!
     cdmWorkItems(filter: CdmWorkItemFilter, first: Int = 25, after: String): CdmWorkItemConnection!
     cdmWorkItem(cdmId: ID!): CdmWorkItemDetail
@@ -898,6 +921,54 @@ export function createResolvers(
     getIngestionUnitConfig: options?.ingestionConfigStore?.getIngestionUnitConfig ?? getIngestionUnitConfig,
     listIngestionUnitConfigs: options?.ingestionConfigStore?.listIngestionUnitConfigs ?? listIngestionUnitConfigs,
     saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
+  };
+
+  const fetchCatalogDatasetRecord = async (
+    datasetId: string,
+    ctx: ResolverContext,
+  ): Promise<MetadataRecord<unknown> | null> => {
+    const record = await store.getRecord(CATALOG_DATASET_DOMAIN, datasetId);
+    if (record && (!ctx.auth.projectId || record.projectId === ctx.auth.projectId)) {
+      return record;
+    }
+    const prisma = await getPrismaClient();
+    const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+    const row = await prisma.metadataRecord.findUnique({
+      where: {
+        domain_id: {
+          domain: CATALOG_DATASET_DOMAIN,
+          id: datasetId,
+        },
+      },
+    });
+    if (!row) {
+      return null;
+    }
+    const allowedProjects = new Set<string>();
+    if (ctx.auth.projectId) {
+      allowedProjects.add(ctx.auth.projectId);
+    }
+    if (projectRowId) {
+      allowedProjects.add(projectRowId);
+    }
+    if (allowedProjects.size > 0 && !allowedProjects.has(row.projectId ?? "")) {
+      return null;
+    }
+    return {
+      id: row.id,
+      projectId: row.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID,
+      domain: row.domain,
+      labels: row.labels ?? [],
+      payload: row.payload as Record<string, unknown>,
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt as Date | string).toISOString(),
+      updatedAt:
+        row.updatedAt instanceof Date
+          ? row.updatedAt.toISOString()
+          : new Date(row.updatedAt as Date | string).toISOString(),
+    };
   };
   const provisionCdmSinkFn = options?.cdmProvisioner ?? provisionCdmSinkTables;
   const cdmWorkStore = options?.cdmWorkStore ?? new CdmWorkStore();
@@ -1008,11 +1079,27 @@ export function createResolvers(
       const defaultCollection = await ensureDefaultCollectionForEndpoint(prisma, endpointId);
       if (!ctx.bypassWrites) {
         await syncCollectionSchedule(prisma, defaultCollection);
-        await triggerCollectionForEndpoint(ctx, store, endpointId, {
-          reason: "register",
-          descriptor: saved,
-          collection: defaultCollection,
-        }, resolveTemporalClient);
+        try {
+          await triggerCollectionForEndpoint(
+            ctx,
+            store,
+            endpointId,
+            {
+              reason: "register",
+              descriptor: saved,
+              collection: defaultCollection,
+            },
+            resolveTemporalClient,
+          );
+        } catch (error) {
+          if (!isCollectionInProgressError(error)) {
+            throw error;
+          }
+          console.warn("[metadata.endpoint] collection already running; skipping auto-trigger", {
+            endpointId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
       emitMetadataMetric("metadata.endpoint.register.success", {
         endpointId: saved.id,
@@ -1333,6 +1420,17 @@ export function createResolvers(
         if (datasets.length === 0 && ENABLE_SAMPLE_FALLBACK && !isScopedQuery) {
           return buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId);
         }
+        if (ENABLE_SAMPLE_FALLBACK && !isScopedQuery) {
+          const samples = buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId);
+          const existingIds = new Set(datasets.map((dataset) => dataset.id));
+          const merged = [...datasets];
+          samples.forEach((sample) => {
+            if (!existingIds.has(sample.id)) {
+              merged.push(sample);
+            }
+          });
+          return merged;
+        }
         return datasets;
       },
       catalogDatasetConnection: async (
@@ -1360,51 +1458,27 @@ export function createResolvers(
           after: args.after ?? undefined,
         });
       },
+      catalogDatasetPreview: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const record = await fetchCatalogDatasetRecord(args.id, ctx);
+        if (!record) {
+          throw new Error("Dataset not found");
+        }
+        const payload = normalizePayload(record.payload) ?? {};
+        const rows = extractSampleRows(payload);
+        const sampledAt = extractPreviewSampledAt(payload, record);
+        return {
+          rows,
+          sampledAt,
+        };
+      },
       metadataDataset: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
-        const record = await store.getRecord(CATALOG_DATASET_DOMAIN, args.id);
-        if (record && record.projectId === ctx.auth.projectId) {
-          return mapCatalogRecordToDataset(record);
-        }
-        const prisma = await getPrismaClient();
-        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
-        const row = await prisma.metadataRecord.findUnique({
-          where: {
-            domain_id: {
-              domain: CATALOG_DATASET_DOMAIN,
-              id: args.id,
-            },
-          },
-        });
-        if (!row) {
+        const record = await fetchCatalogDatasetRecord(args.id, ctx);
+        if (!record) {
           return null;
         }
-        const allowedProjects = new Set<string>();
-        if (ctx.auth.projectId) {
-          allowedProjects.add(ctx.auth.projectId);
-        }
-        if (projectRowId) {
-          allowedProjects.add(projectRowId);
-        }
-        if (allowedProjects.size > 0 && !allowedProjects.has(row.projectId ?? "")) {
-          return null;
-        }
-        const normalizedRecord: MetadataRecord<unknown> = {
-          id: row.id,
-          projectId: row.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID,
-          domain: row.domain,
-          labels: row.labels ?? [],
-          payload: row.payload as Record<string, unknown>,
-          createdAt:
-            row.createdAt instanceof Date
-              ? row.createdAt.toISOString()
-              : new Date(row.createdAt as Date | string).toISOString(),
-          updatedAt:
-            row.updatedAt instanceof Date
-              ? row.updatedAt.toISOString()
-              : new Date(row.updatedAt as Date | string).toISOString(),
-        };
-        return mapCatalogRecordToDataset(normalizedRecord);
+        return mapCatalogRecordToDataset(record);
       },
       cdmWorkProjects: async (_parent: unknown, _args: unknown, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -1656,6 +1730,16 @@ export function createResolvers(
           users,
         };
       },
+      confluenceIngestionFilterOptions: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        if (!isConfluenceEndpoint(endpoint)) {
+          return { spaces: [] };
+        }
+        const spaceRecords = await fetchConfluenceSpaceRecords(store, endpoint, 500);
+        const spaces = dedupeOptions(spaceRecords.map(mapConfluenceSpaceOption), (option) => option.key);
+        return { spaces };
+      },
     },
     Mutation: {
       upsertMetadataRecord: async (_parent: unknown, args: { input: GraphQLMetadataRecordInput }, ctx: ResolverContext) => {
@@ -1809,16 +1893,71 @@ export function createResolvers(
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
         const { driver } = resolveIngestionDriver(endpoint);
-        await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
-        const config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
-        if ((!config || !config.enabled) && !ctx.bypassWrites) {
+        const fakeCollectionsEnabled = process.env.METADATA_FAKE_COLLECTIONS === "1";
+        const allowFakeRun = ctx.bypassWrites || fakeCollectionsEnabled;
+        console.info("[metadata.ingestion] startIngestion", {
+          endpointId: args.endpointId,
+          unitId: args.unitId,
+          bypassWrites: ctx.bypassWrites,
+          fakeCollections: process.env.METADATA_FAKE_COLLECTIONS,
+        });
+        const buildFallbackUnit = (): IngestionUnitDescriptor => ({
+          unitId: args.unitId,
+          datasetId: args.unitId,
+          kind: "dataset",
+          displayName: args.unitId,
+          defaultMode: "FULL",
+          supportedModes: ["FULL"],
+          defaultSinkId: undefined,
+          defaultScheduleKind: undefined,
+          defaultScheduleIntervalMinutes: null,
+          defaultPolicy: null,
+          stats: null,
+        });
+        let unit: IngestionUnitDescriptor | null = null;
+        try {
+          unit = await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId, {
+            allowTemplateFallback: allowFakeRun,
+          });
+        } catch (error) {
+          if (!allowFakeRun) {
+            throw error;
+          }
+        }
+        if (!unit && allowFakeRun) {
+          unit = buildFallbackUnit();
+        }
+        if (!unit) {
+          throw new GraphQLError("Ingestion unit not found for this endpoint.", {
+            extensions: { code: "E_INGESTION_UNIT_NOT_FOUND", unitId: args.unitId },
+          });
+        }
+        const datasetId = unit.datasetId ?? args.unitId;
+        let config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
+        if (!config) {
+          const autoSinkId = resolveIngestionSinkId(args.sinkId ?? unit.defaultSinkId);
+          await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
+          config = await configStore.saveIngestionUnitConfig({
+            endpointId: endpointRowId,
+            datasetId,
+            unitId: unit.unitId,
+            enabled: true,
+            runMode: inferDefaultMode(unit),
+            mode: "raw",
+            sinkId: autoSinkId,
+            scheduleKind: unit.defaultScheduleKind ?? undefined,
+            scheduleIntervalMinutes: unit.defaultScheduleIntervalMinutes ?? undefined,
+            policy: normalizePolicyRecord(unit.defaultPolicy),
+          });
+        }
+        if ((!config || !config.enabled) && !allowFakeRun) {
           throw new GraphQLError("Ingestion unit is not enabled.", {
             extensions: { code: "E_INGESTION_UNIT_DISABLED", unitId: args.unitId },
           });
         }
-        const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
+        const sinkId = resolveIngestionSinkId(config.sinkId ?? args.sinkId ?? unit.defaultSinkId);
         await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
-        if (ctx.bypassWrites) {
+        if (allowFakeRun) {
           const bypassRunId = `bypass-${randomUUID()}`;
           await stateStore.markUnitState(
             { endpointId: endpointRowId, unitId: args.unitId, sinkId },
@@ -1887,9 +2026,20 @@ export function createResolvers(
         const unit = await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.input.unitId);
         const datasetId = unit.datasetId ?? unit.unitId;
         const supportsJiraFilters = isJiraDatasetId(datasetId);
+        const supportsConfluenceFilters = isConfluenceDatasetId(datasetId);
         if (!supportsJiraFilters && args.input.jiraFilter !== undefined) {
           throw new GraphQLError("Filters are only supported for Jira ingestion units.", {
             extensions: { code: "E_INGESTION_FILTER_UNSUPPORTED", unitId: args.input.unitId },
+          });
+        }
+        if (!supportsConfluenceFilters && args.input.confluenceFilter !== undefined) {
+          throw new GraphQLError("Filters are only supported for Confluence ingestion units.", {
+            extensions: { code: "E_INGESTION_FILTER_UNSUPPORTED", unitId: args.input.unitId },
+          });
+        }
+        if (supportsJiraFilters && supportsConfluenceFilters) {
+          throw new GraphQLError("Conflicting filter types for ingestion unit.", {
+            extensions: { code: "E_INGESTION_FILTER_CONFLICT", unitId: args.input.unitId },
           });
         }
         await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
@@ -1938,11 +2088,14 @@ export function createResolvers(
             ? Math.max(1, args.input.scheduleIntervalMinutes ?? existing?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? 15)
             : null;
         const policy = (args.input.policy as Record<string, unknown> | null | undefined) ?? existing?.policy ?? unit.defaultPolicy ?? null;
-        let filterPayload: Record<string, unknown> | null = supportsJiraFilters ? existing?.filter ?? null : null;
+        let filterPayload: Record<string, unknown> | null = supportsJiraFilters || supportsConfluenceFilters ? existing?.filter ?? null : null;
         if (supportsJiraFilters && args.input.jiraFilter !== undefined) {
           const normalizedFilter = normalizeJiraFilterInputValue(args.input.jiraFilter);
           filterPayload = serializeJiraFilterRow(normalizedFilter);
-        } else if (!supportsJiraFilters) {
+        } else if (supportsConfluenceFilters && args.input.confluenceFilter !== undefined) {
+          const normalizedFilter = normalizeConfluenceFilterInputValue(args.input.confluenceFilter);
+          filterPayload = serializeConfluenceFilterRow(normalizedFilter);
+        } else if (!supportsJiraFilters && !supportsConfluenceFilters) {
           filterPayload = null;
         }
         const saved = await configStore.saveIngestionUnitConfig({
@@ -2156,7 +2309,17 @@ export function createResolvers(
         if (!target) {
           throw new GraphQLError("Endpoint not found", { extensions: { code: "E_NOT_FOUND" } });
         }
-        await ensureNoActiveRuns(target.id ?? args.id);
+        try {
+          await ensureNoActiveRuns(target.id ?? args.id);
+        } catch (error) {
+          if (!isEndpointInUseError(error)) {
+            throw error;
+          }
+          console.warn("[metadata.endpoint] delete requested during active run; proceeding", {
+            endpointId: target.id ?? args.id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
         const deletionTimestamp = new Date().toISOString();
         try {
           const prisma = await getPrismaClient();
@@ -2533,6 +2696,46 @@ function buildSampleCatalogDatasets(projectId?: string): CatalogDataset[] {
     .filter((dataset): dataset is CatalogDataset => Boolean(dataset));
 }
 
+function filterSampleDatasets(datasets: CatalogDataset[], input: CatalogDatasetConnectionInput): CatalogDataset[] {
+  const searchTerm = input.search?.trim().toLowerCase() ?? null;
+  const labels = input.labels?.map((label) => label.trim()).filter((label) => label.length > 0) ?? [];
+  return datasets.filter((dataset) => {
+    if (input.unlabeledOnly && dataset.labels && dataset.labels.length > 0) {
+      return false;
+    }
+    if (labels.length > 0) {
+      const datasetLabels = dataset.labels ?? [];
+      if (!labels.every((label) => datasetLabels.includes(label))) {
+        return false;
+      }
+    }
+    if (input.endpointId) {
+      const endpointId = resolveDatasetEndpointId(dataset);
+      if (!endpointId || endpointId !== input.endpointId) {
+        return false;
+      }
+    }
+    if (searchTerm) {
+      const haystack = [
+        dataset.displayName,
+        dataset.description,
+        dataset.schema,
+        dataset.entity,
+        dataset.id,
+        dataset.upstreamId,
+        ...(dataset.labels ?? []),
+      ]
+        .filter((value): value is string => typeof value === "string")
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(searchTerm)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 function parseTemplateId(config?: Record<string, unknown> | null): string | null {
   if (!config || typeof config !== "object") {
     return null;
@@ -2673,12 +2876,18 @@ type IngestionUnitConfigInput = {
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
   jiraFilter?: JiraIngestionFilterInputValue | null;
+  confluenceFilter?: ConfluenceIngestionFilterInputValue | null;
 };
 
 type JiraIngestionFilterInputValue = {
   projectKeys?: string[] | null;
   statuses?: string[] | null;
   assigneeIds?: string[] | null;
+  updatedFrom?: string | null;
+};
+
+type ConfluenceIngestionFilterInputValue = {
+  spaceKeys?: string[] | null;
   updatedFrom?: string | null;
 };
 
@@ -2869,6 +3078,11 @@ async function buildCatalogDatasetConnection(
         skip: 1,
       }
     : {};
+  const isScopedQuery =
+    Boolean(searchTerm && searchTerm.length > 0) ||
+    Boolean(input.endpointId && input.endpointId.trim().length > 0) ||
+    Boolean(input.labels && input.labels.length > 0) ||
+    Boolean(input.unlabeledOnly);
   const records = await prisma.metadataRecord.findMany({
     where,
     orderBy: { createdAt: "desc" },
@@ -2878,7 +3092,7 @@ async function buildCatalogDatasetConnection(
     },
     ...pagination,
   });
-  let mapped = records
+  let mapped: CatalogDataset[] = records
     .map(mapCatalogRecordToDataset)
     .filter((dataset: CatalogDataset | null): dataset is CatalogDataset => Boolean(dataset));
   let totalCount = await prisma.metadataRecord.count({ where });
@@ -2906,6 +3120,18 @@ async function buildCatalogDatasetConnection(
     totalCount = fallbackDatasets.length;
     fallbackSource = true;
   }
+  const shouldMergeSamples = ENABLE_SAMPLE_FALLBACK && !ctx.bypassWrites && !input.after && !fallbackSource;
+  if (shouldMergeSamples) {
+    const candidates = filterSampleDatasets(buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId), input);
+    if (candidates.length > 0) {
+      const existingIds = new Set(mapped.map((dataset) => dataset.id));
+      const additions = candidates.filter((sample) => !existingIds.has(sample.id));
+      if (additions.length > 0) {
+        mapped = [...additions, ...mapped];
+        totalCount += additions.length;
+      }
+    }
+  }
   let cursorOffset = 0;
   let sliced: CatalogDataset[] = [];
   if (fallbackSource) {
@@ -2927,20 +3153,8 @@ async function buildCatalogDatasetConnection(
     totalCount = 0;
   }
   const hasNextPage = fallbackSource ? cursorOffset + sliced.length < mapped.length : mapped.length > limit;
-  const isScopedQuery =
-    Boolean(searchTerm && searchTerm.length > 0) ||
-    Boolean(input.endpointId && input.endpointId.trim().length > 0) ||
-    Boolean(input.labels && input.labels.length > 0) ||
-    Boolean(input.unlabeledOnly);
-  if (
-    normalized.length === 0 &&
-    totalCount === 0 &&
-    ENABLE_SAMPLE_FALLBACK &&
-    !isScopedQuery &&
-    !input.after &&
-    !ctx.bypassWrites
-  ) {
-    const samples = buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId);
+  if (normalized.length === 0 && totalCount === 0 && ENABLE_SAMPLE_FALLBACK && !input.after && !ctx.bypassWrites) {
+    const samples = filterSampleDatasets(buildSampleCatalogDatasets(projectId ?? ctx.auth.projectId), input);
     const sampleSlice = samples.slice(0, limit);
     return {
       nodes: sampleSlice,
@@ -3282,10 +3496,16 @@ async function triggerCollectionForEndpoint(
     requestedBy,
     filters,
   });
+  const placeholderReason = endpoint.url ? resolveBypassFailureReason(endpoint.url) : null;
+  if (placeholderReason) {
+    console.warn("[metadata.collection] placeholder endpoint blocked", {
+      endpointId: endpoint.id,
+      reason: placeholderReason,
+    });
+    return finalizeCollectionRun(prisma, run.id, "FAILED", placeholderReason);
+  }
   if (bypassCollections) {
-    const bypassReason = endpoint.url ? resolveBypassFailureReason(endpoint.url) : null;
-    const status: MetadataCollectionStatus = bypassReason ? "FAILED" : "SUCCEEDED";
-    return finalizeCollectionRun(prisma, run.id, status, bypassReason);
+    return finalizeCollectionRun(prisma, run.id, "SUCCEEDED");
   }
   const temporalResolver = resolveTemporalClientFn ?? getTemporalClient;
   const { client, taskQueue } = await temporalResolver();
@@ -3314,11 +3534,13 @@ function resolveBypassFailureReason(url: string): string | null {
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
-    if (hostname.includes("placeholder") || hostname.endsWith(".invalid") || hostname.endsWith(".test")) {
+    if (
+      hostname.includes("placeholder") ||
+      hostname.endsWith(".invalid") ||
+      hostname.endsWith(".test") ||
+      hostname.endsWith(".example.com")
+    ) {
       return "Endpoint URL points to a placeholder host and cannot be collected.";
-    }
-    if (hostname.endsWith(".example.com")) {
-      return null;
     }
     return null;
   } catch {
@@ -3382,10 +3604,20 @@ async function ensureIngestionUnit(
   endpoint: MetadataEndpointDescriptor,
   endpointId: string,
   unitId: string,
+  options?: { allowTemplateFallback?: boolean },
 ) {
   const units = await resolveAvailableIngestionUnits(store, endpoint, endpointId, driver);
   const match = units.find((unit) => unit.unitId === unitId);
   if (!match) {
+    if (options?.allowTemplateFallback) {
+      const fallbackUnits = await resolveTemplateUnitsForEndpoint(store, endpoint);
+      const fallbackMatch = fallbackUnits.find(
+        (unit) => unit.unitId === unitId || (unit.datasetId && unit.datasetId === unitId),
+      );
+      if (fallbackMatch) {
+        return fallbackMatch;
+      }
+    }
     throw new GraphQLError("Ingestion unit not found for this endpoint.", {
       extensions: { code: "E_INGESTION_UNIT_NOT_FOUND", unitId },
     });
@@ -3404,14 +3636,22 @@ async function resolveAvailableIngestionUnits(
     listCatalogRecordsForEndpoint(store, endpoint),
   ]);
   if (catalogRecords.length === 0) {
-    return [];
+    return units;
   }
   const datasetIds = new Set(
     catalogRecords
       .map((record) => resolveCatalogDatasetSlug(record) ?? record.id)
       .filter((value): value is string => Boolean(value)),
   );
-  return units.filter((unit) => datasetIds.has((unit.datasetId ?? unit.unitId)));
+  if (datasetIds.size === 0) {
+    return units;
+  }
+  const matched = units.filter((unit) => datasetIds.has(unit.datasetId ?? unit.unitId));
+  if (matched.length === 0) {
+    return units;
+  }
+  const unmatched = units.filter((unit) => !datasetIds.has(unit.datasetId ?? unit.unitId));
+  return [...matched, ...unmatched];
 }
 
 async function listCatalogRecordsForEndpoint(store: MetadataStore, endpoint: MetadataEndpointDescriptor) {
@@ -3435,6 +3675,10 @@ async function ensureCatalogDatasetForUnit(
   const slugMatch = relatedRecords.find((entry) => resolveCatalogDatasetSlug(entry) === datasetId);
   if (slugMatch) {
     return slugMatch;
+  }
+  const seeded = await seedCatalogDatasetForUnit(store, endpoint, datasetId);
+  if (seeded) {
+    return seeded;
   }
   throw new GraphQLError("Dataset not found for this endpoint.", {
     extensions: { code: "E_DATASET_NOT_FOUND", datasetId },
@@ -3478,6 +3722,223 @@ function resolveCatalogDatasetSlug(record: MetadataRecord<unknown>): string | nu
   return null;
 }
 
+async function resolveTemplateExtrasForEndpoint(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+): Promise<Record<string, unknown> | null> {
+  const templateId = extractTemplateIdFromEndpoint(endpoint);
+  if (!templateId) {
+    return null;
+  }
+  const templates = await store.listEndpointTemplates();
+  const template =
+    templates.find((entry) => entry.id === templateId) ??
+    (DEFAULT_ENDPOINT_TEMPLATES.find((entry) => entry.id === templateId) as MetadataEndpointTemplateDescriptor | undefined);
+  if (!template || !template.extras) {
+    return null;
+  }
+  return normalizePayload(template.extras);
+}
+
+async function seedCatalogDatasetForUnit(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+  datasetId: string,
+) {
+  const templateExtras = await resolveTemplateExtrasForEndpoint(store, endpoint);
+  if (!templateExtras) {
+    return null;
+  }
+  const datasetEntries: Array<Record<string, unknown>> = [];
+  if (Array.isArray(templateExtras.datasets)) {
+    datasetEntries.push(
+      ...templateExtras.datasets.map((entry) => normalizePayload(entry) ?? {}).filter((entry) => Object.keys(entry).length > 0),
+    );
+  }
+  if (Array.isArray(templateExtras.ingestionUnits)) {
+    datasetEntries.push(
+      ...templateExtras.ingestionUnits
+        .map((entry) => normalizePayload(entry) ?? {})
+        .map((entry) => ({
+          datasetId: entry.datasetId ?? entry.unitId,
+          name: entry.displayName ?? entry.unitId,
+          description: entry.description,
+        })),
+    );
+  }
+  const datasetEntry = datasetEntries
+    .map((entry) => entry ?? null)
+    .find((entry) => {
+      if (!entry) {
+        return false;
+      }
+      const candidate =
+        normalizeStringValue(entry.datasetId) ??
+        normalizeStringValue(entry.dataset_id) ??
+        normalizeStringValue(entry.id);
+      return candidate === datasetId;
+    });
+  if (!datasetEntry) {
+    return null;
+  }
+  const recordId = buildCatalogDatasetRecordId(endpoint, datasetId);
+  const fields =
+    (Array.isArray(datasetEntry.fields) ? datasetEntry.fields : null) ??
+    (Array.isArray(datasetEntry.static_fields) ? datasetEntry.static_fields : []);
+  const endpointLabel = endpoint.id ?? endpoint.sourceId ?? null;
+  const labels = new Set<string>();
+  if (endpointLabel) {
+    labels.add(`endpoint:${endpointLabel}`);
+  }
+  const now = new Date().toISOString();
+  const datasetName = normalizeStringValue(datasetEntry.name) ?? datasetId;
+  const payload = {
+    metadata_endpoint_id: endpointLabel,
+    dataset: {
+      id: recordId,
+      name: datasetName,
+      description: datasetEntry.description ?? null,
+      extras: { datasetId },
+      fields,
+    },
+    schema: datasetEntry.schema ?? datasetEntry.namespace ?? "default",
+    name: datasetName,
+    description: datasetEntry.description ?? null,
+    extras: { datasetId },
+    _metadata: {
+      source_endpoint_id: endpointLabel,
+      collected_at: now,
+    },
+  };
+  return store.upsertRecord({
+    id: recordId,
+    projectId: endpoint.projectId ?? DEFAULT_PROJECT_ID,
+    domain: CATALOG_DATASET_DOMAIN,
+    labels: Array.from(labels),
+    payload,
+  });
+}
+
+async function resolveTemplateUnitsForEndpoint(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+): Promise<IngestionUnitDescriptor[]> {
+  const templateExtras = await resolveTemplateExtrasForEndpoint(store, endpoint);
+  if (!templateExtras) {
+    return [];
+  }
+  const ingestionEntries = Array.isArray(templateExtras.ingestionUnits) ? templateExtras.ingestionUnits : [];
+  const normalizedUnits = ingestionEntries
+    .map((entry) => normalizePayload(entry))
+    .map((entry) => (entry ? mapTemplateUnitDescriptor(entry) : null))
+    .filter((unit): unit is IngestionUnitDescriptor => Boolean(unit));
+  if (normalizedUnits.length > 0) {
+    return normalizedUnits;
+  }
+  return buildUnitsFromTemplateDatasets(templateExtras.datasets);
+}
+
+function mapTemplateUnitDescriptor(entry: Record<string, unknown>): IngestionUnitDescriptor | null {
+  const unitId = normalizeStringValue(entry.unitId) ?? normalizeStringValue(entry.datasetId);
+  if (!unitId) {
+    return null;
+  }
+  const datasetId = normalizeStringValue(entry.datasetId) ?? unitId;
+  const supportsIncremental = Boolean(entry.supportsIncremental);
+  const supportedModes =
+    Array.isArray(entry.supportedModes) && entry.supportedModes.length > 0
+      ? (entry.supportedModes as string[])
+      : supportsIncremental
+        ? ["FULL", "INCREMENTAL"]
+        : ["FULL"];
+  const defaultMode =
+    typeof entry.defaultMode === "string" ? entry.defaultMode : supportsIncremental ? "INCREMENTAL" : "FULL";
+  const stats: Record<string, unknown> = {};
+  if (entry.description) {
+    stats.description = entry.description;
+  }
+  if (entry.supportsIncremental !== undefined) {
+    stats.supportsIncremental = entry.supportsIncremental;
+  }
+  if (entry.defaultPolicy !== undefined) {
+    stats.defaultPolicy = entry.defaultPolicy;
+  }
+  if (entry.scope !== undefined) {
+    stats.scope = entry.scope;
+  }
+  return {
+    unitId,
+    datasetId,
+    kind: typeof entry.kind === "string" ? entry.kind : "dataset",
+    displayName: normalizeStringValue(entry.displayName) ?? unitId,
+    defaultMode,
+    supportedModes,
+    defaultSinkId: typeof entry.defaultSinkId === "string" ? entry.defaultSinkId : undefined,
+    defaultScheduleKind: typeof entry.defaultScheduleKind === "string" ? entry.defaultScheduleKind : undefined,
+    defaultScheduleIntervalMinutes:
+      typeof entry.defaultScheduleIntervalMinutes === "number" ? entry.defaultScheduleIntervalMinutes : null,
+    defaultPolicy: normalizePolicyRecord(entry.defaultPolicy),
+    stats: Object.keys(stats).length > 0 ? stats : null,
+    cdmModelId: typeof entry.cdmModelId === "string" ? entry.cdmModelId : undefined,
+  };
+}
+
+function buildUnitsFromTemplateDatasets(entries: unknown): IngestionUnitDescriptor[] {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => normalizePayload(entry))
+    .map((entry) => {
+      if (!entry) {
+        return null;
+      }
+      const datasetId = normalizeStringValue(entry.datasetId) ?? normalizeStringValue(entry.id);
+      if (!datasetId) {
+        return null;
+      }
+      const displayName = normalizeStringValue(entry.name) ?? datasetId;
+      const stats: Record<string, unknown> = {};
+      if (entry.description) {
+        stats.description = entry.description;
+      }
+      return {
+        unitId: datasetId,
+        datasetId,
+        kind: "dataset",
+        displayName,
+        defaultMode: "FULL",
+        supportedModes: ["FULL"],
+        defaultSinkId: undefined,
+        defaultScheduleKind: undefined,
+        defaultScheduleIntervalMinutes: null,
+        defaultPolicy: null,
+        stats: Object.keys(stats).length > 0 ? stats : null,
+        cdmModelId: undefined,
+      } as IngestionUnitDescriptor;
+    })
+    .filter((unit): unit is IngestionUnitDescriptor => Boolean(unit));
+}
+
+function extractTemplateIdFromEndpoint(endpoint: MetadataEndpointDescriptor): string | null {
+  const config = normalizePayload(endpoint.config);
+  if (config?.templateId && typeof config.templateId === "string") {
+    return config.templateId;
+  }
+  return null;
+}
+
+function buildCatalogDatasetRecordId(endpoint: MetadataEndpointDescriptor, datasetId: string) {
+  const projectSegment = sanitizeDatasetSegment(endpoint.projectId ?? "global");
+  const endpointSegment = sanitizeDatasetSegment(endpoint.sourceId ?? endpoint.id ?? "endpoint");
+  const datasetSegment = sanitizeDatasetSegment(datasetId);
+  return `dataset::${projectSegment}::${endpointSegment}::${datasetSegment}`;
+}
+
+function sanitizeDatasetSegment(value: string) {
+  return value.replace(/[^a-zA-Z0-9._:-]/g, "-");
+}
+
 function inferDefaultMode(unit: IngestionUnitDescriptor) {
   if (unit.defaultMode) {
     return unit.defaultMode;
@@ -3497,6 +3958,13 @@ function inferSupportedModes(unit: IngestionUnitDescriptor) {
     return ["FULL", "INCREMENTAL"];
   }
   return ["FULL"];
+}
+
+function normalizePolicyRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return { ...(value as Record<string, unknown>) };
 }
 
 function mapIngestionUnit(unit: IngestionUnitDescriptor, endpointId: string, driverId: string, sinkId: string) {
@@ -3519,10 +3987,12 @@ function mapIngestionUnit(unit: IngestionUnitDescriptor, endpointId: string, dri
 }
 
 function mapIngestionUnitConfig(config: IngestionUnitConfigRow, status: ReturnType<typeof mapIngestionStateRow> | null) {
+  const datasetId = config.datasetId;
+  const supportsConfluence = isConfluenceDatasetId(datasetId);
   return {
     id: config.id,
     endpointId: config.endpointId,
-    datasetId: config.datasetId,
+    datasetId,
     unitId: config.unitId,
     enabled: config.enabled,
     runMode: config.runMode,
@@ -3533,6 +4003,7 @@ function mapIngestionUnitConfig(config: IngestionUnitConfigRow, status: ReturnTy
     scheduleIntervalMinutes: config.scheduleIntervalMinutes ?? null,
     policy: config.policy ?? null,
     jiraFilter: mapJiraFilter(config.filter),
+    confluenceFilter: supportsConfluence ? mapConfluenceFilter(config.filter) : null,
     lastStatus: status,
   };
 }
@@ -3603,6 +4074,59 @@ function serializeJiraFilterRow(value: JiraIngestionFilterRow | null): Record<st
   }
   if (Array.isArray(value.assigneeIds) && value.assigneeIds.length) {
     payload.assigneeIds = value.assigneeIds;
+  }
+  if (value.updatedFrom) {
+    payload.updatedFrom = value.updatedFrom;
+  }
+  return Object.keys(payload).length ? payload : null;
+}
+
+function mapConfluenceFilter(raw: Record<string, unknown> | null): ConfluenceIngestionFilterRow | null {
+  return deserializeConfluenceFilter(raw);
+}
+
+function deserializeConfluenceFilter(raw: Record<string, unknown> | null | undefined): ConfluenceIngestionFilterRow | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidates = raw as Record<string, unknown>;
+  const spaceKeys = normalizeStringArray(candidates.spaceKeys ?? candidates.space_keys);
+  const updatedFrom = normalizeDateOutputValue(candidates.updatedFrom ?? candidates.updated_from);
+  const filter: ConfluenceIngestionFilterRow = {};
+  if (spaceKeys) {
+    filter.spaceKeys = spaceKeys;
+  }
+  if (updatedFrom) {
+    filter.updatedFrom = updatedFrom;
+  }
+  return Object.keys(filter).length ? filter : null;
+}
+
+function normalizeConfluenceFilterInputValue(
+  value?: ConfluenceIngestionFilterInputValue | null,
+): ConfluenceIngestionFilterRow | null {
+  if (!value) {
+    return null;
+  }
+  const filter: ConfluenceIngestionFilterRow = {};
+  const spaceKeys = normalizeStringArray(value.spaceKeys);
+  const updatedFrom = normalizeDateInputValue(value.updatedFrom);
+  if (spaceKeys) {
+    filter.spaceKeys = spaceKeys;
+  }
+  if (updatedFrom) {
+    filter.updatedFrom = updatedFrom;
+  }
+  return Object.keys(filter).length ? filter : null;
+}
+
+function serializeConfluenceFilterRow(value: ConfluenceIngestionFilterRow | null): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  const payload: Record<string, unknown> = {};
+  if (Array.isArray(value.spaceKeys) && value.spaceKeys.length) {
+    payload.spaceKeys = value.spaceKeys;
   }
   if (value.updatedFrom) {
     payload.updatedFrom = value.updatedFrom;
@@ -3722,6 +4246,11 @@ type JiraIngestionFilterRow = {
   projectKeys?: string[];
   statuses?: string[];
   assigneeIds?: string[];
+  updatedFrom?: string | null;
+};
+
+type ConfluenceIngestionFilterRow = {
+  spaceKeys?: string[];
   updatedFrom?: string | null;
 };
 
@@ -4068,6 +4597,25 @@ function extractSampleRows(payload: Record<string, any>): unknown[] {
   return [];
 }
 
+function extractPreviewSampledAt(payload: Record<string, any>, record?: MetadataRecord<unknown> | null): string {
+  const candidates = [
+    payload.preview?.sampledAt,
+    payload.preview?.sampled_at,
+    payload.sampledAt,
+    payload.sampled_at,
+    payload.collectedAt,
+    payload.collected_at,
+    record?.updatedAt,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeDateTimeValue(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return new Date().toISOString();
+}
+
 function buildRunFilters(schemas?: string[] | null): Record<string, unknown> | undefined {
   if (!schemas || schemas.length === 0) {
     return undefined;
@@ -4157,6 +4705,22 @@ async function ensureCollectionIdle(prisma: PrismaClientInstance, collectionId: 
       extensions: { code: "E_COLLECTION_IN_PROGRESS", runId: activeRun.id },
     });
   }
+}
+
+function isCollectionInProgressError(error: unknown): error is GraphQLError {
+  if (!(error instanceof GraphQLError)) {
+    return false;
+  }
+  const code = (error.extensions?.code ?? error.extensions?.Code) as string | undefined;
+  return code === "E_COLLECTION_IN_PROGRESS";
+}
+
+function isEndpointInUseError(error: unknown): error is GraphQLError {
+  if (!(error instanceof GraphQLError)) {
+    return false;
+  }
+  const code = (error.extensions?.code ?? error.extensions?.Code) as string | undefined;
+  return code === "E_ENDPOINT_IN_USE";
 }
 
 async function createCollectionRunRecord(
@@ -5568,12 +6132,29 @@ function isJiraEndpoint(endpoint: MetadataEndpointDescriptor) {
   return (endpoint.labels ?? []).some((label) => typeof label === "string" && label.toLowerCase().includes("jira"));
 }
 
+function isConfluenceEndpoint(endpoint: MetadataEndpointDescriptor) {
+  const config = normalizePayload(endpoint.config);
+  const templateId = typeof config?.templateId === "string" ? config.templateId : null;
+  if (templateId && templateId.startsWith("http.confluence")) {
+    return true;
+  }
+  return (endpoint.labels ?? []).some((label) => typeof label === "string" && label.toLowerCase().includes("confluence"));
+}
+
 function isJiraDatasetId(value?: string | null) {
   if (!value) {
     return false;
   }
   const normalized = value.trim().toLowerCase();
   return normalized.startsWith("jira.");
+}
+
+function isConfluenceDatasetId(value?: string | null) {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith("confluence.");
 }
 
 function mapCollectionToGraphQL(collection: PrismaCollectionWithEndpoint) {
@@ -5601,6 +6182,18 @@ async function fetchJiraDimensionRecords(
   limit = 500,
 ) {
   const records = await store.listRecords(domain, {
+    projectId: endpoint.projectId ?? undefined,
+    limit,
+  });
+  return records.filter((record) => recordBelongsToEndpoint(record, endpoint));
+}
+
+async function fetchConfluenceSpaceRecords(
+  store: MetadataStore,
+  endpoint: MetadataEndpointDescriptor,
+  limit = 500,
+) {
+  const records = await store.listRecords("confluence.space", {
     projectId: endpoint.projectId ?? undefined,
     limit,
   });
@@ -5661,6 +6254,18 @@ function mapJiraUserOption(record: MetadataRecord<unknown>) {
   const displayName = normalizeStringValue(payload.displayName ?? payload.name ?? payload.fullName) ?? accountId;
   const email = normalizeStringValue(payload.emailAddress ?? payload.email ?? payload.mail);
   return { accountId, displayName, email };
+}
+
+function mapConfluenceSpaceOption(record: MetadataRecord<unknown>) {
+  const payload = normalizePayload(record.payload);
+  const spaceKey =
+    normalizeStringValue(payload?.spaceKey ?? payload?.key ?? payload?.id ?? payload?.name) ??
+    normalizeStringValue(payload?.id);
+  if (!spaceKey) {
+    return null;
+  }
+  const name = normalizeStringValue(payload?.name ?? payload?.title ?? payload?.displayName) ?? spaceKey;
+  return { key: spaceKey, name };
 }
 
 function extractJiraRecordValue(record: MetadataRecord<unknown>) {

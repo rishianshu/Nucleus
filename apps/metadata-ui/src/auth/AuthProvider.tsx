@@ -105,6 +105,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (typeof document !== "undefined") {
         document.body.dataset.metadataAuthRole = mapped.role;
+        document.body.dataset.metadataAuthUser = mapped.username;
+      }
+      if (typeof window !== "undefined") {
+        (window as typeof window & { __metadataAuthUser?: string }).__metadataAuthUser = mapped.username;
       }
       logAuthEvent("auth:role", { role: mapped.role });
       setPhase("authenticated");

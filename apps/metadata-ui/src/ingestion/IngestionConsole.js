@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { LuArrowRight, LuCircleDashed, LuCirclePause, LuCirclePlay, LuCircleSlash, LuClock3, LuInfo, LuRefreshCcw, LuSlidersHorizontal, LuSearch, LuTriangleAlert, LuX, } from "react-icons/lu";
 import { formatRelativeTime } from "../lib/format";
 import { fetchMetadataGraphQL } from "../metadata/api";
-import { INGESTION_ENDPOINTS_QUERY, INGESTION_UNITS_WITH_STATUS_QUERY, START_INGESTION_MUTATION, PAUSE_INGESTION_MUTATION, RESET_INGESTION_CHECKPOINT_MUTATION, CONFIGURE_INGESTION_UNIT_MUTATION, JIRA_FILTER_OPTIONS_QUERY, } from "../metadata/queries";
+import { INGESTION_ENDPOINTS_QUERY, INGESTION_UNITS_WITH_STATUS_QUERY, START_INGESTION_MUTATION, PAUSE_INGESTION_MUTATION, RESET_INGESTION_CHECKPOINT_MUTATION, CONFIGURE_INGESTION_UNIT_MUTATION, JIRA_FILTER_OPTIONS_QUERY, CONFLUENCE_FILTER_OPTIONS_QUERY, } from "../metadata/queries";
 import { useDebouncedValue, useToastQueue } from "../metadata/hooks";
 import { formatIngestionMode, formatIngestionSchedule, formatIngestionSink, ingestionStateTone, summarizePolicy, } from "./stateTone";
 const endpointSidebarWidth = 320;
@@ -12,6 +12,10 @@ const DEFAULT_JIRA_FILTER_FORM = {
     projectKeys: [],
     statuses: [],
     assigneeIds: [],
+    updatedFrom: null,
+};
+const DEFAULT_CONFLUENCE_FILTER_FORM = {
+    spaceKeys: [],
     updatedFrom: null,
 };
 export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, userRole }) {
@@ -42,6 +46,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     const [jiraFilterOptions, setJiraFilterOptions] = useState(null);
     const [jiraFilterLoading, setJiraFilterLoading] = useState(false);
     const [jiraFilterError, setJiraFilterError] = useState(null);
+    const [confluenceFilterOptions, setConfluenceFilterOptions] = useState(null);
+    const [confluenceFilterLoading, setConfluenceFilterLoading] = useState(false);
+    const [confluenceFilterError, setConfluenceFilterError] = useState(null);
     const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
     const cdmSinkEndpoints = useMemo(() => endpoints.filter((endpoint) => {
         const labels = endpoint.labels ?? [];
@@ -82,6 +89,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         ? true
         : sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId);
     const supportsJiraFilters = Boolean(configuringUnit && isJiraUnitId(configuringUnit.unitId));
+    const supportsConfluenceFilters = Boolean(configuringUnit && isConfluenceUnitId(configuringUnit.unitId));
     const saveDisabled = !configForm || configSaving || (cdmModeActive && !selectedSinkSupportsCdm);
     const toastQueue = useToastQueue();
     const isAdmin = userRole === "ADMIN";
@@ -269,6 +277,42 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
             cancelled = true;
         };
     }, [metadataEndpoint, authToken, configuringUnit]);
+    useEffect(() => {
+        if (!metadataEndpoint ||
+            !authToken ||
+            !configuringUnit ||
+            !isConfluenceUnitId(configuringUnit.unitId)) {
+            setConfluenceFilterOptions(null);
+            setConfluenceFilterError(null);
+            setConfluenceFilterLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setConfluenceFilterLoading(true);
+        setConfluenceFilterError(null);
+        fetchMetadataGraphQL(metadataEndpoint, CONFLUENCE_FILTER_OPTIONS_QUERY, { endpointId: configuringUnit.endpointId }, undefined, { token: authToken ?? undefined })
+            .then((result) => {
+            if (cancelled) {
+                return;
+            }
+            setConfluenceFilterOptions(result?.confluenceIngestionFilterOptions ?? { spaces: [] });
+        })
+            .catch((error) => {
+            if (cancelled) {
+                return;
+            }
+            setConfluenceFilterError(error instanceof Error ? error.message : String(error));
+            setConfluenceFilterOptions({ spaces: [] });
+        })
+            .finally(() => {
+            if (!cancelled) {
+                setConfluenceFilterLoading(false);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [metadataEndpoint, authToken, configuringUnit]);
     const endpointOptions = useMemo(() => endpoints.map((endpoint) => ({
         id: endpoint.id,
         name: endpoint.name,
@@ -371,6 +415,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
             sinkEndpointId: unit.config?.sinkEndpointId ?? null,
             policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
             jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
+            confluenceFilter: reduceConfluenceFilterToFormValue(unit.config?.confluenceFilter ?? null),
         });
         setConfigError(null);
     }, []);
@@ -381,6 +426,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
         setJiraFilterOptions(null);
         setJiraFilterError(null);
         setJiraFilterLoading(false);
+        setConfluenceFilterOptions(null);
+        setConfluenceFilterError(null);
+        setConfluenceFilterLoading(false);
     }, []);
     const updateConfigForm = useCallback((patch) => {
         setConfigForm((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -391,10 +439,20 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     const resetJiraFilterForm = useCallback(() => {
         setConfigForm((prev) => (prev ? { ...prev, jiraFilter: { ...DEFAULT_JIRA_FILTER_FORM } } : prev));
     }, []);
+    const updateConfluenceFilterForm = useCallback((patch) => {
+        setConfigForm((prev) => prev ? { ...prev, confluenceFilter: { ...prev.confluenceFilter, ...patch } } : prev);
+    }, []);
+    const resetConfluenceFilterForm = useCallback(() => {
+        setConfigForm((prev) => prev ? { ...prev, confluenceFilter: { ...DEFAULT_CONFLUENCE_FILTER_FORM } } : prev);
+    }, []);
     const handleFilterMultiSelect = useCallback((event, field) => {
         const values = Array.from(event.target.selectedOptions).map((option) => option.value);
         updateJiraFilterForm({ [field]: values });
     }, [updateJiraFilterForm]);
+    const handleConfluenceSpaceSelect = useCallback((event) => {
+        const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+        updateConfluenceFilterForm({ spaceKeys: values });
+    }, [updateConfluenceFilterForm]);
     const handleSaveConfig = useCallback(async () => {
         if (!configuringUnit || !configForm) {
             return;
@@ -430,6 +488,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                 scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
                 policy: parsedPolicy,
                 jiraFilter: configForm.jiraFilter,
+                confluenceFilter: configForm.confluenceFilter,
             }, "configure");
             closeConfigureDrawer();
         }
@@ -514,7 +573,18 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                                                                         return;
                                                                     }
                                                                     updateJiraFilterForm({ updatedFrom: parsed.toISOString() });
-                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" }), _jsx("span", { className: "mt-1 block text-xs text-slate-400", children: "Leave blank to sync full history for new projects." })] })] }), jiraFilterLoading ? (_jsx("p", { className: "mt-2 text-xs text-slate-400", children: "Loading filter options\u2026" })) : jiraFilterError ? (_jsx("p", { className: "mt-2 text-xs text-amber-300", children: jiraFilterError })) : null, _jsx("p", { className: "mt-3 text-xs text-slate-400", children: "Filter changes keep existing project cursors. Newly added projects use the Updated From timestamp (or all history if not set)." })] })) : null, _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Schedule" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Trigger", _jsxs("select", { value: configForm.scheduleKind, onChange: (event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "MANUAL", children: "Manual only" }), _jsx("option", { value: "INTERVAL", children: "Fixed interval" })] })] }), configForm.scheduleKind === "INTERVAL" ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Interval (minutes)", _jsx("input", { type: "number", min: 1, value: configForm.scheduleIntervalMinutes, onChange: (event) => updateConfigForm({
+                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" }), _jsx("span", { className: "mt-1 block text-xs text-slate-400", children: "Leave blank to sync full history for new projects." })] })] }), jiraFilterLoading ? (_jsx("p", { className: "mt-2 text-xs text-slate-400", children: "Loading filter options\u2026" })) : jiraFilterError ? (_jsx("p", { className: "mt-2 text-xs text-amber-300", children: jiraFilterError })) : null, _jsx("p", { className: "mt-3 text-xs text-slate-400", children: "Filter changes keep existing project cursors. Newly added projects use the Updated From timestamp (or all history if not set)." })] })) : null, supportsConfluenceFilters && configForm ? (_jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Filters" }), _jsx("button", { type: "button", onClick: resetConfluenceFilterForm, className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-300/80 transition hover:text-white", children: "Clear" })] }), _jsxs("div", { className: "mt-3 grid gap-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Spaces", _jsx("select", { multiple: true, value: configForm.confluenceFilter.spaceKeys, onChange: handleConfluenceSpaceSelect, disabled: confluenceFilterLoading, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: (confluenceFilterOptions?.spaces ?? []).map((space) => (_jsx("option", { value: space.key, className: "bg-slate-900 text-slate-100", children: space.name ?? space.key }, space.key))) })] }), _jsxs("label", { className: "block text-sm text-slate-200", children: ["Updated from", _jsx("input", { type: "datetime-local", value: formatDateInputValue(configForm.confluenceFilter.updatedFrom), onChange: (event) => {
+                                                                    const raw = event.target.value;
+                                                                    if (!raw) {
+                                                                        updateConfluenceFilterForm({ updatedFrom: null });
+                                                                        return;
+                                                                    }
+                                                                    const parsed = new Date(raw);
+                                                                    if (Number.isNaN(parsed.getTime())) {
+                                                                        return;
+                                                                    }
+                                                                    updateConfluenceFilterForm({ updatedFrom: parsed.toISOString() });
+                                                                }, className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" }), _jsx("span", { className: "mt-1 block text-xs text-slate-400", children: "Leave blank to pull the most recent content from selected spaces." })] })] }), confluenceFilterLoading ? (_jsx("p", { className: "mt-2 text-xs text-slate-400", children: "Loading Confluence spaces\u2026" })) : confluenceFilterError ? (_jsx("p", { className: "mt-2 text-xs text-amber-300", children: confluenceFilterError })) : null, _jsx("p", { className: "mt-3 text-xs text-slate-400", children: "The ingestion planner keeps a watermark per space so reruns only fetch content updated after the last successful run." })] })) : null, _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Schedule" }), _jsxs("div", { className: "mt-3 space-y-3", children: [_jsxs("label", { className: "block text-sm text-slate-200", children: ["Trigger", _jsxs("select", { value: configForm.scheduleKind, onChange: (event) => updateConfigForm({ scheduleKind: event.target.value.toUpperCase() }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: [_jsx("option", { value: "MANUAL", children: "Manual only" }), _jsx("option", { value: "INTERVAL", children: "Fixed interval" })] })] }), configForm.scheduleKind === "INTERVAL" ? (_jsxs("label", { className: "block text-sm text-slate-200", children: ["Interval (minutes)", _jsx("input", { type: "number", min: 1, value: configForm.scheduleIntervalMinutes, onChange: (event) => updateConfigForm({
                                                                     scheduleIntervalMinutes: Math.max(1, Number(event.target.value) || 1),
                                                                 }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white" })] })) : null] })] }), _jsxs("section", { className: "rounded-2xl border border-white/10 p-4", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-400", children: "Sink" }), _jsxs("label", { className: "mt-3 block text-sm text-slate-200", children: ["Destination", _jsx("select", { value: configForm.sinkId, onChange: (event) => updateConfigForm({ sinkId: event.target.value }), className: "mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white", children: drawerSinkOptions.map((sink) => {
                                                             const disabled = configForm.mode === "cdm" && configuringUnit.cdmModelId
@@ -579,14 +649,20 @@ function buildConfigInput(unit, overrides) {
         scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
         policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
         jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
+        confluenceFilter: reduceConfluenceFilterToFormValue(unit.config?.confluenceFilter ?? null),
     };
+    const supportsJira = isJiraUnitId(unit.unitId);
+    const supportsConfluence = isConfluenceUnitId(unit.unitId);
     const nextScheduleKind = normalizeScheduleKind(overrides.scheduleKind ?? fallback.scheduleKind);
     const intervalValue = nextScheduleKind === "INTERVAL"
         ? overrides.scheduleIntervalMinutes ?? fallback.scheduleIntervalMinutes ?? 15
         : null;
-    const nextFilter = overrides.jiraFilter === undefined
+    const nextJiraFilter = overrides.jiraFilter === undefined
         ? fallback.jiraFilter
         : overrides.jiraFilter ?? DEFAULT_JIRA_FILTER_FORM;
+    const nextConfluenceFilter = overrides.confluenceFilter === undefined
+        ? fallback.confluenceFilter
+        : overrides.confluenceFilter ?? DEFAULT_CONFLUENCE_FILTER_FORM;
     return {
         endpointId: unit.endpointId,
         datasetId: unit.datasetId ?? unit.unitId,
@@ -601,7 +677,8 @@ function buildConfigInput(unit, overrides) {
             ? Math.max(1, Math.trunc(typeof intervalValue === "number" && !Number.isNaN(intervalValue) ? intervalValue : 15))
             : null,
         policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
-        jiraFilter: formatJiraFilterInputFromForm(nextFilter),
+        jiraFilter: supportsJira ? formatJiraFilterInputFromForm(nextJiraFilter) : undefined,
+        confluenceFilter: supportsConfluence ? formatConfluenceFilterInputFromForm(nextConfluenceFilter) : undefined,
     };
 }
 function matchesCdmPattern(pattern, target) {
@@ -665,6 +742,28 @@ function formatJiraFilterInputFromForm(filter) {
     }
     return Object.keys(payload).length ? payload : null;
 }
+function reduceConfluenceFilterToFormValue(source) {
+    if (!source) {
+        return { ...DEFAULT_CONFLUENCE_FILTER_FORM };
+    }
+    return {
+        spaceKeys: coerceFilterArray(source.spaceKeys),
+        updatedFrom: source.updatedFrom ?? null,
+    };
+}
+function formatConfluenceFilterInputFromForm(filter) {
+    if (!filter) {
+        return null;
+    }
+    const payload = {};
+    if (filter.spaceKeys.length) {
+        payload.spaceKeys = filter.spaceKeys;
+    }
+    if (filter.updatedFrom) {
+        payload.updatedFrom = filter.updatedFrom;
+    }
+    return Object.keys(payload).length ? payload : null;
+}
 function formatDateInputValue(value) {
     if (!value) {
         return "";
@@ -680,4 +779,10 @@ function isJiraUnitId(unitId) {
         return false;
     }
     return unitId.toLowerCase().startsWith("jira.");
+}
+function isConfluenceUnitId(unitId) {
+    if (!unitId) {
+        return false;
+    }
+    return unitId.toLowerCase().startsWith("confluence.");
 }

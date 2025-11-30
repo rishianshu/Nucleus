@@ -13,6 +13,9 @@
         "id": "sample_catalog_jira_issues",
         "displayName": "Seeded Jira Issues",
         "description": "Synthetic dataset representing Jira issues for smoke testing.",
+        "extras": {
+          "datasetId": "jira.issues"
+        },
         "fields": [
           {
             "name": "issue_id",
@@ -49,6 +52,9 @@
         "issues",
         "sample"
       ],
+      "extras": {
+        "datasetId": "jira.issues"
+      },
       "statistics": {
         "record_count": 1280,
         "sample_size": 20,
@@ -74,11 +80,11 @@
       "_metadata": {
         "source_endpoint_id": "seed-endpoint-sample-pg",
         "source_id": "seed-endpoint-sample-pg",
-        "collected_at": "2025-11-27T10:13:29.913Z"
+        "collected_at": "2025-11-29T13:32:49.595Z"
       }
     },
     "createdAt": "2025-11-27T10:13:29.915Z",
-    "updatedAt": "2025-11-27T10:13:29.915Z"
+    "updatedAt": "2025-11-29T13:32:49.596Z"
   },
   {
     "id": "sample_catalog_confluence_pages",
@@ -95,6 +101,9 @@
         "id": "sample_catalog_confluence_pages",
         "displayName": "Seeded Confluence Pages",
         "description": "Synthetic documentation pages for smoke testing doc catalog flows.",
+        "extras": {
+          "datasetId": "confluence.page"
+        },
         "fields": [
           {
             "name": "page_id",
@@ -141,6 +150,9 @@
         "documentation",
         "sample"
       ],
+      "extras": {
+        "datasetId": "confluence.page"
+      },
       "statistics": {
         "record_count": 25,
         "sample_size": 5,
@@ -170,10 +182,10 @@
       "_metadata": {
         "source_endpoint_id": "seed-endpoint-confluence",
         "source_id": "seed-endpoint-confluence",
-        "collected_at": "2025-11-27T10:13:29.915Z"
+        "collected_at": "2025-11-29T13:32:49.595Z"
       }
     },
     "createdAt": "2025-11-27T10:13:29.915Z",
-    "updatedAt": "2025-11-27T10:13:29.915Z"
+    "updatedAt": "2025-11-29T13:32:49.597Z"
   }
 ]

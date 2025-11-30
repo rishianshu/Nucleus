@@ -324,6 +324,10 @@ export const INGESTION_UNITS_WITH_STATUS_QUERY = `
         assigneeIds
         updatedFrom
       }
+      confluenceFilter {
+        spaceKeys
+        updatedFrom
+      }
       lastStatus {
         state
         lastRunAt
@@ -385,6 +389,10 @@ export const CONFIGURE_INGESTION_UNIT_MUTATION = `
         assigneeIds
         updatedFrom
       }
+      confluenceFilter {
+        spaceKeys
+        updatedFrom
+      }
       lastStatus {
         state
         lastRunAt
@@ -410,6 +418,16 @@ export const JIRA_FILTER_OPTIONS_QUERY = `
         accountId
         displayName
         email
+      }
+    }
+  }
+`;
+export const CONFLUENCE_FILTER_OPTIONS_QUERY = `
+  query ConfluenceFilterOptions($endpointId: ID!) {
+    confluenceIngestionFilterOptions(endpointId: $endpointId) {
+      spaces {
+        key
+        name
       }
     }
   }
@@ -466,6 +484,14 @@ export const DELETE_METADATA_ENDPOINT_MUTATION = `
 export const PREVIEW_METADATA_DATASET_MUTATION = `
   mutation DesignerPreviewMetadataDataset($id: ID!, $limit: Int) {
     previewMetadataDataset(id: $id, limit: $limit) {
+      sampledAt
+      rows
+    }
+  }
+`;
+export const CATALOG_DATASET_PREVIEW_QUERY = `
+  query DesignerCatalogDatasetPreview($id: ID!) {
+    catalogDatasetPreview(id: $id) {
       sampledAt
       rows
     }

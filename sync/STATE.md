@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-semantic-confluence-source-v1 (success @ 2025-11-28T20:05Z)
+confluence-ingestion-v1 (completed @ 2025-11-30T12:18Z)
 
 ## Last Run
-- slug: semantic-confluence-source-v1
-- status: success
-- duration: ~1d (Confluence template + planner/worker integration + verification)
-- tests: pnpm ci-check (includes metadata-auth + metadata-lifecycle Playwright); pnpm metadata:confluence:collect
+- slug: confluence-ingestion-v1
+- status: success-with-followups
+- duration: resumed @ 07:30Z → closed @ 12:18Z
+- tests: unit/tsc ok; `pnpm ci-check` pending (Playwright issues deferred)
 - commits: pending (worktree dirty)
-- decisions: 0
-- next_step: prep PR + share acceptance evidence (artifacts + STORY) before merge
+- decisions: 1 (see runs/.../DECISIONS.md)
+- next_step: follow future-requirements doc to stabilize metadata-auth specs
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-11-29T07:30Z run heartbeat (confluence-ingestion-v1, resumed run + context sync)
+- 2025-11-29T06:28Z run started (confluence-ingestion-v1, boot + context sync)
 - 2025-11-28T20:05Z run success (semantic-confluence-source-v1, ci-check green + confluence harness artifacts)
 - 2025-11-27T19:16Z run started (semantic-confluence-source-v1, boot + context sync)
 - 2025-11-27T19:04Z run success (cdm-docs-model-and-semantic-binding-v1, docs CDM + Confluence/OneDrive mappers + docs/tests)

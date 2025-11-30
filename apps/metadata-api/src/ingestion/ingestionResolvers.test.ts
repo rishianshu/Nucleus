@@ -43,37 +43,41 @@ class NullSink implements IngestionSink {
 registerIngestionSink("raw-only-test", () => new NullSink());
 const JIRA_TEMPLATE = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
 const JIRA_TEMPLATE_EXTRAS = (JIRA_TEMPLATE?.extras ?? {}) as Record<string, unknown>;
-const TEMPLATE_UNITS = Array.isArray(JIRA_TEMPLATE_EXTRAS.ingestionUnits)
-  ? (JIRA_TEMPLATE_EXTRAS.ingestionUnits as Record<string, unknown>[])
-  : [];
-const TEST_STATIC_UNITS: IngestionUnitDescriptor[] = TEMPLATE_UNITS.map((entry) => ({
-  unitId: String(entry.unitId),
-  datasetId: typeof entry.datasetId === "string" ? entry.datasetId : String(entry.unitId),
-  kind: typeof entry.kind === "string" ? entry.kind : "dataset",
-  displayName: typeof entry.displayName === "string" ? entry.displayName : String(entry.unitId),
-  defaultMode: typeof entry.defaultMode === "string" ? entry.defaultMode : undefined,
-  supportedModes:
-    entry.supportsIncremental === true
-      ? ["FULL", "INCREMENTAL"]
-      : Array.isArray(entry.supportedModes) && entry.supportedModes.length > 0
-        ? (entry.supportedModes as string[])
-        : ["FULL"],
-  defaultPolicy: (entry.defaultPolicy as Record<string, unknown>) ?? null,
-  defaultScheduleKind: typeof entry.defaultScheduleKind === "string" ? entry.defaultScheduleKind : undefined,
-  defaultScheduleIntervalMinutes:
-    typeof entry.defaultScheduleIntervalMinutes === "number" ? entry.defaultScheduleIntervalMinutes : undefined,
-  stats:
-    typeof entry.description === "string"
-      ? { description: entry.description, supportsIncremental: Boolean(entry.supportsIncremental) }
-      : null,
-  cdmModelId: typeof entry.cdmModelId === "string" ? entry.cdmModelId : undefined,
-}));
+const JIRA_TEMPLATE_UNITS = templateUnitsFromExtras(JIRA_TEMPLATE_EXTRAS);
+const CONFLUENCE_TEMPLATE = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "http.confluence");
+const CONFLUENCE_TEMPLATE_EXTRAS = (CONFLUENCE_TEMPLATE?.extras ?? {}) as Record<string, unknown>;
+const CONFLUENCE_TEMPLATE_UNITS = templateUnitsFromExtras(CONFLUENCE_TEMPLATE_EXTRAS);
+const TEST_STATIC_UNITS: IngestionUnitDescriptor[] = [...JIRA_TEMPLATE_UNITS, ...CONFLUENCE_TEMPLATE_UNITS].map(
+  (entry) => ({
+    unitId: String(entry.unitId),
+    datasetId: typeof entry.datasetId === "string" ? entry.datasetId : String(entry.unitId),
+    kind: typeof entry.kind === "string" ? entry.kind : "dataset",
+    displayName: typeof entry.displayName === "string" ? entry.displayName : String(entry.unitId),
+    defaultMode: typeof entry.defaultMode === "string" ? entry.defaultMode : undefined,
+    supportedModes:
+      entry.supportsIncremental === true
+        ? ["FULL", "INCREMENTAL"]
+        : Array.isArray(entry.supportedModes) && entry.supportedModes.length > 0
+          ? (entry.supportedModes as string[])
+          : ["FULL"],
+    defaultPolicy: (entry.defaultPolicy as Record<string, unknown>) ?? null,
+    defaultScheduleKind: typeof entry.defaultScheduleKind === "string" ? entry.defaultScheduleKind : undefined,
+    defaultScheduleIntervalMinutes:
+      typeof entry.defaultScheduleIntervalMinutes === "number" ? entry.defaultScheduleIntervalMinutes : undefined,
+    stats:
+      typeof entry.description === "string"
+        ? { description: entry.description, supportsIncremental: Boolean(entry.supportsIncremental) }
+        : null,
+    cdmModelId: typeof entry.cdmModelId === "string" ? entry.cdmModelId : undefined,
+  }),
+);
 registerIngestionDriver("static", () => new TestStaticDriver(TEST_STATIC_UNITS));
 
 const TEST_TENANT = "tenant-ingestion";
 const TEST_PROJECT = "project-ingestion";
 const CATALOG_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
 const JIRA_DATASETS = ["jira.projects", "jira.issues", "jira.users", "jira.comments", "jira.worklogs"];
+const CONFLUENCE_DATASETS = ["confluence.space", "confluence.page", "confluence.attachment"];
 
 test("ingestionUnits returns template extras for Jira endpoints", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-resolvers-"));
@@ -123,6 +127,56 @@ test("ingestionUnits returns template extras for Jira endpoints", async (t) => {
   assert.equal(projectsUnit?.driverId, "static");
   assert.equal(projectsUnit?.sinkId, "kb");
   assert.equal(projectsUnit?.cdmModelId, "cdm.work.project");
+});
+
+test("ingestionUnits returns template extras for Confluence endpoints", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-resolvers-confluence-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext();
+  const confluenceTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "http.confluence");
+  assert.ok(confluenceTemplate, "confluence template should exist in default fixtures");
+  await store.saveEndpointTemplates([confluenceTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "confluence-endpoint-1",
+    name: "Confluence Dev",
+    verb: "GET",
+    url: "https://example.atlassian.net/wiki",
+    projectId: ctx.auth.projectId,
+    domain: "docs.confluence",
+    config: {
+      templateId: "http.confluence",
+      parameters: {
+        base_url: "https://example.atlassian.net/wiki",
+        auth_type: "api_token",
+        username: "bot@example.com",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  for (const datasetId of CONFLUENCE_DATASETS) {
+    await seedCatalogDataset(store, endpoint.id!, datasetId);
+  }
+  const catalogRecords = await store.listRecords(CATALOG_DOMAIN, { projectId: ctx.auth.projectId });
+  assert.equal(catalogRecords.length, CONFLUENCE_DATASETS.length);
+
+  const units = await resolvers.Query.ingestionUnits(null, { endpointId: endpoint.id! }, ctx as any);
+  assert.ok(units.length >= 1, "confluence units should be surfaced");
+  const pagesUnit = units.find((unit) => unit.unitId === "confluence.page");
+  assert.ok(pagesUnit, "confluence.page unit should be present");
+  assert.equal(pagesUnit?.cdmModelId, "cdm.doc.item");
+  assert.equal(pagesUnit?.defaultMode, "INCREMENTAL");
 });
 
 test("startIngestion bypass path succeeds for Jira units", async (t) => {
@@ -302,6 +356,131 @@ test("jiraIngestionFilterOptions returns metadata-driven options", async (t) => 
   assert.deepEqual(status, { id: "1", name: "To Do", category: "To Do" });
   const user = options.users.find((entry) => entry.accountId === "acct-1");
   assert.deepEqual(user, { accountId: "acct-1", displayName: "Jira Bot", email: "bot@example.com" });
+});
+
+test("confluenceIngestionFilterOptions returns metadata-driven options", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-confluence-filter-options-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext();
+  const confluenceTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "http.confluence");
+  assert.ok(confluenceTemplate);
+  await store.saveEndpointTemplates([confluenceTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "confluence-endpoint-options",
+    name: "Confluence Dev",
+    verb: "GET",
+    url: "https://starhealthinsurance.atlassian.net/wiki",
+    projectId: ctx.auth.projectId,
+    domain: "docs.confluence",
+    config: {
+      templateId: "http.confluence",
+      parameters: {
+        base_url: "https://starhealthinsurance.atlassian.net/wiki",
+        auth_type: "api_token",
+        username: "bot@starhealthinsurance.in",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  await seedDimensionRecord(store, endpoint.id!, "confluence.space", { spaceKey: "ENG", name: "Engineering Docs" });
+  await seedDimensionRecord(store, endpoint.id!, "confluence.space", { spaceKey: "OPS", name: "Operations" });
+  const options = await resolvers.Query.confluenceIngestionFilterOptions(null, { endpointId: endpoint.id! }, ctx as any);
+  assert.equal(options.spaces.length, 2);
+  const engSpace = options.spaces.find((entry) => entry.key === "ENG");
+  assert.deepEqual(engSpace, { key: "ENG", name: "Engineering Docs" });
+});
+
+test("configureIngestionUnit persists Confluence filters for Confluence units", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-config-confluence-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext({ bypassWrites: true, roles: ["viewer", "editor", "admin"] });
+  const confluenceTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "http.confluence");
+  assert.ok(confluenceTemplate);
+  await store.saveEndpointTemplates([confluenceTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  await store.registerEndpoint({
+    id: "cdm-sink-1",
+    name: "CDM Sink",
+    verb: "POST",
+    url: "postgres://localhost:5432/cdm",
+    projectId: ctx.auth.projectId,
+    domain: "cdm.sink",
+    config: {
+      templateId: "cdm.jdbc",
+      parameters: {
+        connection_url: "postgres://postgres:postgres@localhost:5432/cdm",
+        schema: "cdm",
+        table_prefix: "cdm_",
+      },
+    },
+    capabilities: ["sink.cdm"],
+  });
+  const endpoint = await store.registerEndpoint({
+    id: "confluence-endpoint-config",
+    name: "Confluence Dev",
+    verb: "GET",
+    url: "https://starhealthinsurance.atlassian.net/wiki",
+    projectId: ctx.auth.projectId,
+    domain: "docs.confluence",
+    config: {
+      templateId: "http.confluence",
+      parameters: {
+        base_url: "https://starhealthinsurance.atlassian.net/wiki",
+        auth_type: "api_token",
+        username: "bot@starinsurance.in",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  await seedCatalogDataset(store, endpoint.id!, "confluence.page");
+  const config = await resolvers.Mutation.configureIngestionUnit(
+    null,
+    {
+      input: {
+        endpointId: endpoint.id!,
+        unitId: "confluence.page",
+        enabled: true,
+        runMode: "INCREMENTAL",
+        mode: "cdm",
+        sinkId: "cdm",
+        sinkEndpointId: "cdm-sink-1",
+        scheduleKind: "MANUAL",
+        confluenceFilter: {
+          spaceKeys: ["ENG", "OPS"],
+          updatedFrom: "2024-02-01T00:00:00.000Z",
+        },
+      },
+    },
+    ctx as any,
+  );
+  assert.deepEqual(config.confluenceFilter?.spaceKeys, ["ENG", "OPS"]);
+  assert.equal(config.confluenceFilter?.updatedFrom, "2024-02-01T00:00:00.000Z");
+  const configs = await resolvers.Query.ingestionUnitConfigs(null, { endpointId: endpoint.id! }, ctx as any);
+  assert.equal(configs.length, 1);
+  assert.deepEqual(configs[0]?.confluenceFilter?.spaceKeys, ["ENG", "OPS"]);
 });
 
 test("configureIngestionUnit rejects CDM mode when sink lacks capability", async (t) => {
@@ -535,6 +714,53 @@ class TestStaticDriver {
   }
 }
 
+function templateUnitsFromExtras(extras: Record<string, unknown> | undefined): Record<string, unknown>[] {
+  const explicit = Array.isArray(extras?.ingestionUnits)
+    ? (extras!.ingestionUnits as Record<string, unknown>[])
+    : [];
+  const datasetDerived: Record<string, unknown>[] = [];
+  if (Array.isArray(extras?.datasets)) {
+    for (const datasetEntry of extras.datasets as Record<string, unknown>[]) {
+      if (!datasetEntry || typeof datasetEntry !== "object") {
+        continue;
+      }
+      const dataset = datasetEntry as Record<string, unknown>;
+      const datasetId = typeof dataset.datasetId === "string" ? dataset.datasetId : null;
+      const ingestion =
+        dataset.ingestion && typeof dataset.ingestion === "object"
+          ? (dataset.ingestion as Record<string, unknown>)
+          : null;
+      if (!ingestion) {
+        continue;
+      }
+      const unitId = typeof ingestion.unitId === "string" ? ingestion.unitId : datasetId;
+      if (!unitId) {
+        continue;
+      }
+      datasetDerived.push({
+        unitId,
+        datasetId: datasetId ?? unitId,
+        displayName:
+          typeof ingestion.displayName === "string"
+            ? ingestion.displayName
+            : typeof dataset.name === "string"
+              ? dataset.name
+              : unitId,
+        description:
+          typeof ingestion.description === "string"
+            ? ingestion.description
+            : typeof dataset.description === "string"
+              ? dataset.description
+              : undefined,
+        supportsIncremental: ingestion.supportsIncremental === true,
+        defaultPolicy: ingestion.defaultPolicy,
+        cdmModelId: typeof ingestion.cdmModelId === "string" ? ingestion.cdmModelId : undefined,
+      });
+    }
+  }
+  return [...explicit, ...datasetDerived];
+}
+
 async function seedCatalogDataset(store: FileMetadataStore, endpointId: string, datasetId: string) {
   await store.upsertRecord({
     id: datasetId,
@@ -548,6 +774,12 @@ async function seedCatalogDataset(store: FileMetadataStore, endpointId: string, 
         name: datasetId,
         schema: "jira",
         entity: datasetId.split(".").pop(),
+        extras: {
+          datasetId,
+        },
+      },
+      extras: {
+        datasetId,
       },
     },
   });
@@ -559,8 +791,15 @@ async function seedDimensionRecord(
   datasetId: string,
   value: Record<string, unknown>,
 ) {
+  const identifier =
+    value.id ??
+    value.projectKey ??
+    value.accountId ??
+    value.spaceKey ??
+    value.key ??
+    Date.now().toString(36);
   await store.upsertRecord({
-    id: `${datasetId}-${value.id ?? value.projectKey ?? value.accountId ?? Date.now().toString(36)}`,
+    id: `${datasetId}-${identifier}`,
     projectId: TEST_PROJECT,
     domain: datasetId,
     labels: [`endpoint:${endpointId}`],

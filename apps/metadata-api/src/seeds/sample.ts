@@ -18,19 +18,20 @@ export async function seedMetadataStoreIfEmpty(store: MetadataStore): Promise<vo
     return;
   }
   const projectId = sampleData.projectId ?? DEFAULT_PROJECT_ID;
-  const [existingDatasets, existingEndpoints] = await Promise.all([
-    store.listRecords(CATALOG_DATASET_DOMAIN, { projectId, limit: 1 }),
-    store.listEndpoints(projectId),
-  ]);
-  if (existingDatasets.length > 0 || existingEndpoints.length > 0) {
-    return;
-  }
-
-  const now = new Date().toISOString();
   const endpoints: SampleEndpoint[] = sampleData.endpoints ?? [];
   const datasets: SampleDataset[] = sampleData.datasets ?? [];
   const defaultEndpointId = endpoints[0]?.id;
 
+  await ensureSampleEndpoints(store, endpoints, projectId);
+  await ensureSampleDatasets(store, datasets, projectId, defaultEndpointId);
+}
+
+async function ensureSampleEndpoints(
+  store: MetadataStore,
+  endpoints: SampleEndpoint[],
+  projectId: string,
+) {
+  const now = new Date().toISOString();
   for (const [index, endpoint] of endpoints.entries()) {
     const fallbackId = endpoint.id ?? `sample-endpoint-${index + 1}`;
     const descriptor: MetadataEndpointDescriptor = {
@@ -55,7 +56,15 @@ export async function seedMetadataStoreIfEmpty(store: MetadataStore): Promise<vo
     };
     await store.registerEndpoint(descriptor);
   }
+}
 
+async function ensureSampleDatasets(
+  store: MetadataStore,
+  datasets: SampleDataset[],
+  projectId: string,
+  defaultEndpointId?: string,
+) {
+  const now = new Date().toISOString();
   for (const dataset of datasets) {
     const sourceEndpointId = dataset.sourceEndpointId ?? defaultEndpointId;
     const basePayload = { ...dataset.payload };

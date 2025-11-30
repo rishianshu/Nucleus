@@ -78,21 +78,20 @@ export async function loginViaKeycloak(page: Page, credentials?: KeycloakCredent
   }
 
   // If the app is already loaded (session cookie), skip auth entirely.
+  const targetUsername = credentials?.username ?? defaultUsername;
   const registerButton = page.getByTestId("metadata-register-open").first();
   const sessionReady = await registerButton.isVisible({ timeout: 5000 }).catch(() => false);
   if (sessionReady) {
-    if (!credentials) {
+    const currentUser = await page
+      .evaluate(() => document.body?.dataset?.metadataAuthUser ?? null)
+      .catch(() => null);
+    if (currentUser === targetUsername) {
       return;
-    }
-    const expandButton = page.getByRole("button", { name: /Expand sidebar/i });
-    if (await expandButton.isVisible({ timeout: 500 }).catch(() => false)) {
-      await expandButton.click();
     }
     const logoutButton = page.getByTestId("metadata-logout-button");
     if (await logoutButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await logoutButton.click();
+      await logoutButton.click({ force: true });
       await page.waitForTimeout(500);
-      await page.goto(`${metadataBase}/`, { waitUntil: "domcontentloaded" });
     } else {
       await page.evaluate(() => {
         window.sessionStorage.clear();
@@ -100,6 +99,7 @@ export async function loginViaKeycloak(page: Page, credentials?: KeycloakCredent
       });
       await page.reload();
     }
+    await page.goto(`${metadataBase}/`, { waitUntil: "domcontentloaded" });
   }
 
   const continueButton = page.getByRole("button", { name: /Continue with Keycloak/i });
@@ -261,35 +261,64 @@ async function ensureUserRoles(userId: string, roles: string[], adminToken: stri
   if (!response.ok) {
     throw new Error(`Failed to read Keycloak user roles (${response.status})`);
   }
-  const assigned = (await response.json()) as Array<{ name: string }>;
+  const assigned = (await response.json()) as Array<{ id: string; name: string }>;
   const assignedNames = new Set(assigned.map((role) => role.name));
   const missingRoles = roles.filter((role) => !assignedNames.has(role));
   if (!missingRoles.length) {
-    return;
-  }
-  const roleRepresentations = await Promise.all(
-    missingRoles.map(async (role) => {
-      const roleResponse = await fetch(`${keycloakBase}/admin/realms/${keycloakRealm}/roles/${role}`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
-      });
-      if (!roleResponse.ok) {
-        throw new Error(`Failed to load Keycloak role "${role}" (${roleResponse.status})`);
-      }
-      return (await roleResponse.json()) as { id: string; name: string };
-    }),
-  );
-  const assignResponse = await fetch(
-    `${keycloakBase}/admin/realms/${keycloakRealm}/users/${userId}/role-mappings/realm`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        "Content-Type": "application/json",
+    // continue to removal phase below
+  } else {
+    const roleRepresentations = await Promise.all(
+      missingRoles.map(async (role) => {
+        const roleResponse = await fetch(`${keycloakBase}/admin/realms/${keycloakRealm}/roles/${role}`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        if (!roleResponse.ok) {
+          throw new Error(`Failed to load Keycloak role "${role}" (${roleResponse.status})`);
+        }
+        return (await roleResponse.json()) as { id: string; name: string };
+      }),
+    );
+    const assignResponse = await fetch(
+      `${keycloakBase}/admin/realms/${keycloakRealm}/users/${userId}/role-mappings/realm`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(roleRepresentations),
       },
-      body: JSON.stringify(roleRepresentations),
-    },
-  );
-  if (!assignResponse.ok) {
-    throw new Error(`Failed to assign Keycloak roles (${assignResponse.status})`);
+    );
+    if (!assignResponse.ok) {
+      throw new Error(`Failed to assign Keycloak roles (${assignResponse.status})`);
+    }
+  }
+  const normalizedDesired = new Set(roles.map((role) => role.toLowerCase()));
+  const manageable = new Set(["admin", "manager", "writer", "editor", "reader"]);
+  const removalTargets = assigned.filter((role) => {
+    const normalized = role.name?.toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (!manageable.has(normalized)) {
+      return false;
+    }
+    return !normalizedDesired.has(normalized);
+  });
+  if (removalTargets.length > 0) {
+    const removalResponse = await fetch(
+      `${keycloakBase}/admin/realms/${keycloakRealm}/users/${userId}/role-mappings/realm`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(removalTargets),
+      },
+    );
+    if (!removalResponse.ok) {
+      throw new Error(`Failed to remove extraneous roles (${removalResponse.status})`);
+    }
   }
 }

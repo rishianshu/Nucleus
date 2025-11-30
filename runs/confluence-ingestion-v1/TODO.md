@@ -1,0 +1,6 @@
+- [x] Inspect ingestion planning/state modules (API + Temporal) to map where Jira-specific logic lives; identify extension points for Confluence segments/watermarks.
+- [x] Define Confluence ingestion config types (GraphQL schema + TS types) and update ingestion config resolvers to store/read `ConfluenceIngestionFilter`.
+- [x] Update metadata UI ingestion console to show Confluence filters (space picker, updatedFrom) powered by catalog metadata.
+- [x] Extend planner/static driver to surface Confluence units (pages, attachments) with supported modes/CDM metadata; ensure sink compatibility enforcement.
+- [x] Implement Confluence ingestion execution in Python runtime (raw + CDM) with incremental updatedAt watermarks + KV updates.
+- [ ] Add unit/integration tests (TS + Python + Playwright) and run `pnpm ci-check`. (GraphQL + Python unit tests added; remaining Playwright regressions captured in `docs/future-requirements/metadata-playwright-real-endpoints.md`.)

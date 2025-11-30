@@ -211,12 +211,17 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
                       ? "border-slate-900 bg-slate-900 text-white shadow-sm dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                       : "border-transparent text-slate-600 hover:border-slate-900 hover:text-slate-900 dark:text-slate-200"
                   } ${disabled ? "opacity-60" : ""}`}
+                  aria-label={item.label}
                 >
                   <Icon className="h-4 w-4" />
                   {!shellCollapsed && (
                     <span className="text-left">
                       {item.label}
-                      {disabled ? <span className="ml-1 text-xs text-slate-400">(soon)</span> : null}
+                      {disabled ? (
+                        <span aria-hidden="true" className="ml-1 text-xs text-slate-400">
+                          (soon)
+                        </span>
+                      ) : null}
                     </span>
                   )}
                 </button>
@@ -229,6 +234,7 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
               <p className="text-xs text-slate-500 dark:text-slate-400">{auth.user?.email ?? "—"}</p>
               <button
                 type="button"
+                data-testid="metadata-logout-button"
                 onClick={() => auth.logout()}
                 className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
               >

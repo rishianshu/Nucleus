@@ -11,6 +11,7 @@ import {
   type MetadataEndpointDescriptor,
   type TenantContext,
   type IngestionSinkContext,
+  type NormalizedRecord,
 } from "@metadata/core";
 import { resolveEndpointDriverId } from "../ingestion/helpers.js";
 import { getPrismaClient } from "../prismaClient.js";
@@ -579,7 +580,14 @@ export const activities: MetadataActivities = {
       cdmModelId: cdmModelId ?? null,
     };
     await sink.begin(context);
-    await sink.writeBatch({ records }, context);
+    const grouped = groupRecordsByCdmModel(records, context.cdmModelId ?? null);
+    for (const group of grouped) {
+      const groupContext: IngestionSinkContext = {
+        ...context,
+        cdmModelId: group.modelId ?? context.cdmModelId ?? null,
+      };
+      await sink.writeBatch({ records: group.records }, groupContext);
+    }
     if (sink.commit) {
       await sink.commit(context, stats ?? null);
     }
@@ -623,6 +631,33 @@ function normalizeSchemas(input: unknown[]): string[] {
   return input
     .map((schema) => (typeof schema === "string" ? schema.trim() : ""))
     .filter((schema) => Boolean(schema)) as string[];
+}
+
+function groupRecordsByCdmModel(
+  records: NormalizedRecord[],
+  defaultModelId: string | null,
+): Array<{ modelId: string | null; records: NormalizedRecord[] }> {
+  if (records.length === 0) {
+    return [];
+  }
+  const groups = new Map<string, { modelId: string | null; records: NormalizedRecord[] }>();
+  const pickKey = (modelId: string | null) => (modelId ?? "__default__");
+  const normalizedDefault = defaultModelId ?? null;
+  for (const record of records) {
+    const candidate = (record as unknown as { cdmModelId?: string | null }).cdmModelId;
+    const modelId = typeof candidate === "string" && candidate.length > 0 ? candidate : normalizedDefault;
+    const key = pickKey(modelId);
+    const bucket = groups.get(key);
+    if (bucket) {
+      bucket.records.push(record);
+    } else {
+      groups.set(key, { modelId, records: [record] });
+    }
+  }
+  if (groups.size === 0) {
+    return [{ modelId: normalizedDefault, records }];
+  }
+  return Array.from(groups.values());
 }
 
 async function runRegistryCommand(args: string[]) {

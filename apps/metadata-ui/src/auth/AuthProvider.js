@@ -52,6 +52,10 @@ export function AuthProvider({ children }) {
         }
         if (typeof document !== "undefined") {
             document.body.dataset.metadataAuthRole = mapped.role;
+            document.body.dataset.metadataAuthUser = mapped.username;
+        }
+        if (typeof window !== "undefined") {
+            window.__metadataAuthUser = mapped.username;
         }
         logAuthEvent("auth:role", { role: mapped.role });
         setPhase("authenticated");

@@ -132,7 +132,8 @@ The Knowledge Base stores semantic entities (projects, issues, users, lineage ed
 
 ## Preview workflow
 
-- GraphQL’s `previewMetadataDataset` looks up the catalog record + endpoint config, enforces the `preview` capability, and passes the request to Temporal.
+- `catalogDatasetPreview` returns the cached sample rows (from catalog metadata) so the UI can hydrate previews instantly without touching the upstream system.
+- `previewMetadataDataset` looks up the catalog record + endpoint config, enforces the `preview` capability, and passes the request to Temporal for an on-demand live sample.
 - To avoid changing activity signatures, HTTP/semantic endpoints encode their template id + parameters + dataset metadata as JSON inside the `connectionUrl` field. JDBC endpoints continue to send the raw JDBC URL.
 - The Python worker decodes the JSON payload (if present) and delegates to the endpoint’s metadata subsystem `preview_dataset` helper. Otherwise it falls back to the SQLAlchemy/JDBC preview path.
 - Jira’s metadata subsystem implements `preview_dataset`, reusing the `_sync_jira_*` helpers to return small batches of normalized payloads.

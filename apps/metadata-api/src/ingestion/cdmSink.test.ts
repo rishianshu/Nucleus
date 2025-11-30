@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { MetadataEndpointDescriptor, MetadataStore, NormalizedBatch, NormalizedRecord } from "@metadata/core";
-import { CdmJdbcSink } from "./cdmSink.js";
+import { CdmJdbcSink, CDM_MODEL_TABLES } from "./cdmSink.js";
 
 class FakeMetadataStore implements MetadataStore {
   constructor(private readonly endpoints: MetadataEndpointDescriptor[]) {}
@@ -96,7 +96,57 @@ test("cdm sink generates upsert statements for cdm.work.item", async () => {
   assert.equal(captured.length, 1);
   assert.match(captured[0].sql, /INSERT INTO "cdm_work"\."cdm_work_item"/);
   assert.ok(captured[0].params);
-  assert.equal((captured[0].params ?? []).length, 16);
+  assert.equal((captured[0].params ?? []).length, CDM_MODEL_TABLES["cdm.work.item"].columns.length);
+});
+
+test("cdm sink generates upsert statements for cdm.doc.item", async () => {
+  const sinkEndpoint: MetadataEndpointDescriptor = {
+    id: "sink-endpoint-2",
+    name: "CDM Sink",
+    verb: "POST",
+    url: "postgres://localhost",
+    config: {
+      templateId: "cdm.jdbc",
+      parameters: {
+        connection_url: "postgres://postgres:postgres@localhost:5432/test",
+        schema: "cdm_docs",
+        table_prefix: "cdm_",
+      },
+    },
+  } as MetadataEndpointDescriptor;
+  const metadataStore = new FakeMetadataStore([sinkEndpoint]) as unknown as MetadataStore;
+  const captured: { sql: string; params?: unknown[] }[] = [];
+  const sink = new CdmJdbcSink({
+    metadataStore,
+    poolFactory: async () => ({
+      query: async (sql: string, params?: unknown[]) => {
+        captured.push({ sql, params });
+      },
+      close: async () => {},
+    }),
+  });
+  const record = buildCdmDocItemRecord();
+  await sink.begin({
+    endpointId: "confluence",
+    unitId: "confluence.page",
+    sinkId: "cdm",
+    runId: "run-2",
+    sinkEndpointId: sinkEndpoint.id,
+    cdmModelId: "cdm.doc.item",
+  });
+  await sink.writeBatch({ records: [record] } satisfies NormalizedBatch, {
+    endpointId: "confluence",
+    unitId: "confluence.page",
+    sinkId: "cdm",
+    runId: "run-2",
+    sinkEndpointId: sinkEndpoint.id,
+    cdmModelId: "cdm.doc.item",
+  });
+  await sink.commit({ endpointId: "confluence", unitId: "confluence.page", sinkId: "cdm", runId: "run-2" });
+  assert.equal(captured.length, 1);
+  assert.match(captured[0].sql, /INSERT INTO "cdm_docs"\."cdm_doc_item"/);
+  assert.ok(captured[0].params);
+  assert.equal((captured[0].params ?? []).length, CDM_MODEL_TABLES["cdm.doc.item"].columns.length);
 });
 
 function buildCdmWorkItemRecord(): NormalizedRecord {
@@ -123,6 +173,32 @@ function buildCdmWorkItemRecord(): NormalizedRecord {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       closed_at: null,
+      properties: {},
+    },
+  };
+}
+
+function buildCdmDocItemRecord(): NormalizedRecord {
+  return {
+    entityType: "doc.page",
+    logicalId: "confluence::example::page::123",
+    scope: { orgId: "dev" },
+    provenance: { endpointId: "confluence", vendor: "confluence" },
+    payload: {
+      cdm_id: "cdm:doc:item:confluence:123",
+      source_system: "confluence",
+      source_item_id: "123",
+      space_cdm_id: "cdm:doc:space:confluence:ENG",
+      parent_item_cdm_id: null,
+      title: "Incident Runbook",
+      doc_type: "page",
+      mime_type: "storage",
+      created_by_cdm_id: "cdm:work:user:confluence:author",
+      updated_by_cdm_id: "cdm:work:user:confluence:editor",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      url: "https://example.atlassian.net/wiki/spaces/ENG/pages/123",
+      tags: ["runbook"],
       properties: {},
     },
   };

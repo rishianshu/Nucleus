@@ -1,4 +1,4 @@
-import { proxyActivities, workflowInfo, log } from "@temporalio/workflow";
+import { proxyActivities, workflowInfo, log, ApplicationFailure } from "@temporalio/workflow";
 import type { CatalogRecordInput, CollectionJobRequest, MetadataActivities } from "./activities.js";
 
 export const WORKFLOW_NAMES = {
@@ -172,7 +172,12 @@ export async function buildEndpointConfigWorkflow(input: {
 }
 
 export async function testEndpointConnectionWorkflow(input: { templateId: string; parameters: Record<string, string> }) {
-  return testEndpointConnectionActivity(input);
+  try {
+    return await testEndpointConnectionActivity(input);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw ApplicationFailure.nonRetryable(message, "EndpointTestFailure");
+  }
 }
 
 export async function previewDatasetWorkflow(input: {
@@ -183,7 +188,14 @@ export async function previewDatasetWorkflow(input: {
   connectionUrl: string;
 }) {
   return pythonActivities.previewDataset.executeWithOptions(
-    { taskQueue: PYTHON_ACTIVITY_TASK_QUEUE, scheduleToCloseTimeout: "5 minutes" },
+    {
+      taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
+      scheduleToCloseTimeout: "5 minutes",
+      retry: {
+        maximumAttempts: 3,
+        nonRetryableErrorTypes: ["SampleDatasetPreview"],
+      },
+    },
     [input],
   );
 }

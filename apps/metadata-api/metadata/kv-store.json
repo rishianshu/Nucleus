@@ -896,5 +896,993 @@
     },
     "version": "59a9a206aece49ea903056314f2dd200",
     "updatedAt": "2025-11-28T09:27:38.212Z"
+  },
+  "ingest::global-playwright-jira-ingestion-mikk6thu-84e87e30488843cca015cbca0b454beb::endpoint::5bf0be37d87342188c7cb156975ebf31::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T22:52:07.950946"
+      },
+      "lastRunId": "36053d4e-9780-43c7-8e90-86296114e217",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:22:08.039Z"
+    },
+    "version": "ff0d9e45de2f4a2cb9202ab09bb680a0",
+    "updatedAt": "2025-11-29T17:22:08.074Z"
+  },
+  "ingest_state::endpoint::5bf0be37d87342188c7cb156975ebf31::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:22:08.084Z"
+    },
+    "version": "800fe42e2918479a9601e9e35b6218e3",
+    "updatedAt": "2025-11-29T17:22:08.087Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikk6xjc-dba654956d314ca495793e17572abc73::endpoint::4e96ab45df194c7f960220bb25e80507::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T22:52:12.613852"
+      },
+      "lastRunId": "0bc7cdfd-3f95-47ef-a595-3005b2744ed8",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:22:12.793Z"
+    },
+    "version": "c504bdd7f3ef4c3e93d9cfd049b966fe",
+    "updatedAt": "2025-11-29T17:22:12.794Z"
+  },
+  "ingest_state::endpoint::4e96ab45df194c7f960220bb25e80507::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:22:12.795Z"
+    },
+    "version": "8d02d99d480e4f7ab8346964677ce486",
+    "updatedAt": "2025-11-29T17:22:12.797Z"
+  },
+  "ingest::global-playwright-jira-ingestion-mikkczo6-2ef4cb67d2e748959a711d0bd272c111::endpoint::079642d9864847319c1b78e53d30e34a::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T22:56:55.451018"
+      },
+      "lastRunId": "76f06ee5-172e-4e8e-b919-45904421699b",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:26:55.510Z"
+    },
+    "version": "39a2751d31394f88951546fc2d690752",
+    "updatedAt": "2025-11-29T17:26:55.511Z"
+  },
+  "ingest_state::endpoint::079642d9864847319c1b78e53d30e34a::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:26:55.512Z"
+    },
+    "version": "a712702c6a9f41cbaf8ec2141b22e8dc",
+    "updatedAt": "2025-11-29T17:26:55.512Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikkd3d1-f9991136477d4ce9bd9f8e288363f34d::endpoint::a703f9d74cc74313b31e36236bb7ad82::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T22:57:00.274242"
+      },
+      "lastRunId": "80694fd6-830a-43fb-9a12-219a614ed1a4",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:27:00.357Z"
+    },
+    "version": "465e28c039ba4e31b91b619d1b7a09fb",
+    "updatedAt": "2025-11-29T17:27:00.358Z"
+  },
+  "ingest_state::endpoint::a703f9d74cc74313b31e36236bb7ad82::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:27:00.360Z"
+    },
+    "version": "5c64fc934c2244eb87ae0be24007c0b8",
+    "updatedAt": "2025-11-29T17:27:00.361Z"
+  },
+  "ingest::global-playwright-jira-ingestion-mikkq0bn-c4250ffa2b824affa002986612a09d8f::endpoint::401fe2361a0444c389736942e4fb4ccf::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T23:07:02.999204"
+      },
+      "lastRunId": "72514dfa-fdd7-4876-9cd0-a0a37bba692c",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:37:03.041Z"
+    },
+    "version": "91ee8d9d5c514b41b0f502582a04de81",
+    "updatedAt": "2025-11-29T17:37:03.042Z"
+  },
+  "ingest_state::endpoint::401fe2361a0444c389736942e4fb4ccf::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:37:03.043Z"
+    },
+    "version": "786ba2b0ff5b444da78df224d136d567",
+    "updatedAt": "2025-11-29T17:37:03.043Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikkq48k-bcd0474d32704f73a51b97ca48e5b703::endpoint::abb9a9f8931f4aaabaa096f019582934::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T23:07:08.082649"
+      },
+      "lastRunId": "81894051-0e00-4f26-b668-5b6c75e169fe",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:37:08.155Z"
+    },
+    "version": "51f531b933f24d16b1d0fdb00c7ddfe5",
+    "updatedAt": "2025-11-29T17:37:08.156Z"
+  },
+  "ingest_state::endpoint::abb9a9f8931f4aaabaa096f019582934::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:37:08.162Z"
+    },
+    "version": "cdb92ada7625462593b4fbe852704d6e",
+    "updatedAt": "2025-11-29T17:37:08.162Z"
+  },
+  "ingest::global-debug-jira-endpoint-8d9147e6f96d42829d3ab71e6607fc94::endpoint::872c4ddf85d648c797e1d65ce55a509c::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T23:26:59.104566"
+      },
+      "lastRunId": "c18f4a78-e1d4-46c0-b75a-9da7521c6492",
+      "stats": {
+        "projectsSynced": 0,
+        "recordCount": 0,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:56:59.856Z"
+    },
+    "version": "0579fc393ca3403994e08963226f5672",
+    "updatedAt": "2025-11-29T17:56:59.910Z"
+  },
+  "ingest_state::endpoint::872c4ddf85d648c797e1d65ce55a509c::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:56:59.926Z"
+    },
+    "version": "467f10454b624d4a9d993e2212e463b5",
+    "updatedAt": "2025-11-29T17:56:59.931Z"
+  },
+  "ingest::global-playwright-jira-ingestion-mikl2faz-9273dbb3686c434baadf3d362d31804a::endpoint::b1f116c248ba4d80ae8a6f33f4fbdb74::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T23:26:58.902803"
+      },
+      "lastRunId": "c3aeb25f-5e0b-4100-b673-56cce810368d",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T17:57:01.255Z"
+    },
+    "version": "64deb6e4e77f421f82aaeb6ed76ac8d3",
+    "updatedAt": "2025-11-29T17:57:01.259Z"
+  },
+  "ingest_state::endpoint::b1f116c248ba4d80ae8a6f33f4fbdb74::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T17:57:01.273Z"
+    },
+    "version": "c232b2bb1fd94b94853f1c8107f7937a",
+    "updatedAt": "2025-11-29T17:57:01.277Z"
+  },
+  "ingest::global-playwright-jira-ingestion-mikljt4e-7bb4f4011b50420c9c50283f38cefa89::endpoint::63e390d3b1a54581b02f308e36adbaba::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T23:30:13.421892"
+      },
+      "lastRunId": "2321e745-1529-4c88-abd9-076e681ee76d",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T18:00:13.864Z"
+    },
+    "version": "1cd77a0d1419453582975e4e485726f1",
+    "updatedAt": "2025-11-29T18:00:13.865Z"
+  },
+  "ingest_state::endpoint::63e390d3b1a54581b02f308e36adbaba::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T18:00:13.867Z"
+    },
+    "version": "b6d34dc3fc8e4dfab06854baa7854944",
+    "updatedAt": "2025-11-29T18:00:13.867Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikljxh5-970645c78f0a4f7ab70d6bb453f87b2c::endpoint::10b4024d830e4d96adfa17f6b1cb15f2::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-29T23:30:19.487812"
+      },
+      "lastRunId": "54201580-1971-4302-9d5f-aad2e1b6e6c3",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T18:00:19.580Z"
+    },
+    "version": "217e39ceb5564d03b07dc1ca562b0d72",
+    "updatedAt": "2025-11-29T18:00:19.582Z"
+  },
+  "ingest_state::endpoint::10b4024d830e4d96adfa17f6b1cb15f2::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T18:00:19.584Z"
+    },
+    "version": "2b919a566c40461ea3b82f447d63d326",
+    "updatedAt": "2025-11-29T18:00:19.585Z"
+  },
+  "ingest::global-playwright-jira-ingestion-mikoxjsg-72d55eea3a224c188d94917a233aa382::endpoint::1fed7501f6fb45e99066d38e1213d492::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T01:25:50.861488"
+      },
+      "lastRunId": "ef78b4a5-4877-44b1-a502-d159467a14b8",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T19:55:52.124Z"
+    },
+    "version": "c8a35effa08b49919ff5799db337c941",
+    "updatedAt": "2025-11-29T19:55:52.141Z"
+  },
+  "ingest_state::endpoint::1fed7501f6fb45e99066d38e1213d492::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T19:55:52.154Z"
+    },
+    "version": "18c0a2e51c774332a9b3031ee38cb4ec",
+    "updatedAt": "2025-11-29T19:55:52.161Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikp7rz0-a11984ed8f394c168d341e1cbffde1e7::endpoint::4cc79cfce086471a84de8071cc1bfe66::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T01:25:50.858118"
+      },
+      "lastRunId": "3d2ea7f3-0206-4310-9b82-07bbabaeb01d",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T19:55:52.305Z"
+    },
+    "version": "9eb98caddce44bc9bf174c2b42626398",
+    "updatedAt": "2025-11-29T19:55:52.309Z"
+  },
+  "ingest_state::endpoint::4cc79cfce086471a84de8071cc1bfe66::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T19:55:52.310Z"
+    },
+    "version": "7b422ffe56aa46c9b2662993b02b5ddc",
+    "updatedAt": "2025-11-29T19:55:52.311Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikpx7ls-a272cd4213a44ea3aed88e63040171c8::endpoint::e34ba47077674ff0952c24e48ad12a8d::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T01:32:38.007849"
+      },
+      "lastRunId": "30bc107b-bba7-4eff-91c6-7cbc66b6a926",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T20:02:38.202Z"
+    },
+    "version": "bed0c24494ae4165b4af63f98cdf15af",
+    "updatedAt": "2025-11-29T20:02:38.204Z"
+  },
+  "ingest_state::endpoint::e34ba47077674ff0952c24e48ad12a8d::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T20:02:38.208Z"
+    },
+    "version": "e297c1972ba64269868e421a8a062c46",
+    "updatedAt": "2025-11-29T20:02:38.211Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikqm978-eedde83536d44dfe986727e416dd01fb::endpoint::7011a250acd64dd88ba03708fd81b525::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T01:52:06.706781"
+      },
+      "lastRunId": "cf97ea07-4c0a-48b9-bd66-ce2c3dda4808",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T20:22:06.935Z"
+    },
+    "version": "963b31ca9aab4376906bfeab93cf8730",
+    "updatedAt": "2025-11-29T20:22:06.965Z"
+  },
+  "ingest_state::endpoint::7011a250acd64dd88ba03708fd81b525::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T20:22:06.974Z"
+    },
+    "version": "6ba0ea55284349a8b57f55a535d06d0a",
+    "updatedAt": "2025-11-29T20:22:07.010Z"
+  },
+  "ingest::global-playwright-jira-temporal-mikqrfth-030f25e665bf46509ad3f240819a20cd::endpoint::7c4a4ec54408475f912ff6edde100195::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T01:56:07.576068"
+      },
+      "lastRunId": "608242d5-7292-402d-8c20-4f61d348a9c7",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-29T20:26:07.763Z"
+    },
+    "version": "8665dfaa28dc44afaea56ee43dc06618",
+    "updatedAt": "2025-11-29T20:26:07.769Z"
+  },
+  "ingest_state::endpoint::7c4a4ec54408475f912ff6edde100195::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-29T20:26:07.772Z"
+    },
+    "version": "1d2c0d06ee2c43ae8178ec73dd60dd15",
+    "updatedAt": "2025-11-29T20:26:07.774Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil5py9j-a8fe6733e5eb4f37a6e9920168108bc5::endpoint::a8f849bcc6894cc2881b5d8ea1f806d5::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T08:54:52.713553"
+      },
+      "lastRunId": "eb555bc6-40fa-4e11-9b54-92c488743224",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T03:24:52.871Z"
+    },
+    "version": "916340ee565447d0a352de47ef6a1aa6",
+    "updatedAt": "2025-11-30T03:24:52.875Z"
+  },
+  "ingest_state::endpoint::a8f849bcc6894cc2881b5d8ea1f806d5::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T03:24:52.878Z"
+    },
+    "version": "13e814f8b380490cb6884239b6fde9ab",
+    "updatedAt": "2025-11-30T03:24:52.880Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil6nu30-37a79088b5ed4fe5ad4d7816eadde7b2::endpoint::69ce90dbb64f4d4cbbec392f1a2ebf78::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T09:21:12.844004"
+      },
+      "lastRunId": "2f9d8717-dcbd-4659-aa94-1718c738561b",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T03:51:13.045Z"
+    },
+    "version": "8c0d522ab82e45d2b38fb0a99df1f347",
+    "updatedAt": "2025-11-30T03:51:13.057Z"
+  },
+  "ingest_state::endpoint::69ce90dbb64f4d4cbbec392f1a2ebf78::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T03:51:13.059Z"
+    },
+    "version": "364be0022ad24638ac77b878115a66fd",
+    "updatedAt": "2025-11-30T03:51:13.060Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil6wzc6-5e03c9c2df8e4062865c890028f549a3::endpoint::14c551104e66468fa53be99fa5d893bf::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T09:28:19.608728"
+      },
+      "lastRunId": "05857b57-8d44-4647-aa9e-a9911a6ad35a",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T03:58:19.713Z"
+    },
+    "version": "1f38e23b74294120a7a33c0dea8b6653",
+    "updatedAt": "2025-11-30T03:58:19.724Z"
+  },
+  "ingest_state::endpoint::14c551104e66468fa53be99fa5d893bf::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T03:58:19.726Z"
+    },
+    "version": "0b543b19e6cf41ca9fa7e3094430459e",
+    "updatedAt": "2025-11-30T03:58:19.726Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil72v8q-1a5e9542e12441109addace85df3b659::endpoint::d5456e4d7eb24c099d21f1a7a8209793::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T09:32:53.961397"
+      },
+      "lastRunId": "168a744d-f79c-47ab-9310-ca5feb1b3c3a",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T04:02:54.158Z"
+    },
+    "version": "33db6552d4bc4dcfa1ffa9dde8d687ab",
+    "updatedAt": "2025-11-30T04:02:54.164Z"
+  },
+  "ingest_state::endpoint::d5456e4d7eb24c099d21f1a7a8209793::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T04:02:54.166Z"
+    },
+    "version": "1870d5799d6c4552b9c910719af710ad",
+    "updatedAt": "2025-11-30T04:02:54.167Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil78hul-08d9375426e34477a44bd3cacaa43bbf::endpoint::909bcc18e7c947a5a06907cd2e958ebf::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T09:37:16.926509"
+      },
+      "lastRunId": "39ae0432-c561-4b6c-8f03-7cb230f1e83e",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T04:07:17.029Z"
+    },
+    "version": "123241b9d2df4ae7b4e211abfac31db2",
+    "updatedAt": "2025-11-30T04:07:17.038Z"
+  },
+  "ingest_state::endpoint::909bcc18e7c947a5a06907cd2e958ebf::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T04:07:17.039Z"
+    },
+    "version": "2864e45f49b84b41880ad7d0fd5b9a61",
+    "updatedAt": "2025-11-30T04:07:17.039Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil7ddsz-7fabcd86e30842139e17e1447c438f6b::endpoint::3259a9ac389e40deb9ecb5a13bfea654::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T09:41:06.588696"
+      },
+      "lastRunId": "9db30d93-9aad-4319-84e4-76c2a3a3a284",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T04:11:06.696Z"
+    },
+    "version": "15ec95fb07184ec1a2fd61de0abaa28c",
+    "updatedAt": "2025-11-30T04:11:06.713Z"
+  },
+  "ingest_state::endpoint::3259a9ac389e40deb9ecb5a13bfea654::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T04:11:06.715Z"
+    },
+    "version": "9278392087134289a78e5f4663db998d",
+    "updatedAt": "2025-11-30T04:11:06.716Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil80b6l-df5311e6b1404d2883e808c76ad9b618::endpoint::9183690ef5674613be526bba70931a7e::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T09:58:54.385639"
+      },
+      "lastRunId": "1a27ecf9-51a0-46ac-8d52-bc413f921107",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T04:28:54.477Z"
+    },
+    "version": "602f8dd226e7486a8841ab5d2bc9b7cb",
+    "updatedAt": "2025-11-30T04:28:54.482Z"
+  },
+  "ingest_state::endpoint::9183690ef5674613be526bba70931a7e::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T04:28:54.483Z"
+    },
+    "version": "67db37b10bff4740a9a3180ea358887d",
+    "updatedAt": "2025-11-30T04:28:54.483Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil8kccd-7adf4f285e7b4bf3a2e83bfc60ef9af5::endpoint::047080ef552647f7a9293b307e203c3d::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T10:14:29.088956"
+      },
+      "lastRunId": "95d97b8c-9583-43f1-8ec2-81227ea5b52b",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T04:44:29.191Z"
+    },
+    "version": "8d45ea7ea3074d3fb7988ec99d640ef3",
+    "updatedAt": "2025-11-30T04:44:29.192Z"
+  },
+  "ingest_state::endpoint::047080ef552647f7a9293b307e203c3d::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T04:44:29.193Z"
+    },
+    "version": "25d019314325408d9a7d6ed708c7defb",
+    "updatedAt": "2025-11-30T04:44:29.193Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil9h70b-d23ac6caf9904475b5ea6ae818e84161::endpoint::acdafaba227447c486db5cc137acf575::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T10:40:02.099488"
+      },
+      "lastRunId": "c3a7ae98-ee2e-45c5-9950-a916ae30611b",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T05:10:02.147Z"
+    },
+    "version": "1e157e2e01d34054a9a0470509b0cb07",
+    "updatedAt": "2025-11-30T05:10:02.147Z"
+  },
+  "ingest_state::endpoint::acdafaba227447c486db5cc137acf575::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T05:10:02.148Z"
+    },
+    "version": "503a08b594bc421497583968dc767e4b",
+    "updatedAt": "2025-11-30T05:10:02.149Z"
+  },
+  "ingest::global-playwright-jira-temporal-mil9x1pd-702499b636444247909d955404dcb566::endpoint::838820f003274538af61b131c118d07c::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T10:52:23.834590"
+      },
+      "lastRunId": "3ac195a2-554f-4d3c-8eab-6b1015f3fda3",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T05:22:26.025Z"
+    },
+    "version": "9e9e798f8d88451abb5f24fc3a73ea0c",
+    "updatedAt": "2025-11-30T05:22:27.247Z"
+  },
+  "ingest_state::endpoint::838820f003274538af61b131c118d07c::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T05:22:27.370Z"
+    },
+    "version": "b226b3df33db40959b123cce9a870f38",
+    "updatedAt": "2025-11-30T05:22:27.464Z"
+  },
+  "ingest::global-playwright-jira-temporal-milab8ol-4c5797425c5241efb8d544d987fc544e::endpoint::920bf3ee21f344b08ae016e91f5bb69f::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T11:07:23.074110"
+      },
+      "lastRunId": "eb96700b-cfbc-4e1e-a586-5409791a2cee",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T05:37:23.344Z"
+    },
+    "version": "d32473167b9341439fd7a9848f61250e",
+    "updatedAt": "2025-11-30T05:37:23.352Z"
+  },
+  "ingest_state::endpoint::920bf3ee21f344b08ae016e91f5bb69f::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T05:37:23.356Z"
+    },
+    "version": "aa59687f6ce34992ad76e903898f1401",
+    "updatedAt": "2025-11-30T05:37:23.357Z"
+  },
+  "ingest::global-playwright-jira-temporal-milaxcuh-f8e945ba15144a4c815e074b7854668f::endpoint::ec15227a4e224ba192946a7818ce1192::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T11:20:36.030147"
+      },
+      "lastRunId": "7c57ead8-0d12-432a-8e32-cb3665df71a9",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T05:50:36.102Z"
+    },
+    "version": "0d31d36d91c747f39a08656ddf5e7aa5",
+    "updatedAt": "2025-11-30T05:50:36.112Z"
+  },
+  "ingest_state::endpoint::ec15227a4e224ba192946a7818ce1192::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T05:50:36.114Z"
+    },
+    "version": "76c0023ab4654f2d803cca1a920ade6a",
+    "updatedAt": "2025-11-30T05:50:36.116Z"
+  },
+  "ingest::global-playwright-jira-temporal-milbogpf-a7a03e6192014b9b9d751e5bde98d4e1::endpoint::534d429722e3403e9b8b66b888d80faf::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T11:41:40.107041"
+      },
+      "lastRunId": "f3de521b-7c4a-408d-b444-8878b4cb23f6",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T06:11:40.167Z"
+    },
+    "version": "3fd6e27581404fabbbec8eb8ce271d52",
+    "updatedAt": "2025-11-30T06:11:40.168Z"
+  },
+  "ingest_state::endpoint::534d429722e3403e9b8b66b888d80faf::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T06:11:40.169Z"
+    },
+    "version": "2646b6122eb44764b8e3b0213b2085c3",
+    "updatedAt": "2025-11-30T06:11:40.170Z"
+  },
+  "ingest::global-playwright-jira-temporal-milbypqy-b40e0e48e3284cf5ac2968d3f1a3a2b2::endpoint::5e8e0fa98e2246749986e2d84c6eab2f::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T11:49:38.470732"
+      },
+      "lastRunId": "a45f434b-3473-418a-86d0-8c668c49ce91",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T06:19:38.581Z"
+    },
+    "version": "09c43847e392445fbf9f36b2590842fe",
+    "updatedAt": "2025-11-30T06:19:38.581Z"
+  },
+  "ingest_state::endpoint::5e8e0fa98e2246749986e2d84c6eab2f::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T06:19:38.583Z"
+    },
+    "version": "05b68c7369b7437b9b7654be0be68a0c",
+    "updatedAt": "2025-11-30T06:19:38.583Z"
+  },
+  "ingest::global-playwright-jira-temporal-mile3827-7e3c898377a5418fa890bc27ebcbc840::endpoint::feecd66d087e469fb0490605b1cdcdf8::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T12:49:13.199240"
+      },
+      "lastRunId": "4db0df9e-c0b4-4366-a495-60e4bd81fe7a",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T07:19:13.724Z"
+    },
+    "version": "44e34215258e458fbf6d41b19e3d739b",
+    "updatedAt": "2025-11-30T07:19:13.729Z"
+  },
+  "ingest_state::endpoint::feecd66d087e469fb0490605b1cdcdf8::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T07:19:13.731Z"
+    },
+    "version": "656e4a9ef79c4f6e8756ce75ab01cc01",
+    "updatedAt": "2025-11-30T07:19:13.733Z"
+  },
+  "ingest::global-playwright-jira-temporal-milebwit-d418c60ca79a4ce3882fdb2a5fbe484a::endpoint::61bd2eb228334cfa9ec057ffe6645d06::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T12:55:54.301179"
+      },
+      "lastRunId": "ed048b9e-67c9-43ee-9cd1-6f89a1121846",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T07:25:54.423Z"
+    },
+    "version": "d0a07a76cd8441bc946d44d8de3a6af7",
+    "updatedAt": "2025-11-30T07:25:54.424Z"
+  },
+  "ingest_state::endpoint::61bd2eb228334cfa9ec057ffe6645d06::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T07:25:54.425Z"
+    },
+    "version": "b5c83cb36aaf48ed85b4e6f6c8beadd7",
+    "updatedAt": "2025-11-30T07:25:54.425Z"
+  },
+  "ingest::global-playwright-jira-temporal-milgsicj-6195a52229e94ac09e9c3ee1d43110bf::endpoint::d76f529d901046508d9d6512e344c292::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T14:04:47.403668"
+      },
+      "lastRunId": "a847f2e4-ece3-4d32-bcf6-22f467226809",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T08:34:47.714Z"
+    },
+    "version": "a12e1e7e49b5468385917e4727ad53b6",
+    "updatedAt": "2025-11-30T08:34:47.719Z"
+  },
+  "ingest_state::endpoint::d76f529d901046508d9d6512e344c292::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T08:34:47.721Z"
+    },
+    "version": "b099a0b4659744bbbd1b0d3d99d2032b",
+    "updatedAt": "2025-11-30T08:34:47.721Z"
+  },
+  "ingest::global-playwright-jira-temporal-milh6xfa-b6559de33f874db8aac7273c3376b988::endpoint::ec8a9ed6fb8a487dac11d27686874c03::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T14:16:00.060562"
+      },
+      "lastRunId": "1a794fa8-9715-48ef-bd4e-3ab2472fe7b4",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T08:46:00.111Z"
+    },
+    "version": "0216315bf73340fc90068fcf2354d3cc",
+    "updatedAt": "2025-11-30T08:46:00.127Z"
+  },
+  "ingest_state::endpoint::ec8a9ed6fb8a487dac11d27686874c03::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T08:46:00.130Z"
+    },
+    "version": "e183327e0da74742b3fc8765c3c24395",
+    "updatedAt": "2025-11-30T08:46:00.131Z"
+  },
+  "ingest::global-playwright-jira-temporal-milhr7pz-5c37df15d3d94cd198fe78572dfb7256::endpoint::6489f8b72e1c4a0180b45539f261005d::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T14:31:46.918572"
+      },
+      "lastRunId": "199075fb-6343-4ef0-a1f8-b84c58d1913f",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T09:01:47.016Z"
+    },
+    "version": "ef377b0b18514d6cbb012f2f5c99dfdb",
+    "updatedAt": "2025-11-30T09:01:47.020Z"
+  },
+  "ingest_state::endpoint::6489f8b72e1c4a0180b45539f261005d::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T09:01:47.026Z"
+    },
+    "version": "9b8f2ca81f9d417eba62e6979d95f917",
+    "updatedAt": "2025-11-30T09:01:47.027Z"
+  },
+  "ingest::global-playwright-jira-temporal-milhz01z-43e2432712ca4b21a581388f3f895c40::endpoint::da5f2201d09b471d9de15fe840b4f7db::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T14:37:50.211398"
+      },
+      "lastRunId": "99ebacbb-fbf5-40ac-8750-20c929be4504",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T09:07:50.306Z"
+    },
+    "version": "0433a8f94d0f44a297cfd3e29b3ed291",
+    "updatedAt": "2025-11-30T09:07:50.307Z"
+  },
+  "ingest_state::endpoint::da5f2201d09b471d9de15fe840b4f7db::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T09:07:50.311Z"
+    },
+    "version": "3f9c337fca4645169c43ad2bb8060f8f",
+    "updatedAt": "2025-11-30T09:07:50.313Z"
+  },
+  "ingest::global-playwright-jira-temporal-mili7hh6-6bc02bd14ab14964ad3d9e9461d52798::endpoint::ade2d9c530e1402b9f1d3519c84cbc6b::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T14:44:25.267035"
+      },
+      "lastRunId": "b4ce7e41-fc25-4057-9b18-aa1c28f1e68c",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T09:14:25.443Z"
+    },
+    "version": "4db86dd14c714320a2e371c9cbefe8f3",
+    "updatedAt": "2025-11-30T09:14:25.445Z"
+  },
+  "ingest_state::endpoint::ade2d9c530e1402b9f1d3519c84cbc6b::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T09:14:25.447Z"
+    },
+    "version": "eb91aa62a5f94dbba05d4294fc94ae4b",
+    "updatedAt": "2025-11-30T09:14:25.449Z"
+  },
+  "ingest::global-playwright-jira-temporal-milipo7k-3fa5e060d75046078dadae408ed86a95::endpoint::ff1597658a21479facea3846b822b03d::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T14:58:33.856547"
+      },
+      "lastRunId": "4e7db11a-2225-42d4-acd5-b320a541b1ac",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T09:28:33.974Z"
+    },
+    "version": "27f5ce20a35746a6926a41e4207dd73c",
+    "updatedAt": "2025-11-30T09:28:33.990Z"
+  },
+  "ingest_state::endpoint::ff1597658a21479facea3846b822b03d::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T09:28:33.993Z"
+    },
+    "version": "574d02e8ecaf4fa38e99badcfaaf440d",
+    "updatedAt": "2025-11-30T09:28:33.993Z"
+  },
+  "ingest::global-playwright-jira-temporal-milk0tt1-a35aec6254c24059a0639d1c81f949ff::endpoint::cbc98f2e00b44741a77b91e2fcb637b0::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-11-30T15:35:15.602379"
+      },
+      "lastRunId": "067fe012-dfb7-460a-bef4-c8fca1bad246",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T10:05:15.763Z"
+    },
+    "version": "e0ef4779965143dda92d13e3d9a9a600",
+    "updatedAt": "2025-11-30T10:05:15.780Z"
+  },
+  "ingest_state::endpoint::cbc98f2e00b44741a77b91e2fcb637b0::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T10:05:15.783Z"
+    },
+    "version": "8e37553c3a774d3bb00a955d56d4f79c",
+    "updatedAt": "2025-11-30T10:05:15.784Z"
   }
 }

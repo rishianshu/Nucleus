@@ -27,6 +27,7 @@ import {
   RESET_INGESTION_CHECKPOINT_MUTATION,
   CONFIGURE_INGESTION_UNIT_MUTATION,
   JIRA_FILTER_OPTIONS_QUERY,
+  CONFLUENCE_FILTER_OPTIONS_QUERY,
 } from "../metadata/queries";
 import {
   IngestionStatusSummary,
@@ -37,6 +38,8 @@ import {
   MetadataEndpointSummary,
   JiraIngestionFilterSummary,
   JiraFilterOptions,
+  ConfluenceIngestionFilterSummary,
+  ConfluenceFilterOptions,
 } from "../metadata/types";
 import { useDebouncedValue, useToastQueue } from "../metadata/hooks";
 import type { Role } from "../auth/AuthProvider";
@@ -77,6 +80,10 @@ type JiraFilterQueryResult = {
   jiraIngestionFilterOptions: JiraFilterOptions;
 };
 
+type ConfluenceFilterQueryResult = {
+  confluenceIngestionFilterOptions: ConfluenceFilterOptions;
+};
+
 type ActionMutationResult = {
   startIngestion?: IngestionActionResult;
   pauseIngestion?: IngestionActionResult;
@@ -100,6 +107,11 @@ type JiraFilterFormState = {
   updatedFrom: string | null;
 };
 
+type ConfluenceFilterFormState = {
+  spaceKeys: string[];
+  updatedFrom: string | null;
+};
+
 type ConfigFormState = {
   enabled: boolean;
   runMode: string;
@@ -110,6 +122,7 @@ type ConfigFormState = {
   sinkEndpointId: string | null;
   policyText: string;
   jiraFilter: JiraFilterFormState;
+  confluenceFilter: ConfluenceFilterFormState;
 };
 
 type ConfigOverrides = {
@@ -122,6 +135,7 @@ type ConfigOverrides = {
   scheduleIntervalMinutes?: number | null;
   policy?: Record<string, unknown> | null;
   jiraFilter?: JiraFilterFormState | null;
+  confluenceFilter?: ConfluenceFilterFormState | null;
 };
 
 const endpointSidebarWidth = 320;
@@ -130,6 +144,11 @@ const DEFAULT_JIRA_FILTER_FORM: JiraFilterFormState = {
   projectKeys: [],
   statuses: [],
   assigneeIds: [],
+  updatedFrom: null,
+};
+
+const DEFAULT_CONFLUENCE_FILTER_FORM: ConfluenceFilterFormState = {
+  spaceKeys: [],
   updatedFrom: null,
 };
 
@@ -161,6 +180,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
   const [jiraFilterOptions, setJiraFilterOptions] = useState<JiraFilterOptions | null>(null);
   const [jiraFilterLoading, setJiraFilterLoading] = useState(false);
   const [jiraFilterError, setJiraFilterError] = useState<string | null>(null);
+  const [confluenceFilterOptions, setConfluenceFilterOptions] = useState<ConfluenceFilterOptions | null>(null);
+  const [confluenceFilterLoading, setConfluenceFilterLoading] = useState(false);
+  const [confluenceFilterError, setConfluenceFilterError] = useState<string | null>(null);
   const sinkDescriptorMap = useMemo(() => new Map(sinkDescriptors.map((sink) => [sink.id, sink])), [sinkDescriptors]);
   const cdmSinkEndpoints = useMemo(
     () =>
@@ -212,6 +234,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
       ? true
       : sinkSupportsCdm(configForm.sinkId, configuringUnit.cdmModelId);
   const supportsJiraFilters = Boolean(configuringUnit && isJiraUnitId(configuringUnit.unitId));
+  const supportsConfluenceFilters = Boolean(configuringUnit && isConfluenceUnitId(configuringUnit.unitId));
   const saveDisabled = !configForm || configSaving || (cdmModeActive && !selectedSinkSupportsCdm);
   const toastQueue = useToastQueue();
   const isAdmin = userRole === "ADMIN";
@@ -435,6 +458,51 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     };
   }, [metadataEndpoint, authToken, configuringUnit]);
 
+  useEffect(() => {
+    if (
+      !metadataEndpoint ||
+      !authToken ||
+      !configuringUnit ||
+      !isConfluenceUnitId(configuringUnit.unitId)
+    ) {
+      setConfluenceFilterOptions(null);
+      setConfluenceFilterError(null);
+      setConfluenceFilterLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setConfluenceFilterLoading(true);
+    setConfluenceFilterError(null);
+    fetchMetadataGraphQL<ConfluenceFilterQueryResult>(
+      metadataEndpoint,
+      CONFLUENCE_FILTER_OPTIONS_QUERY,
+      { endpointId: configuringUnit.endpointId },
+      undefined,
+      { token: authToken ?? undefined },
+    )
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setConfluenceFilterOptions(result?.confluenceIngestionFilterOptions ?? { spaces: [] });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setConfluenceFilterError(error instanceof Error ? error.message : String(error));
+        setConfluenceFilterOptions({ spaces: [] });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setConfluenceFilterLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [metadataEndpoint, authToken, configuringUnit]);
+
   const endpointOptions = useMemo(
     () =>
       endpoints.map((endpoint) => ({
@@ -576,6 +644,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
       sinkEndpointId: unit.config?.sinkEndpointId ?? null,
       policyText: stringifyPolicy(unit.config?.policy ?? unit.defaultPolicy ?? null),
       jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
+      confluenceFilter: reduceConfluenceFilterToFormValue(unit.config?.confluenceFilter ?? null),
     });
     setConfigError(null);
   }, []);
@@ -587,6 +656,9 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     setJiraFilterOptions(null);
     setJiraFilterError(null);
     setJiraFilterLoading(false);
+    setConfluenceFilterOptions(null);
+    setConfluenceFilterError(null);
+    setConfluenceFilterLoading(false);
   }, []);
 
   const updateConfigForm = useCallback((patch: Partial<ConfigFormState>) => {
@@ -601,12 +673,32 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
     setConfigForm((prev) => (prev ? { ...prev, jiraFilter: { ...DEFAULT_JIRA_FILTER_FORM } } : prev));
   }, []);
 
+  const updateConfluenceFilterForm = useCallback((patch: Partial<ConfluenceFilterFormState>) => {
+    setConfigForm((prev) =>
+      prev ? { ...prev, confluenceFilter: { ...prev.confluenceFilter, ...patch } } : prev,
+    );
+  }, []);
+
+  const resetConfluenceFilterForm = useCallback(() => {
+    setConfigForm((prev) =>
+      prev ? { ...prev, confluenceFilter: { ...DEFAULT_CONFLUENCE_FILTER_FORM } } : prev,
+    );
+  }, []);
+
   const handleFilterMultiSelect = useCallback(
     (event: ChangeEvent<HTMLSelectElement>, field: keyof Pick<JiraFilterFormState, "projectKeys" | "statuses" | "assigneeIds">) => {
       const values = Array.from(event.target.selectedOptions).map((option) => option.value);
       updateJiraFilterForm({ [field]: values } as Partial<JiraFilterFormState>);
     },
     [updateJiraFilterForm],
+  );
+
+  const handleConfluenceSpaceSelect = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+      updateConfluenceFilterForm({ spaceKeys: values });
+    },
+    [updateConfluenceFilterForm],
   );
 
   const handleSaveConfig = useCallback(async () => {
@@ -645,6 +737,7 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
           scheduleIntervalMinutes: configForm.scheduleKind === "INTERVAL" ? configForm.scheduleIntervalMinutes : null,
           policy: parsedPolicy,
           jiraFilter: configForm.jiraFilter,
+          confluenceFilter: configForm.confluenceFilter,
         },
         "configure",
       );
@@ -1288,6 +1381,69 @@ export function IngestionConsole({ metadataEndpoint, authToken, projectSlug, use
                   </p>
                 </section>
               ) : null}
+              {supportsConfluenceFilters && configForm ? (
+                <section className="rounded-2xl border border-white/10 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Filters</p>
+                    <button
+                      type="button"
+                      onClick={resetConfluenceFilterForm}
+                      className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-300/80 transition hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3">
+                    <label className="block text-sm text-slate-200">
+                      Spaces
+                      <select
+                        multiple
+                        value={configForm.confluenceFilter.spaceKeys}
+                        onChange={handleConfluenceSpaceSelect}
+                        disabled={confluenceFilterLoading}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      >
+                        {(confluenceFilterOptions?.spaces ?? []).map((space) => (
+                          <option key={space.key} value={space.key} className="bg-slate-900 text-slate-100">
+                            {space.name ?? space.key}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm text-slate-200">
+                      Updated from
+                      <input
+                        type="datetime-local"
+                        value={formatDateInputValue(configForm.confluenceFilter.updatedFrom)}
+                        onChange={(event) => {
+                          const raw = event.target.value;
+                          if (!raw) {
+                            updateConfluenceFilterForm({ updatedFrom: null });
+                            return;
+                          }
+                          const parsed = new Date(raw);
+                          if (Number.isNaN(parsed.getTime())) {
+                            return;
+                          }
+                          updateConfluenceFilterForm({ updatedFrom: parsed.toISOString() });
+                        }}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-white"
+                      />
+                      <span className="mt-1 block text-xs text-slate-400">
+                        Leave blank to pull the most recent content from selected spaces.
+                      </span>
+                    </label>
+                  </div>
+                  {confluenceFilterLoading ? (
+                    <p className="mt-2 text-xs text-slate-400">Loading Confluence spaces…</p>
+                  ) : confluenceFilterError ? (
+                    <p className="mt-2 text-xs text-amber-300">{confluenceFilterError}</p>
+                  ) : null}
+                  <p className="mt-3 text-xs text-slate-400">
+                    The ingestion planner keeps a watermark per space so reruns only fetch content updated after the last successful run.
+                  </p>
+                </section>
+              ) : null}
               <section className="rounded-2xl border border-white/10 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Schedule</p>
                 <div className="mt-3 space-y-3">
@@ -1462,16 +1618,23 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
     scheduleIntervalMinutes: unit.config?.scheduleIntervalMinutes ?? unit.defaultScheduleIntervalMinutes ?? null,
     policy: unit.config?.policy ?? unit.defaultPolicy ?? null,
     jiraFilter: reduceJiraFilterToFormValue(unit.config?.jiraFilter ?? null),
+    confluenceFilter: reduceConfluenceFilterToFormValue(unit.config?.confluenceFilter ?? null),
   };
+  const supportsJira = isJiraUnitId(unit.unitId);
+  const supportsConfluence = isConfluenceUnitId(unit.unitId);
   const nextScheduleKind = normalizeScheduleKind(overrides.scheduleKind ?? fallback.scheduleKind);
   const intervalValue =
     nextScheduleKind === "INTERVAL"
       ? overrides.scheduleIntervalMinutes ?? fallback.scheduleIntervalMinutes ?? 15
       : null;
-  const nextFilter =
+  const nextJiraFilter =
     overrides.jiraFilter === undefined
       ? fallback.jiraFilter
       : overrides.jiraFilter ?? DEFAULT_JIRA_FILTER_FORM;
+  const nextConfluenceFilter =
+    overrides.confluenceFilter === undefined
+      ? fallback.confluenceFilter
+      : overrides.confluenceFilter ?? DEFAULT_CONFLUENCE_FILTER_FORM;
   return {
     endpointId: unit.endpointId,
     datasetId: unit.datasetId ?? unit.unitId,
@@ -1487,7 +1650,8 @@ function buildConfigInput(unit: IngestionUnitRow, overrides: ConfigOverrides) {
         ? Math.max(1, Math.trunc(typeof intervalValue === "number" && !Number.isNaN(intervalValue) ? intervalValue : 15))
         : null,
     policy: overrides.policy === undefined ? fallback.policy : overrides.policy,
-    jiraFilter: formatJiraFilterInputFromForm(nextFilter),
+    jiraFilter: supportsJira ? formatJiraFilterInputFromForm(nextJiraFilter) : undefined,
+    confluenceFilter: supportsConfluence ? formatConfluenceFilterInputFromForm(nextConfluenceFilter) : undefined,
   };
 }
 
@@ -1561,6 +1725,34 @@ function formatJiraFilterInputFromForm(filter?: JiraFilterFormState | null): Jir
   return Object.keys(payload).length ? payload : null;
 }
 
+function reduceConfluenceFilterToFormValue(
+  source?: ConfluenceIngestionFilterSummary | ConfluenceFilterFormState | null,
+): ConfluenceFilterFormState {
+  if (!source) {
+    return { ...DEFAULT_CONFLUENCE_FILTER_FORM };
+  }
+  return {
+    spaceKeys: coerceFilterArray(source.spaceKeys),
+    updatedFrom: source.updatedFrom ?? null,
+  };
+}
+
+function formatConfluenceFilterInputFromForm(
+  filter?: ConfluenceFilterFormState | null,
+): ConfluenceIngestionFilterSummary | null {
+  if (!filter) {
+    return null;
+  }
+  const payload: ConfluenceIngestionFilterSummary = {};
+  if (filter.spaceKeys.length) {
+    payload.spaceKeys = filter.spaceKeys;
+  }
+  if (filter.updatedFrom) {
+    payload.updatedFrom = filter.updatedFrom;
+  }
+  return Object.keys(payload).length ? payload : null;
+}
+
 function formatDateInputValue(value: string | null) {
   if (!value) {
     return "";
@@ -1577,4 +1769,11 @@ function isJiraUnitId(unitId?: string | null) {
     return false;
   }
   return unitId.toLowerCase().startsWith("jira.");
+}
+
+function isConfluenceUnitId(unitId?: string | null) {
+  if (!unitId) {
+    return false;
+  }
+  return unitId.toLowerCase().startsWith("confluence.");
 }

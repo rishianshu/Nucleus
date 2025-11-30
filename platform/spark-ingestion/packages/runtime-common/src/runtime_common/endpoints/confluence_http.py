@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -271,8 +271,550 @@ class ConfluenceEndpoint(SourceEndpoint):
                     default_policy=ingestion_meta.get("default_policy"),
                     cdm_model_id=ingestion_meta.get("cdm_model_id"),
                 )
-            )
+        )
         return units
+
+
+@dataclass
+class ConfluenceIngestionResult:
+    records: List[Dict[str, Any]]
+    cursor: Dict[str, Any]
+    stats: Dict[str, Any]
+
+
+@dataclass
+class ConfluenceIngestionFilter:
+    space_keys: List[str]
+    updated_from: Optional[str]
+
+
+ConfluenceIngestionHandler = Callable[
+    [
+        requests.Session,
+        str,
+        Dict[str, Any],
+        ConfluenceIngestionFilter,
+        Dict[str, Any],
+        str,
+        str,
+        str,
+        Optional[str],
+    ],
+    Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]],
+]
+
+
+CONFLUENCE_INGESTION_HANDLERS: Dict[str, ConfluenceIngestionHandler] = {}
+
+
+def run_confluence_ingestion_unit(
+    unit_id: str,
+    *,
+    endpoint_id: str,
+    policy: Dict[str, Any],
+    checkpoint: Optional[Dict[str, Any]] = None,
+    mode: Optional[str] = None,
+    filter: Optional[Dict[str, Any]] = None,
+) -> ConfluenceIngestionResult:
+    definition = CONFLUENCE_DATASET_DEFINITIONS.get(unit_id)
+    ingestion_meta = definition.get("ingestion") if definition else None
+    if not ingestion_meta:
+        raise ValueError(f"Unsupported Confluence ingestion unit: {unit_id}")
+    handler_key = ingestion_meta.get("handler") or unit_id
+    handler = CONFLUENCE_INGESTION_HANDLERS.get(handler_key)
+    if not handler:
+        raise ValueError(f"No ingestion handler registered for Confluence unit '{unit_id}'")
+    parameter_block: Dict[str, Any] = {}
+    if isinstance(policy, dict) and isinstance(policy.get("parameters"), dict):
+        parameter_block = policy.get("parameters")  # type: ignore[assignment]
+    elif isinstance(policy, dict):
+        parameter_block = policy
+    params = _normalize_confluence_parameters(parameter_block or {})
+    filter_config = _normalize_confluence_ingestion_filter(filter)
+    base_url = params.get("base_url")
+    if not base_url:
+        raise ValueError("Confluence base_url is required")
+    host = urlparse(base_url).hostname or "confluence.local"
+    org_id = params.get("scope_org_id") or "dev"
+    scope_project = params.get("scope_project_id")
+    cursor = {} if str(mode or "").upper() == "FULL" else _extract_confluence_cursor(checkpoint)
+    session = _build_confluence_session(params)
+    try:
+        records, next_cursor, stats = handler(
+            session,
+            base_url,
+            params,
+            filter_config,
+            cursor,
+            endpoint_id,
+            host,
+            org_id,
+            scope_project,
+        )
+    finally:
+        session.close()
+    stats.setdefault("unitId", unit_id)
+    stats.setdefault("recordCount", len(records))
+    return ConfluenceIngestionResult(records=records, cursor=next_cursor, stats=stats)
+
+
+def _normalize_confluence_ingestion_filter(raw: Optional[Dict[str, Any]]) -> ConfluenceIngestionFilter:
+    if not raw or not isinstance(raw, dict):
+        return ConfluenceIngestionFilter(space_keys=[], updated_from=None)
+    candidate_keys = raw.get("spaceKeys") or raw.get("space_keys")
+    space_keys = []
+    if isinstance(candidate_keys, list):
+        space_keys = [str(entry).strip().upper() for entry in candidate_keys if str(entry).strip()]
+    updated_from = raw.get("updatedFrom") or raw.get("updated_from")
+    if isinstance(updated_from, str) and not updated_from.strip():
+        updated_from = None
+    return ConfluenceIngestionFilter(space_keys=space_keys, updated_from=updated_from)
+
+
+def _extract_confluence_cursor(checkpoint: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not checkpoint:
+        return {}
+    base: Dict[str, Any]
+    if isinstance(checkpoint, dict):
+        value = checkpoint.get("cursor")
+        base = value if isinstance(value, dict) else checkpoint
+    else:
+        base = {}
+    spaces = base.get("spaces")
+    attachments = base.get("attachments")
+    normalized: Dict[str, Any] = {}
+    if isinstance(spaces, dict):
+        normalized["spaces"] = {str(key).upper(): value for key, value in spaces.items() if isinstance(value, dict)}
+    if isinstance(attachments, dict):
+        normalized["attachments"] = {str(key).upper(): value for key, value in attachments.items() if isinstance(value, dict)}
+    return normalized
+
+
+def _ingest_confluence_spaces(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    filter_config: ConfluenceIngestionFilter,
+    cursor: Dict[str, Any],
+    endpoint_id: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    spaces = _fetch_space_records(session, base_url, params, filter_config.space_keys)
+    records: List[Dict[str, Any]] = []
+    for space in spaces:
+        payload = _build_space_payload(space, base_url)
+        space_key = str(payload.get("key") or "").upper() or None
+        scope_value = scope_project or space_key
+        records.append(
+            _build_confluence_record(
+                entity_type="doc.space",
+                logical_id=f"confluence::{host}::space::{payload.get('key') or payload.get('id')}",
+                display_name=payload.get("name") or payload.get("key") or payload.get("id"),
+                scope_org=org_id,
+                scope_project=scope_value,
+                endpoint_id=endpoint_id,
+                payload=payload,
+            )
+        )
+    stats = {"spacesSynced": len(records)}
+    return records, cursor, stats
+
+
+def _ingest_confluence_pages(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    filter_config: ConfluenceIngestionFilter,
+    cursor: Dict[str, Any],
+    endpoint_id: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    next_cursor = {
+        "spaces": dict(cursor.get("spaces") or {}),
+        "attachments": dict(cursor.get("attachments") or {}),
+    }
+    space_cursor = next_cursor.setdefault("spaces", {})
+    space_keys = _resolve_space_keys(session, base_url, params, filter_config)
+    records: List[Dict[str, Any]] = []
+    stats = {"spacesProcessed": 0, "pagesSynced": 0}
+    for space_key in space_keys:
+        stats["spacesProcessed"] += 1
+        existing_cursor = space_cursor.get(space_key, {})
+        since = existing_cursor.get("lastUpdatedAt") or filter_config.updated_from
+        pages, last_updated = _fetch_pages_for_space(session, base_url, params, space_key, since)
+        for page in pages:
+            payload = _build_page_payload(page, base_url)
+            payload["spaceKey"] = payload.get("spaceKey") or space_key
+            scope_value = scope_project or space_key
+            records.append(
+                _build_confluence_record(
+                    entity_type="doc.page",
+                    logical_id=f"confluence::{host}::page::{payload.get('id')}",
+                    display_name=payload.get("title") or payload.get("id"),
+                    scope_org=org_id,
+                    scope_project=scope_value,
+                    endpoint_id=endpoint_id,
+                    payload=payload,
+                )
+            )
+        stats["pagesSynced"] += len(pages)
+        if last_updated:
+            space_cursor[space_key] = {"lastUpdatedAt": last_updated}
+    return records, next_cursor, stats
+
+
+def _ingest_confluence_attachments(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    filter_config: ConfluenceIngestionFilter,
+    cursor: Dict[str, Any],
+    endpoint_id: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    next_cursor = {
+        "spaces": dict(cursor.get("spaces") or {}),
+        "attachments": dict(cursor.get("attachments") or {}),
+    }
+    attachment_cursor = next_cursor.setdefault("attachments", {})
+    space_keys = _resolve_space_keys(session, base_url, params, filter_config)
+    records: List[Dict[str, Any]] = []
+    stats = {"spacesProcessed": 0, "attachmentsSynced": 0}
+    for space_key in space_keys:
+        stats["spacesProcessed"] += 1
+        existing_cursor = attachment_cursor.get(space_key, {})
+        since = existing_cursor.get("lastCreatedAt") or filter_config.updated_from
+        attachments, last_created = _fetch_attachments_for_space(session, base_url, params, space_key, since)
+        for attachment in attachments:
+            payload = _build_attachment_payload(attachment, base_url)
+            payload["spaceKey"] = payload.get("spaceKey") or space_key
+            scope_value = scope_project or space_key
+            records.append(
+                _build_confluence_record(
+                    entity_type="doc.attachment",
+                    logical_id=f"confluence::{host}::attachment::{payload.get('id')}",
+                    display_name=payload.get("title") or payload.get("id"),
+                    scope_org=org_id,
+                    scope_project=scope_value,
+                    endpoint_id=endpoint_id,
+                    payload=payload,
+                )
+            )
+        stats["attachmentsSynced"] += len(attachments)
+        if last_created:
+            attachment_cursor[space_key] = {"lastCreatedAt": last_created}
+    return records, next_cursor, stats
+
+
+def _resolve_space_keys(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    filter_config: ConfluenceIngestionFilter,
+) -> List[str]:
+    if filter_config.space_keys:
+        return [str(key).upper() for key in filter_config.space_keys]
+    configured = params.get("space_keys") or []
+    if configured:
+        return [str(key).upper() for key in configured]
+    return _discover_space_keys(session, base_url, include_archived=bool(params.get("include_archived")))
+
+
+def _fetch_space_records(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    space_keys: List[str],
+) -> List[Dict[str, Any]]:
+    if space_keys:
+        results: List[Dict[str, Any]] = []
+        for key in space_keys:
+            try:
+                record = _confluence_get(session, base_url, f"/wiki/rest/api/space/{key}", {"expand": "description.plain"})
+            except Exception:
+                continue
+            results.append(record)
+        return results
+    include_archived = bool(params.get("include_archived"))
+    statuses = "current,archived" if include_archived else "current"
+    start = 0
+    page_size = 50
+    records: List[Dict[str, Any]] = []
+    while True:
+        payload = _confluence_get(
+            session,
+            base_url,
+            "/wiki/rest/api/space",
+            {
+                "limit": page_size,
+                "start": start,
+                "type": "global",
+                "status": statuses,
+                "expand": "description.plain",
+            },
+        )
+        results = payload.get("results") or []
+        if not results:
+            break
+        records.extend(results)
+        if len(results) < page_size:
+            break
+        start += len(results)
+    return records
+
+
+def _discover_space_keys(
+    session: requests.Session,
+    base_url: str,
+    *,
+    include_archived: bool,
+) -> List[str]:
+    statuses = "current,archived" if include_archived else "current"
+    start = 0
+    page_size = 50
+    keys: List[str] = []
+    while True:
+        payload = _confluence_get(
+            session,
+            base_url,
+            "/wiki/rest/api/space",
+            {"limit": page_size, "start": start, "type": "global", "status": statuses},
+        )
+        results = payload.get("results") or []
+        if not results:
+            break
+        for entry in results:
+            key = entry.get("key")
+            if key:
+                keys.append(str(key).upper())
+        if len(results) < page_size:
+            break
+        start += len(results)
+    return keys
+
+
+def _fetch_pages_for_space(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    space_key: str,
+    since: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    max_pages = params.get("max_pages_per_space")
+    fetched = 0
+    start = 0
+    page_size = 25
+    pages: List[Dict[str, Any]] = []
+    max_updated = since
+    cql = _build_page_cql(space_key, since, content_type="page")
+    while True:
+        limit = page_size
+        if isinstance(max_pages, int) and max_pages > 0:
+            remaining = max_pages - fetched
+            if remaining <= 0:
+                break
+            limit = min(limit, remaining)
+        payload = _confluence_get(
+            session,
+            base_url,
+            "/wiki/rest/api/content/search",
+            {
+                "cql": cql,
+                "limit": limit,
+                "start": start,
+                "expand": "space,history,version,body.storage,metadata.labels,_links",
+            },
+        )
+        results = payload.get("results") or []
+        if not results:
+            break
+        pages.extend(results)
+        for entry in results:
+            version = entry.get("version") or {}
+            candidate = version.get("when") or (entry.get("history") or {}).get("lastUpdated")
+            max_updated = _max_timestamp(max_updated, candidate)
+        fetched += len(results)
+        if len(results) < limit:
+            break
+        start += len(results)
+    return pages, max_updated
+
+
+def _fetch_attachments_for_space(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    space_key: str,
+    since: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    fetched = 0
+    start = 0
+    page_size = 25
+    attachments: List[Dict[str, Any]] = []
+    max_created = since
+    cql = _build_page_cql(space_key, since, content_type="attachment")
+    while True:
+        payload = _confluence_get(
+            session,
+            base_url,
+            "/wiki/rest/api/content/search",
+            {
+                "cql": cql,
+                "limit": page_size,
+                "start": start,
+                "expand": "container,metadata,_links",
+            },
+        )
+        results = payload.get("results") or []
+        if not results:
+            break
+        attachments.extend(results)
+        for entry in results:
+            created = entry.get("created") or (entry.get("history") or {}).get("createdDate")
+            max_created = _max_timestamp(max_created, created)
+        fetched += len(results)
+        if len(results) < page_size:
+            break
+        start += len(results)
+    return attachments, max_created
+
+
+def _build_page_cql(space_key: str, since: Optional[str], *, content_type: str) -> str:
+    clauses = [f'space = "{space_key}"', f'type = "{content_type}"']
+    if since:
+        field = "lastmodified" if content_type == "page" else "created"
+        clauses.append(f'{field} >= "{since}"')
+    return " AND ".join(clauses)
+
+
+def _build_confluence_record(
+    *,
+    entity_type: str,
+    logical_id: str,
+    display_name: str,
+    scope_org: str,
+    scope_project: Optional[str],
+    endpoint_id: str,
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "entityType": entity_type,
+        "logicalId": logical_id,
+        "displayName": display_name,
+        "scope": {
+            "orgId": scope_org,
+            "projectId": scope_project,
+            "domainId": None,
+            "teamId": None,
+        },
+        "provenance": {"endpointId": endpoint_id, "vendor": "confluence"},
+        "payload": payload,
+    }
+
+
+def _build_space_payload(space: Dict[str, Any], base_url: str) -> Dict[str, Any]:
+    links = space.get("_links") or {}
+    description = (space.get("description") or {}).get("plain", {})
+    return {
+        "id": space.get("id"),
+        "key": space.get("key"),
+        "name": space.get("name"),
+        "type": space.get("type"),
+        "status": space.get("status"),
+        "url": _resolve_link(base_url, links, "webui"),
+        "description": description.get("value"),
+        "raw": space,
+    }
+
+
+def _build_page_payload(page: Dict[str, Any], base_url: str) -> Dict[str, Any]:
+    links = page.get("_links") or {}
+    metadata = page.get("metadata") or {}
+    labels = metadata.get("labels") or {}
+    label_results = labels.get("results") or []
+    history = page.get("history") or {}
+    version = page.get("version") or {}
+    return {
+        "id": page.get("id"),
+        "title": page.get("title"),
+        "type": page.get("type"),
+        "status": page.get("status"),
+        "space": page.get("space") or {},
+        "spaceKey": (page.get("space") or {}).get("key"),
+        "body": page.get("body") or {},
+        "history": history,
+        "version": version,
+        "metadata": metadata,
+        "labels": [label.get("name") for label in label_results if isinstance(label, dict)],
+        "links": links,
+        "url": _resolve_link(base_url, links, "tinyui") or _resolve_link(base_url, links, "webui"),
+        "created_at": history.get("createdDate"),
+        "updated_at": version.get("when") or history.get("lastUpdated"),
+        "raw": page,
+    }
+
+
+def _build_attachment_payload(attachment: Dict[str, Any], base_url: str) -> Dict[str, Any]:
+    links = attachment.get("_links") or {}
+    metadata = attachment.get("metadata") or {}
+    container = attachment.get("container") or {}
+    return {
+        "id": attachment.get("id"),
+        "title": attachment.get("title"),
+        "mediaType": metadata.get("mediaType"),
+        "fileSize": (attachment.get("extensions") or {}).get("fileSize"),
+        "downloadLink": _resolve_link(base_url, links, "download"),
+        "container": container,
+        "spaceKey": (container.get("space") or {}).get("key"),
+        "createdAt": attachment.get("created") or metadata.get("createdAt"),
+        "raw": attachment,
+    }
+
+
+def _resolve_link(base_url: str, links: Dict[str, Any], key: str) -> Optional[str]:
+    value = links.get(key)
+    if isinstance(value, str):
+        if value.startswith("http"):
+            return value
+        return urljoin(f"{base_url.rstrip('/')}/", value.lstrip("/"))
+    return None
+
+
+def _max_timestamp(current: Optional[str], candidate: Optional[str]) -> Optional[str]:
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+    current_dt = _parse_iso_timestamp(current)
+    candidate_dt = _parse_iso_timestamp(candidate)
+    if not current_dt:
+        return candidate
+    if not candidate_dt:
+        return current
+    return candidate if candidate_dt > current_dt else current
+
+
+def _parse_iso_timestamp(value: str) -> Optional[datetime]:
+    try:
+        cleaned = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(cleaned)
+    except Exception:
+        return None
+
+
+CONFLUENCE_INGESTION_HANDLERS.update(
+    {
+        "confluence.space": _ingest_confluence_spaces,
+        "confluence.page": _ingest_confluence_pages,
+        "confluence.attachment": _ingest_confluence_attachments,
+    }
+)
 
 
 def _build_static_api_overview() -> List[Dict[str, Any]]:

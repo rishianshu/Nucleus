@@ -54,6 +54,9 @@
           "id": "sample_catalog_jira_issues",
           "displayName": "Seeded Jira Issues",
           "description": "Synthetic dataset representing Jira issues for smoke testing.",
+          "extras": {
+            "datasetId": "jira.issues"
+          },
           "fields": [
             { "name": "issue_id", "type": "STRING", "description": "Issue key" },
             { "name": "summary", "type": "STRING", "description": "Short description" },
@@ -66,6 +69,9 @@
         "name": "jira_issues",
         "description": "Synthetic Jira issues synchronized nightly.",
         "labels": ["jira", "issues", "sample"],
+        "extras": {
+          "datasetId": "jira.issues"
+        },
         "statistics": {
           "record_count": 1280,
           "sample_size": 20,
@@ -98,20 +104,26 @@
           "id": "sample_catalog_confluence_pages",
           "displayName": "Seeded Confluence Pages",
           "description": "Synthetic documentation pages for smoke testing doc catalog flows.",
-        "fields": [
-          { "name": "page_id", "type": "STRING", "description": "Confluence page id" },
-          { "name": "space_key", "type": "STRING", "description": "Owning space key" },
-          { "name": "title", "type": "STRING", "description": "Page title" },
-          { "name": "updated_at", "type": "TIMESTAMP", "description": "Last updated timestamp" },
-          { "name": "updated_by", "type": "STRING", "description": "Display name of the last editor" },
-          { "name": "url", "type": "STRING", "description": "Confluence page URL" },
-          { "name": "excerpt", "type": "STRING", "description": "Rendered body preview" }
-        ]
-      },
-      "schema": "CONFLUENCE",
-      "name": "confluence_pages",
-      "description": "Sample knowledge pages used to exercise metadata previews.",
+          "extras": {
+            "datasetId": "confluence.page"
+          },
+          "fields": [
+            { "name": "page_id", "type": "STRING", "description": "Confluence page id" },
+            { "name": "space_key", "type": "STRING", "description": "Owning space key" },
+            { "name": "title", "type": "STRING", "description": "Page title" },
+            { "name": "updated_at", "type": "TIMESTAMP", "description": "Last updated timestamp" },
+            { "name": "updated_by", "type": "STRING", "description": "Display name of the last editor" },
+            { "name": "url", "type": "STRING", "description": "Confluence page URL" },
+            { "name": "excerpt", "type": "STRING", "description": "Rendered body preview" }
+          ]
+        },
+        "schema": "CONFLUENCE",
+        "name": "confluence_pages",
+        "description": "Sample knowledge pages used to exercise metadata previews.",
         "labels": ["confluence", "documentation", "sample"],
+        "extras": {
+          "datasetId": "confluence.page"
+        },
         "statistics": {
           "record_count": 25,
           "sample_size": 5,
