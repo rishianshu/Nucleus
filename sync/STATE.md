@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-confluence-ingestion-v1 (completed @ 2025-11-30T12:18Z)
+cdm-explorer-shell-v1 (success @ 2025-11-30T15:23Z)
 
 ## Last Run
-- slug: confluence-ingestion-v1
-- status: success-with-followups
-- duration: resumed @ 07:30Z → closed @ 12:18Z
-- tests: unit/tsc ok; `pnpm ci-check` pending (Playwright issues deferred)
+- slug: cdm-explorer-shell-v1
+- status: success
+- duration: 12:22Z → 15:23Z
+- tests: pnpm ci-check
 - commits: pending (worktree dirty)
-- decisions: 1 (see runs/.../DECISIONS.md)
-- next_step: follow future-requirements doc to stabilize metadata-auth specs
+- decisions: 3 (see runs/cdm-explorer-shell-v1/DECISIONS.md)
+- next_step: Await assignment for next slug
 
 ## Global Queue
 TODAY:

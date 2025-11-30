@@ -1,0 +1,3 @@
+- 2025-11-30: Catalog preview availability now keys off the declared endpoint link even if the endpoint record has not hydrated locally, so UI previews stay enabled for freshly registered datasets (`apps/metadata-ui/src/metadata/MetadataWorkspace.tsx`).
+- 2025-11-30: Lifecycle Playwright spec now seeds placeholder endpoints on `.corp.local` hosts so bypassed collections succeed while still exercising failure paths (`tests/metadata-lifecycle.spec.ts`).
+- 2025-11-30: Keycloak test helpers retry transient token failures to keep the regression suite stable when Keycloak is slow to warm up (`tests/metadata-auth.spec.ts`).

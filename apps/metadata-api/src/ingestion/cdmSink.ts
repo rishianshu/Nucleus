@@ -332,16 +332,33 @@ async function upsertRows(
     return;
   }
   const columns = definition.columns.map((column) => column.name);
+  const primaryIndex = columns.indexOf("cdm_id");
+  if (primaryIndex === -1) {
+    throw new Error("CDM tables must include a cdm_id column");
+  }
+  const dedupedRows = dedupeRowsByPrimaryKey(rows, primaryIndex);
   const qualifiedColumns = columns.map(quoteIdent).join(", ");
-  const valueClause = buildValuesClause(rows);
+  const valueClause = buildValuesClause(dedupedRows);
   const updateClause = columns
     .filter((name) => name !== "cdm_id")
     .map((name) => `${quoteIdent(name)} = EXCLUDED.${quoteIdent(name)}`)
     .join(", ");
   const sql = `INSERT INTO ${qualifiedTable(config, definition)} (${qualifiedColumns}) VALUES ${valueClause} ON CONFLICT (cdm_id)
     DO UPDATE SET ${updateClause}`;
-  const values = rows.flat();
+  const values = dedupedRows.flat();
   await connection.query(sql, values);
+}
+
+function dedupeRowsByPrimaryKey(rows: unknown[][], primaryIndex: number): unknown[][] {
+  const unique = new Map<string, unknown[]>();
+  for (const row of rows) {
+    const key = row[primaryIndex];
+    if (key === undefined || key === null) {
+      continue;
+    }
+    unique.set(String(key), row);
+  }
+  return Array.from(unique.values());
 }
 
 function buildValuesClause(rows: unknown[][]): string {

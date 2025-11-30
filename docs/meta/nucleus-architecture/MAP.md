@@ -119,3 +119,4 @@ flowchart LR
 - **Driver coverage** – Only `static` driver is registered (`apps/metadata-api/src/ingestion/staticDriver.ts`). Spec’d drivers for Jira/Confluence/OneDrive do not exist yet.
 - **Sinks beyond KB** – ADR/spec call out JDBC/object/CDM sinks, but only `KnowledgeBaseSink` is implemented. Spark `SinkEndpoint`s (HDFS/Iceberg) exist separately but are not wired into the new ingestion-core.
 - **Vector/indexing** – Semantic intents describe vector namespaces and signals, yet no vector ingestion or `index:*` capabilities exist in code today.
+- CDM Explorer (Work + Docs): `apps/metadata-ui/src/cdm/CdmExplorerShell.tsx` hosts Work (`CdmWorkExplorer`) and Docs (`CdmDocsListView`) tabs backed by `cdmEntities`. Back-end envelope implemented in `apps/metadata-api/src/schema.ts` with data stores under `apps/metadata-api/src/cdm/*`.

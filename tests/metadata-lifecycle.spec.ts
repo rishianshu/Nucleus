@@ -153,7 +153,7 @@ test.describe("Metadata catalog & endpoint lifecycle", () => {
           projectSlug: METADATA_DEFAULT_PROJECT,
           name: endpointName,
           verb: "POST",
-          url: `https://metadata-collection-${Date.now()}.example.com/graphql`,
+          url: `https://metadata-collection-${Date.now()}.corp.local/graphql`,
           description: "Collection GraphQL test endpoint",
           labels: ["collection-test"],
           capabilities: ["metadata"],

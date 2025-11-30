@@ -559,7 +559,7 @@ export const CDM_WORK_ITEMS_QUERY = `
   }
 `;
 export const CDM_WORK_ITEM_DETAIL_QUERY = `
-  query CdmWorkItemDetail($cdmId: ID!) {
+	  query CdmWorkItemDetail($cdmId: ID!) {
     cdmWorkItem(cdmId: $cdmId) {
       item {
         cdmId
@@ -606,4 +606,45 @@ export const CDM_WORK_ITEM_DETAIL_QUERY = `
       }
     }
   }
-`;
+	`;
+export const CDM_ENTITY_CONNECTION_QUERY = `
+	  query CdmEntities($filter: CdmEntityFilter!, $first: Int!, $after: String) {
+	    cdmEntities(filter: $filter, first: $first, after: $after) {
+	      edges {
+	        cursor
+	        node {
+	          id
+	          domain
+	          sourceSystem
+	          cdmId
+	          title
+	          createdAt
+	          updatedAt
+	          state
+	          data
+	        }
+	      }
+	      pageInfo {
+	        hasNextPage
+	        hasPreviousPage
+	        startCursor
+	        endCursor
+	      }
+	    }
+	  }
+	`;
+export const CDM_ENTITY_QUERY = `
+	  query CdmEntity($id: ID!, $domain: CdmDomain!) {
+	    cdmEntity(id: $id, domain: $domain) {
+	      id
+	      domain
+	      sourceSystem
+	      cdmId
+	      title
+	      createdAt
+	      updatedAt
+	      state
+	      data
+	    }
+	  }
+	`;

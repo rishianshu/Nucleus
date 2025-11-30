@@ -1,11 +1,5 @@
-import { Pool } from "pg";
-import type { MetadataEndpointDescriptor } from "@metadata/core";
-import { getMetadataStore } from "../context.js";
-import { parseSinkEndpointConfig, type SinkConnectionConfig } from "../ingestion/cdmSink.js";
-
-const CDM_SINK_LABEL = "sink:cdm";
-const CDM_SINK_TEMPLATE_ID = "cdm.jdbc";
-const FALLBACK_POOL_KEY = "cdm-fallback";
+import type { SinkConnectionConfig } from "../ingestion/cdmSink.js";
+import { getCdmSinkPool, resolveFallbackConfigFromEnv, type PoolEntry } from "./cdmPool.js";
 
 export type CdmWorkProjectRow = {
   cdm_id: string;
@@ -64,20 +58,14 @@ export type CdmWorkLogRow = {
 export type WorkItemFilter = {
   projectCdmId?: string | null;
   statusIn?: string[] | null;
+  sourceSystems?: string[] | null;
   search?: string | null;
-};
-
-type PoolEntry = {
-  pool: Pool;
-  config: SinkConnectionConfig;
 };
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
 
 export class CdmWorkStore {
-  private readonly pools = new Map<string, PoolEntry>();
-
   async listProjects(projectId?: string | null): Promise<CdmWorkProjectRow[]> {
     const { pool, config } = await this.ensurePool(projectId);
     const sql = `SELECT cdm_id, source_system, source_project_key, name, description FROM ${projectTable(config)} ORDER BY name ASC`;
@@ -154,63 +142,9 @@ export class CdmWorkStore {
   }
 
   private async ensurePool(projectId?: string | null): Promise<PoolEntry> {
-    const store = await getMetadataStore();
-    const endpoints = await store.listEndpoints(projectId ?? undefined);
-    let sinkEndpoint = endpoints.find((endpoint) => isCdmSinkEndpoint(endpoint));
-    if (!sinkEndpoint) {
-      const allEndpoints = projectId ? await store.listEndpoints() : endpoints;
-      sinkEndpoint = allEndpoints.find((endpoint) => isCdmSinkEndpoint(endpoint));
-    }
-    if (sinkEndpoint?.id) {
-      const existing = this.pools.get(sinkEndpoint.id);
-      if (existing) {
-        return existing;
-      }
-      const config = parseSinkEndpointConfig(sinkEndpoint);
-      const pool = new Pool({
-        connectionString: config.connectionUrl,
-        ssl: config.ssl,
-        max: 5,
-      });
-      const entry = { pool, config };
-      this.pools.set(sinkEndpoint.id, entry);
-      return entry;
-    }
-    const fallbackConfig = resolveFallbackConfig();
-    if (!fallbackConfig) {
-      throw new Error("CDM sink endpoint is not registered and no fallback connection configured");
-    }
-    const existingFallback = this.pools.get(FALLBACK_POOL_KEY);
-    if (existingFallback) {
-      return existingFallback;
-    }
-    const fallbackPool = new Pool({
-      connectionString: fallbackConfig.connectionUrl,
-      ssl: fallbackConfig.ssl,
-      max: 5,
-    });
-    const fallbackEntry = { pool: fallbackPool, config: fallbackConfig };
-    this.pools.set(FALLBACK_POOL_KEY, fallbackEntry);
-    return fallbackEntry;
+    const fallbackConfig = resolveFallbackConfigFromEnv("CDM_WORK", { schema: "cdm_work", tablePrefix: "cdm_" });
+    return getCdmSinkPool(projectId, fallbackConfig);
   }
-}
-
-function isCdmSinkEndpoint(endpoint: MetadataEndpointDescriptor) {
-  const labels = endpoint.labels ?? [];
-  if (labels.includes(CDM_SINK_LABEL)) {
-    return true;
-  }
-  if (endpoint.config && typeof endpoint.config === "object") {
-    const config = endpoint.config as Record<string, unknown>;
-    const templateId = typeof config.templateId === "string" ? config.templateId : undefined;
-    if (templateId === CDM_SINK_TEMPLATE_ID) {
-      return true;
-    }
-  }
-  if (endpoint.capabilities?.some((cap) => cap.toLowerCase().includes("sink.cdm"))) {
-    return true;
-  }
-  return false;
 }
 
 function buildWorkItemWhereClause(filter?: WorkItemFilter | null) {
@@ -226,6 +160,10 @@ function buildWorkItemWhereClause(filter?: WorkItemFilter | null) {
   if (filter.statusIn && filter.statusIn.length > 0) {
     params.push(filter.statusIn);
     conditions.push(`item.status = ANY($${params.length})`);
+  }
+  if (filter.sourceSystems && filter.sourceSystems.length > 0) {
+    params.push(filter.sourceSystems);
+    conditions.push(`item.source_system = ANY($${params.length})`);
   }
   if (filter.search && filter.search.trim().length > 0) {
     params.push(`%${filter.search.trim()}%`);
@@ -276,20 +214,4 @@ function decodeCursor(cursor: string): number {
   } catch {
     return 0;
   }
-}
-
-function resolveFallbackConfig(): SinkConnectionConfig | null {
-  const connectionUrl = process.env.CDM_WORK_DATABASE_URL ?? process.env.METADATA_DATABASE_URL;
-  if (!connectionUrl) {
-    return null;
-  }
-  const schema = process.env.CDM_WORK_DATABASE_SCHEMA ?? "cdm_work";
-  const tablePrefix = process.env.CDM_WORK_DATABASE_TABLE_PREFIX ?? "cdm_";
-  const sslEnabled = process.env.CDM_WORK_DATABASE_SSL === "1";
-  return {
-    connectionUrl,
-    schema,
-    tablePrefix,
-    ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
-  };
 }

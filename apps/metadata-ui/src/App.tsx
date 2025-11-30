@@ -6,7 +6,7 @@ import { MetadataAuthBoundary } from "./metadata/MetadataAuthBoundary";
 import { useAuth, type Role } from "./auth/AuthProvider";
 import { KnowledgeBaseConsole } from "./knowledge-base/KnowledgeBaseConsole";
 import { IngestionConsole } from "./ingestion/IngestionConsole";
-import { CdmWorkConsole } from "./cdm/CdmWorkConsole";
+import { CdmExplorerShell } from "./cdm/CdmExplorerShell";
 
 const METADATA_ENDPOINT = import.meta.env.VITE_METADATA_GRAPHQL_ENDPOINT ?? "/metadata/graphql";
 
@@ -120,7 +120,7 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
     () => [
       { id: "metadata", label: "Metadata", icon: LuDatabase, href: "/", disabled: false },
       { id: "kb", label: "Knowledge Base", icon: LuNetwork, href: "/kb", disabled: false },
-      { id: "cdm", label: "CDM → Work", icon: LuBriefcase, href: "/cdm", disabled: false },
+      { id: "cdm", label: "CDM Explorer", icon: LuBriefcase, href: "/cdm", disabled: false },
       { id: "ingestion", label: "Ingestion", icon: LuCloudUpload, href: "/ingestion", disabled: !canAccessIngestion },
       { id: "recon", label: "Reconciliation", icon: LuGauge, disabled: true },
     ],
@@ -260,7 +260,7 @@ function MetadataWorkspaceShell({ metadataEndpoint, authToken, projectSlug, user
             userRole={userRole}
           />
         ) : isCdmRoute ? (
-          <CdmWorkConsole metadataEndpoint={metadataEndpoint} authToken={authToken} projectSlug={projectSlug} userRole={userRole} />
+          <CdmExplorerShell metadataEndpoint={metadataEndpoint} authToken={authToken} projectSlug={projectSlug} userRole={userRole} />
         ) : (
           <MetadataWorkspace
             metadataEndpoint={metadataEndpoint}

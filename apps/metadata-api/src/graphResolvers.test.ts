@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { FileMetadataStore, createGraphStore } from "@metadata/core";
 import { createResolvers } from "./schema.js";
+import type { CdmEntityEnvelope } from "./cdm/entityStore.js";
 
 const TEST_TENANT = "tenant-graph";
 const TEST_PROJECT = "project-graph";
@@ -123,6 +124,37 @@ test("graphEdges query returns hashed logical identity", async (t) => {
   assert.ok(edge.identity.logicalKey, "edge logical key should be populated");
   assert.ok(edge.identity.sourceLogicalKey, "edge source logical key should be set");
   assert.ok(edge.identity.targetLogicalKey, "edge target logical key should be set");
+});
+
+test("cdmEntities and cdmEntity surface work/doc envelopes", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-cdm-entities-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const fakeEntityStore = new FakeCdmEntityStore();
+  const resolvers = createResolvers(store, { graphStore, cdmEntityStore: fakeEntityStore as any });
+  const ctx = buildResolverContext();
+
+  const connection = await (resolvers.Query.cdmEntities as any)(
+    null,
+    { filter: { domain: "WORK_ITEM" }, first: 25 },
+    ctx as any,
+  );
+  assert.equal(connection.edges.length, 1);
+  assert.equal(connection.edges[0].node.domain, "WORK_ITEM");
+  assert.equal(connection.edges[0].node.title, "Sample Work");
+  assert.equal(connection.pageInfo.hasNextPage, false);
+
+  const docEntity = await (resolvers.Query.cdmEntity as any)(
+    null,
+    { id: "cdm:doc:item:1", domain: "DOC_ITEM" },
+    ctx as any,
+  );
+  assert.ok(docEntity);
+  assert.equal(docEntity.domain, "DOC_ITEM");
+  assert.equal(docEntity.sourceSystem, "confluence");
 });
 
 test("kbNodes and kbEdges expose scope-aware data with pagination and scenes", async (t) => {
@@ -291,6 +323,48 @@ test("kbMeta query returns required node and edge types", async (t) => {
   assert.equal(documentedBy?.label, "Documented by");
   assert.ok(dependency, "DEPENDENCY_OF should exist");
 });
+
+class FakeCdmEntityStore {
+  private readonly work: CdmEntityEnvelope = {
+    domain: "WORK_ITEM",
+    cdmId: "cdm:work:item:1",
+    sourceSystem: "jira",
+    title: "Sample Work",
+    createdAt: new Date("2024-11-01T12:00:00Z").toISOString(),
+    updatedAt: new Date("2024-11-01T13:00:00Z").toISOString(),
+    state: "In Progress",
+    data: { summary: "Sample Work", projectCdmId: "cdm:work:project:1" },
+  };
+
+  private readonly doc: CdmEntityEnvelope = {
+    domain: "DOC_ITEM",
+    cdmId: "cdm:doc:item:1",
+    sourceSystem: "confluence",
+    title: "Doc Title",
+    createdAt: new Date("2024-11-02T09:00:00Z").toISOString(),
+    updatedAt: new Date("2024-11-02T10:00:00Z").toISOString(),
+    state: "page",
+    data: { docType: "page", spaceCdmId: "cdm:doc:space:ENG" },
+  };
+
+  async listEntities() {
+    return {
+      rows: [this.work],
+      cursorOffset: 0,
+      hasNextPage: false,
+    };
+  }
+
+  async getEntity(args: { domain: string; cdmId: string }): Promise<CdmEntityEnvelope | null> {
+    if (args.domain === "DOC_ITEM" && args.cdmId === this.doc.cdmId) {
+      return this.doc;
+    }
+    if (args.domain === "WORK_ITEM" && args.cdmId === this.work.cdmId) {
+      return this.work;
+    }
+    return null;
+  }
+}
 
 function buildResolverContext() {
   return {

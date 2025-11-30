@@ -1,0 +1,7 @@
+- [x] Inventory existing Work Explorer implementation (routes, components, queries) to understand refactor touch points.
+- [x] Inspect CDM docs GraphQL/data availability and define minimum fields needed for Docs tab.
+- [x] Design schema changes for `CdmEntity` envelope and document impacts.
+- [x] Implement GraphQL schema/resolver changes with tests for work + docs domains.
+- [x] Build CDM Explorer shell route + nav entry; refactor work explorer into plugin.
+- [x] Implement Docs plugin (list, filters, detail) using new envelope query.
+- [x] Update Playwright/unit tests and architecture docs; run `pnpm ci-check`.

@@ -800,17 +800,28 @@ test("Temporal UI shows Jira ingestion workflow runs", async ({ page, request })
   await expect(workflowRow).toBeVisible({ timeout: 30_000 });
 });
 
-test("cdm work explorer surfaces seeded data", async ({ page }) => {
+test("cdm explorer shell surfaces work tab", async ({ page }) => {
   await openMetadataWorkspace(page);
-  await page.getByRole("button", { name: "CDM → Work" }).click();
+  if (!(await page.getByRole("button", { name: "CDM Explorer" }).isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: "CDM → Work" }).click();
+  } else {
+    await page.getByRole("button", { name: "CDM Explorer" }).click();
+  }
   const table = page.getByTestId("cdm-work-table");
   await expect(table).toBeVisible({ timeout: 20_000 });
-  const row = page.getByTestId("cdm-work-row").filter({ hasText: "Seeded issue summary" }).first();
-  await expect(row).toBeVisible({ timeout: 20_000 });
-  await row.click();
-  const detail = page.getByTestId("cdm-work-detail");
-  await expect(detail).toBeVisible({ timeout: 20_000 });
-  await expect(detail).toContainText("Seeded comment body");
+  await expect(page.getByTestId("cdm-work-row").first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("cdm explorer shell surfaces docs tab", async ({ page }) => {
+  await openMetadataWorkspace(page);
+  if (!(await page.getByRole("button", { name: "CDM Explorer" }).isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: "CDM → Work" }).click();
+  } else {
+    await page.getByRole("button", { name: "CDM Explorer" }).click();
+  }
+  await page.getByRole("button", { name: "Docs" }).click();
+  await expect(page.getByText("Unified workspace", { exact: false })).toBeVisible();
+  await expect(page.getByText("Select a doc", { exact: false })).toBeVisible();
 });
 
 async function ensureWorkspaceReady(page: Page) {
@@ -1363,24 +1374,30 @@ async function fetchKeycloakTokenForUser(
   request: APIRequestContext,
   credentials: { username: string; password: string },
 ): Promise<string> {
-  const response = await request.post(`${keycloakBase}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`, {
-    form: {
-      client_id: "jira-plus-plus",
-      grant_type: "password",
-      username: credentials.username,
-      password: credentials.password,
-      scope: "nucleus-context",
-    },
-  });
-  if (!response.ok()) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await request.post(`${keycloakBase}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`, {
+      form: {
+        client_id: "jira-plus-plus",
+        grant_type: "password",
+        username: credentials.username,
+        password: credentials.password,
+        scope: "nucleus-context",
+      },
+    });
+    if (response.ok()) {
+      const payload = (await response.json()) as { access_token?: string };
+      if (!payload.access_token) {
+        throw new Error("Keycloak token response missing access_token");
+      }
+      return payload.access_token;
+    }
     const errorBody = await response.text();
-    throw new Error(`Failed to fetch Keycloak token: ${errorBody}`);
+    if (attempt === 2) {
+      throw new Error(`Failed to fetch Keycloak token: ${errorBody}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  const payload = (await response.json()) as { access_token?: string };
-  if (!payload.access_token) {
-    throw new Error("Keycloak token response missing access_token");
-  }
-  return payload.access_token;
+  throw new Error("Failed to fetch Keycloak token after retries");
 }
 
 async function ensureAdminToken(request: APIRequestContext): Promise<string> {

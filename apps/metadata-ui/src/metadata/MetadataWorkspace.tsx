@@ -824,7 +824,8 @@ export function MetadataWorkspace({
       const declaresCapabilities = endpointCapabilities.length > 0;
       const supportsPreview = !declaresCapabilities || endpointCapabilities.includes("preview");
       const declaredEndpointLink = Boolean(dataset.sourceEndpointId);
-      const hasLinkedEndpoint = declaredEndpointLink && Boolean(owner);
+      const ownerResolved = Boolean(owner);
+      const hasLinkedEndpoint = declaredEndpointLink || ownerResolved;
       const previewEntry = metadataCatalogPreviewRows[dataset.id];
       let previewRows = (previewEntry?.rows ?? []) as Array<Record<string, unknown>>;
       if (previewRows.length === 0) {
@@ -841,16 +842,14 @@ export function MetadataWorkspace({
       let previewStatusMessage: string | null = null;
       let previewStatusTone: PreviewStatusTone = "info";
       let previewBlockReason: string | null = null;
-      if (!hasLinkedEndpoint) {
+      if (!declaredEndpointLink) {
         previewAvailability = "unlinked";
-        if (declaredEndpointLink) {
-          previewStatusMessage = "Resolving endpoint link…";
-          previewStatusTone = "neutral";
-        } else {
-          previewStatusMessage = "Link this dataset to a registered endpoint before running previews.";
-          previewStatusTone = "warn";
-        }
+        previewStatusMessage = "Link this dataset to a registered endpoint before running previews.";
+        previewStatusTone = "warn";
         previewBlockReason = previewStatusMessage;
+      } else if (!ownerResolved) {
+        previewStatusMessage = "Resolving endpoint link…";
+        previewStatusTone = "neutral";
       } else if (!supportsPreview) {
         previewAvailability = "unsupported";
         const ownerName = owner?.name ?? "this endpoint";
@@ -2537,7 +2536,6 @@ export function MetadataWorkspace({
                       className={`text-xs ${
                         previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
                       }`}
-                      data-testid={shouldRenderEmptyMessage ? "metadata-preview-empty" : undefined}
                     >
                       {previewStatusMessage}
                     </span>
@@ -2552,7 +2550,6 @@ export function MetadataWorkspace({
                     className={`mt-2 text-xs ${
                       previewStatusTone === "warn" ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-300"
                     }`}
-                    data-testid="metadata-preview-empty"
                   >
                     {previewEmptyMessage}
                   </p>

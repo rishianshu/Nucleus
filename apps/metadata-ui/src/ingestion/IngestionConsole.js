@@ -665,7 +665,6 @@ function buildConfigInput(unit, overrides) {
         : overrides.confluenceFilter ?? DEFAULT_CONFLUENCE_FILTER_FORM;
     return {
         endpointId: unit.endpointId,
-        datasetId: unit.datasetId ?? unit.unitId,
         unitId: unit.unitId,
         enabled: overrides.enabled ?? fallback.enabled,
         runMode: formatIngestionMode(overrides.runMode ?? fallback.runMode),

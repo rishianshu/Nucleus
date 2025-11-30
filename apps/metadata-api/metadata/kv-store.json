@@ -1884,5 +1884,40 @@
     },
     "version": "8e37553c3a774d3bb00a955d56d4f79c",
     "updatedAt": "2025-11-30T10:05:15.784Z"
+  },
+  "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::cdm": {
+    "value": {
+      "cursor": {
+        "projects": {
+          "CUS": {
+            "lastUpdated": "2025-11-30T21:24:09.914+0530"
+          }
+        }
+      },
+      "lastRunId": "f532867d-ac25-4037-8747-6ca5cab8d30d",
+      "stats": {
+        "issuesSynced": 5,
+        "lastUpdated": null,
+        "recordCount": 5,
+        "unitId": "jira.issues"
+      },
+      "lastUpdatedAt": "2025-11-30T16:43:18.056Z"
+    },
+    "version": "1e87da00848f479998cdadb92a0471b8",
+    "updatedAt": "2025-11-30T16:43:18.057Z"
+  },
+  "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::cdm": {
+    "value": {
+      "state": {
+        "projects": {
+          "CUS": {
+            "lastUpdated": "2025-11-30T21:24:09.914+0530"
+          }
+        }
+      },
+      "lastUpdatedAt": "2025-11-30T16:43:18.058Z"
+    },
+    "version": "2d0cc02ce9424cf2b7e71f4be37f984e",
+    "updatedAt": "2025-11-30T16:43:18.059Z"
   }
 }

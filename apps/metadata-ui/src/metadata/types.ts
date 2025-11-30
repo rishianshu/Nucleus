@@ -235,6 +235,33 @@ export type CdmWorkItemDetail = {
   worklogs: CdmWorkLog[];
 };
 
+export type CdmEntity = {
+  id: string;
+  domain: "WORK_ITEM" | "DOC_ITEM";
+  sourceSystem: string;
+  cdmId: string;
+  title?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  state?: string | null;
+  data: Record<string, unknown>;
+};
+
+export type CdmEntityEdge = {
+  cursor: string;
+  node: CdmEntity;
+};
+
+export type CdmEntityConnection = {
+  edges: CdmEntityEdge[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string | null;
+    endCursor?: string | null;
+  };
+};
+
 export type CatalogDatasetConnection = {
   nodes: CatalogDataset[];
   pageInfo: {

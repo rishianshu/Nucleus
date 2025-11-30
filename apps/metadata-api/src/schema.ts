@@ -44,6 +44,7 @@ import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, 
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
 import { CdmWorkStore, encodeCursor as encodeWorkCursor, type CdmWorkItemRow, type CdmWorkCommentRow, type CdmWorkLogRow, type CdmWorkProjectRow, type WorkItemFilter as CdmWorkItemFilterArgs } from "./cdm/workStore.js";
+import { CdmEntityStore, type CdmEntityDomain, type CdmEntityEnvelope } from "./cdm/entityStore.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -807,6 +808,7 @@ export const typeDefs = `#graphql
   input CdmWorkItemFilter {
     projectCdmId: ID
     statusIn: [String!]
+    sourceSystems: [String!]
     search: String
   }
 
@@ -825,11 +827,46 @@ export const typeDefs = `#graphql
     cdmModelId: String!
   }
 
-  type ProvisionCdmSinkResult {
+type ProvisionCdmSinkResult {
     ok: Boolean!
     datasetId: ID!
     schema: String!
     tableName: String!
+  }
+  
+  enum CdmDomain {
+    WORK_ITEM
+    DOC_ITEM
+  }
+
+  type CdmEntity {
+    id: ID!
+    domain: CdmDomain!
+    sourceSystem: String!
+    cdmId: ID!
+    title: String
+    createdAt: DateTime
+    updatedAt: DateTime
+    state: String
+    data: JSON!
+  }
+
+  type CdmEntityEdge {
+    cursor: String!
+    node: CdmEntity!
+  }
+
+  type CdmEntityConnection {
+    edges: [CdmEntityEdge!]!
+    pageInfo: PageInfo!
+  }
+
+  input CdmEntityFilter {
+    domain: CdmDomain!
+    sourceSystems: [String!]
+    search: String
+    workProjectIds: [ID!]
+    docSpaceIds: [ID!]
   }
 
   type Query {
@@ -871,6 +908,8 @@ export const typeDefs = `#graphql
     cdmWorkProjects: [CdmWorkProject!]!
     cdmWorkItems(filter: CdmWorkItemFilter, first: Int = 25, after: String): CdmWorkItemConnection!
     cdmWorkItem(cdmId: ID!): CdmWorkItemDetail
+    cdmEntities(filter: CdmEntityFilter!, first: Int!, after: String): CdmEntityConnection!
+    cdmEntity(id: ID!, domain: CdmDomain!): CdmEntity
   }
 
   type Mutation {
@@ -904,6 +943,7 @@ export function createResolvers(
     ingestionStateStore?: Partial<IngestionStateStoreImpl>;
     ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
     cdmWorkStore?: CdmWorkStore;
+     cdmEntityStore?: CdmEntityStore;
     cdmProvisioner?: typeof provisionCdmSinkTables;
     temporalClientFactory?: typeof getTemporalClient;
   },
@@ -972,6 +1012,7 @@ export function createResolvers(
   };
   const provisionCdmSinkFn = options?.cdmProvisioner ?? provisionCdmSinkTables;
   const cdmWorkStore = options?.cdmWorkStore ?? new CdmWorkStore();
+  const cdmEntityStore = options?.cdmEntityStore ?? new CdmEntityStore({ workStore: cdmWorkStore });
   const registerEndpointWithInput = async (
     input: GraphQLMetadataEndpointInput,
     ctx: ResolverContext,
@@ -1522,6 +1563,41 @@ export function createResolvers(
           comments: result.comments.map(mapCdmWorkComment),
           worklogs: result.worklogs.map(mapCdmWorkLog),
         };
+      },
+      cdmEntities: async (
+        _parent: unknown,
+        args: { filter: CdmEntityFilterArgs; first: number; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const { rows, cursorOffset, hasNextPage } = await cdmEntityStore.listEntities({
+          projectId: ctx.auth.projectId,
+          filter: args.filter,
+          first: args.first,
+          after: args.after ?? null,
+        });
+        const edges = rows.map((row, index) => ({
+          cursor: encodeWorkCursor(cursorOffset + index + 1),
+          node: mapGraphCdmEntity(row),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage,
+            hasPreviousPage: cursorOffset > 0,
+            startCursor: edges[0]?.cursor ?? null,
+            endCursor: edges[edges.length - 1]?.cursor ?? null,
+          },
+        };
+      },
+      cdmEntity: async (_parent: unknown, args: { id: string; domain: CdmEntityDomain }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const entity = await cdmEntityStore.getEntity({
+          projectId: ctx.auth.projectId,
+          domain: args.domain,
+          cdmId: args.id,
+        });
+        return entity ? mapGraphCdmEntity(entity) : null;
       },
       metadataCollectionRuns: async (
         _parent: unknown,
@@ -3027,6 +3103,14 @@ type CollectionUpdateInput = {
   isEnabled?: boolean | null;
 };
 
+type CdmEntityFilterArgs = {
+  domain: CdmEntityDomain;
+  sourceSystems?: string[] | null;
+  search?: string | null;
+  workProjectIds?: string[] | null;
+  docSpaceIds?: string[] | null;
+};
+
 type MetadataCollectionStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
 
 type CatalogDatasetConnectionInput = {
@@ -4311,6 +4395,20 @@ function mapCdmWorkLog(row: CdmWorkLogRow) {
     timeSpentSeconds: row.time_spent_seconds ?? null,
     comment: row.comment ?? null,
     author: mapCdmWorkUser(row.author_cdm_id, row.author_display_name, row.author_email),
+  };
+}
+
+function mapGraphCdmEntity(envelope: CdmEntityEnvelope) {
+  return {
+    id: envelope.cdmId,
+    domain: envelope.domain,
+    sourceSystem: envelope.sourceSystem,
+    cdmId: envelope.cdmId,
+    title: envelope.title,
+    createdAt: envelope.createdAt,
+    updatedAt: envelope.updatedAt,
+    state: envelope.state,
+    data: envelope.data,
   };
 }
 
