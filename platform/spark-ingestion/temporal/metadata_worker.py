@@ -9,7 +9,7 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -339,7 +339,12 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         records = result.records
         if str(request.dataMode or "").lower() == "cdm":
             cdm_model_id = request.cdmModelId or _resolve_cdm_model_id(request.unitId)
-            records = _apply_jira_cdm_mapping(request.unitId, result.records, cdm_model_id)
+            records = _apply_jira_cdm_mapping(
+                request.unitId,
+                result.records,
+                cdm_model_id,
+                endpoint_id=request.endpointId,
+            )
         logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
         return IngestionUnitResult(
             newCheckpoint=result.cursor,
@@ -390,7 +395,13 @@ def _resolve_cdm_model_id(unit_id: str) -> Optional[str]:
     return ingestion_meta.get("cdm_model_id")
 
 
-def _apply_jira_cdm_mapping(unit_id: str, records: List[Dict[str, Any]], cdm_model_id: Optional[str]) -> List[Dict[str, Any]]:
+def _apply_jira_cdm_mapping(
+    unit_id: str,
+    records: List[Dict[str, Any]],
+    cdm_model_id: Optional[str],
+    *,
+    endpoint_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     if not cdm_model_id:
         return records
     mapper = _resolve_jira_cdm_mapper(unit_id)
@@ -402,8 +413,10 @@ def _apply_jira_cdm_mapping(unit_id: str, records: List[Dict[str, Any]], cdm_mod
         if not isinstance(payload, dict):
             mapped.append(record)
             continue
-        mapped_payload = mapper(payload)
+        source_payload = _select_cdm_source_payload(unit_id, payload)
+        mapped_payload = mapper(source_payload)
         serialized = _serialize_cdm_record(mapped_payload)
+        _attach_cdm_source_metadata(serialized, dataset_id=unit_id, endpoint_id=endpoint_id)
         new_record = dict(record)
         new_record["entityType"] = cdm_model_id
         new_record["cdmModelId"] = cdm_model_id
@@ -428,6 +441,8 @@ def _resolve_jira_cdm_mapper(unit_id: str):
 
 def _extract_project_cdm(payload: Dict[str, Any]) -> str:
     project = payload.get("project") or payload.get("projectKey") or payload.get("project_key")
+    if not project and isinstance(payload.get("fields"), dict):
+        project = payload["fields"].get("project")
     key = ""
     if isinstance(project, dict):
         key = project.get("key") or ""
@@ -444,6 +459,23 @@ def _extract_item_cdm(payload: Dict[str, Any]) -> str:
     elif isinstance(issue, str):
         key = issue
     return f"cdm:work:item:jira:{str(key)}"
+
+
+def _select_cdm_source_payload(unit_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    raw_payload = payload.get("raw")
+    if isinstance(raw_payload, dict):
+        enriched = dict(raw_payload)
+        issue_key = payload.get("issueKey")
+        if issue_key and not enriched.get("issueKey"):
+            enriched["issueKey"] = issue_key
+        if unit_id == "jira.issues":
+            fields = enriched.get("fields")
+            if not isinstance(fields, dict):
+                enriched["fields"] = payload.get("fields") or raw_payload.get("fields") or {}
+        return enriched
+    return payload
 
 
 def _resolve_confluence_cdm_model_id(unit_id: str) -> Optional[str]:
@@ -491,6 +523,22 @@ def _apply_confluence_cdm_mapping(unit_id: str, records: List[Dict[str, Any]], d
             continue
         mapped.append(record)
     return mapped
+
+
+def _attach_cdm_source_metadata(payload: Dict[str, Any], *, dataset_id: Optional[str], endpoint_id: Optional[str]) -> None:
+    properties = payload.get("properties") or {}
+    if not isinstance(properties, dict):
+        properties = {}
+    metadata_block = properties.get("_metadata") or {}
+    if not isinstance(metadata_block, dict):
+        metadata_block = {}
+    if dataset_id and "sourceDatasetId" not in metadata_block:
+        metadata_block["sourceDatasetId"] = dataset_id
+    if endpoint_id and "sourceEndpointId" not in metadata_block:
+        metadata_block["sourceEndpointId"] = endpoint_id
+    if metadata_block:
+        properties["_metadata"] = metadata_block
+    payload["properties"] = properties
 
 
 def _wrap_cdm_record(record: Dict[str, Any], cdm_obj: Any, model_id: str) -> Dict[str, Any]:
@@ -548,10 +596,24 @@ def _build_confluence_item_cdm_id(native_id: Optional[str]) -> Optional[str]:
 
 def _serialize_cdm_record(record_obj: Any) -> Dict[str, Any]:
     if hasattr(record_obj, "__dict__"):
-        return record_obj.__dict__
+        return _to_serializable(record_obj.__dict__)
     if hasattr(record_obj, "_asdict"):
-        return record_obj._asdict()
-    return dict(record_obj)
+        return _to_serializable(record_obj._asdict())
+    if isinstance(record_obj, dict):
+        return _to_serializable(record_obj)
+    return _to_serializable(dict(record_obj))
+
+
+def _to_serializable(value: Any):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_to_serializable(entry) for entry in value]
+    if isinstance(value, tuple):
+        return [_to_serializable(entry) for entry in value]
+    if isinstance(value, dict):
+        return {key: _to_serializable(val) for key, val in value.items()}
+    return value
 
 
 @activity.defn(name="collectCatalogSnapshots")

@@ -211,16 +211,24 @@ def test_apply_jira_cdm_mapping_for_issues():
         "payload": {
             "key": "ENG-1",
             "project": {"key": "ENG"},
-            "fields": {
-                "summary": "Issue one",
-                "reporter": {"accountId": "user-3", "displayName": "Reporter"},
-                "assignee": {"accountId": "user-2", "displayName": "Assignee"},
-                "labels": [],
-                "status": {"name": "To Do", "statusCategory": {"name": "New"}},
+            "raw": {
+                "key": "ENG-1",
+                "fields": {
+                    "summary": "Issue one",
+                    "project": {"key": "ENG"},
+                    "reporter": {"accountId": "user-3", "displayName": "Reporter"},
+                    "assignee": {"accountId": "user-2", "displayName": "Assignee"},
+                    "labels": [],
+                    "status": {"name": "To Do", "statusCategory": {"name": "New"}},
+                },
             },
         },
     }
-    mapped = _apply_jira_cdm_mapping("jira.issues", [record], "cdm.work.item")
+    mapped = _apply_jira_cdm_mapping("jira.issues", [record], "cdm.work.item", endpoint_id="endpoint-123")
     assert mapped[0]["entityType"] == "cdm.work.item"
     assert mapped[0]["payload"]["cdm_id"].startswith("cdm:work:item:jira:ENG-1")
     assert mapped[0]["payload"]["project_cdm_id"].endswith("ENG")
+    assert mapped[0]["payload"].get("properties", {}).get("_metadata", {}).get("sourceDatasetId") == "jira.issues"
+    assert mapped[0]["payload"].get("properties", {}).get("_metadata", {}).get("sourceEndpointId") == "endpoint-123"
+    assert mapped[0]["payload"]["summary"] == "Issue one"
+    assert mapped[0]["payload"]["properties"]["raw"]["key"] == "ENG-1"

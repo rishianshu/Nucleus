@@ -801,24 +801,54 @@ test("Temporal UI shows Jira ingestion workflow runs", async ({ page, request })
 });
 
 test("cdm explorer shell surfaces work tab", async ({ page }) => {
-  await openMetadataWorkspace(page);
-  if (!(await page.getByRole("button", { name: "CDM Explorer" }).isVisible().catch(() => false))) {
-    await page.getByRole("button", { name: "CDM → Work" }).click();
-  } else {
-    await page.getByRole("button", { name: "CDM Explorer" }).click();
-  }
+  await openCdmExplorerWorkTab(page);
+  const searchInput = page.locator("input[placeholder*='Search']").first();
+  await expect(searchInput).toBeVisible({ timeout: 20_000 });
   const table = page.getByTestId("cdm-work-table");
   await expect(table).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("cdm-work-row").first()).toBeVisible({ timeout: 20_000 });
+  const issueRow = page.getByTestId("cdm-work-row").first();
+  await expect(issueRow).toContainText("Seeded issue summary");
+  await issueRow.click();
+  const detailPanel = page.getByTestId("cdm-work-detail-panel");
+  await expect(detailPanel).toBeVisible();
+  await expect(detailPanel.getByText("Summary: Seeded issue summary")).toBeVisible();
+  await expect(detailPanel.getByText("Dataset:", { exact: false })).toBeVisible();
+  const datasetSelect = page.locator("select").nth(1);
+  await expect(datasetSelect).toBeVisible();
+  await expect(datasetSelect.locator("option").first()).toHaveText("All datasets");
+  await searchInput.fill("does-not-exist");
+  await expect(page.getByText("No CDM issues found", { exact: false })).toBeVisible();
+  await searchInput.fill("Seeded");
+  await expect(page.getByTestId("cdm-work-row").first()).toBeVisible();
+  await searchInput.fill("");
+  await page.getByRole("button", { name: "Comments" }).click();
+  await searchInput.fill("Seeded comment body");
+  const commentRow = page.getByTestId("cdm-work-row").first();
+  await expect(commentRow).toContainText("Seeded comment body");
+  await commentRow.click();
+  await expect(detailPanel.getByText("Seeded comment body")).toBeVisible();
+  await searchInput.fill("");
+  await page.getByRole("button", { name: "Issues" }).click();
+  await expect(page.getByTestId("cdm-work-row").first()).toContainText("Seeded issue summary");
+  await page.getByRole("button", { name: "Worklogs" }).click();
+  await expect(searchInput).toHaveAttribute("placeholder", /worklog/i);
+  await expect(page.getByTestId("cdm-work-row").first()).toBeVisible();
+  await page.getByRole("button", { name: "Projects" }).click();
+  const projectRow = page.getByTestId("cdm-work-row").first();
+  await expect(projectRow).toContainText("Seed Engineering");
+  await projectRow.click();
+  await expect(detailPanel).toContainText("Seed Engineering");
+  await page.getByRole("button", { name: "Users" }).click();
+  await searchInput.fill("Seed Assignee");
+  const userRow = page.getByTestId("cdm-work-row").first();
+  await expect(userRow).toContainText("Seed Assignee");
+  await userRow.click();
+  await expect(detailPanel).toContainText("Seed Assignee");
+  await searchInput.fill("");
 });
 
 test("cdm explorer shell surfaces docs tab", async ({ page }) => {
-  await openMetadataWorkspace(page);
-  if (!(await page.getByRole("button", { name: "CDM Explorer" }).isVisible().catch(() => false))) {
-    await page.getByRole("button", { name: "CDM → Work" }).click();
-  } else {
-    await page.getByRole("button", { name: "CDM Explorer" }).click();
-  }
+  await openCdmExplorerWorkTab(page);
   await page.getByRole("button", { name: "Docs" }).click();
   await expect(page.getByText("Unified workspace", { exact: false })).toBeVisible();
   await expect(page.getByText("Select a doc", { exact: false })).toBeVisible();
@@ -852,6 +882,16 @@ async function openKnowledgeBase(page: Page, credentials?: { username?: string; 
   const knowledgeBaseButton = page.getByRole("button", { name: "Knowledge Base" });
   await knowledgeBaseButton.click();
   await expect(page.getByText("Admin Console")).toBeVisible({ timeout: 20_000 });
+}
+
+async function openCdmExplorerWorkTab(page: Page) {
+  await openMetadataWorkspace(page);
+  const explorerButton = page.getByRole("button", { name: "CDM Explorer" });
+  if (await explorerButton.isVisible().catch(() => false)) {
+    await explorerButton.click();
+  } else {
+    await page.getByRole("button", { name: "CDM → Work" }).click();
+  }
 }
 
 async function waitForCatalogDataset(

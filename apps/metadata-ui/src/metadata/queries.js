@@ -518,6 +518,35 @@ export const CDM_WORK_PROJECTS_QUERY = `
       sourceProjectKey
       name
       description
+      datasetId
+      sourceEndpointId
+      raw
+    }
+  }
+`;
+export const CDM_WORK_PROJECT_CONNECTION_QUERY = `
+  query CdmWorkProjectConnection($filter: CdmWorkProjectFilter, $first: Int, $after: String) {
+    cdmWorkProjectConnection(filter: $filter, first: $first, after: $after) {
+      edges {
+        cursor
+        node {
+          cdmId
+          sourceSystem
+          sourceProjectKey
+          name
+          description
+          url
+          datasetId
+          sourceEndpointId
+          raw
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
     }
   }
 `;
@@ -547,6 +576,113 @@ export const CDM_WORK_ITEMS_QUERY = `
             displayName
             email
           }
+          datasetId
+          sourceEndpointId
+          raw
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+export const CDM_WORK_COMMENTS_QUERY = `
+  query CdmWorkComments($filter: CdmWorkCommentFilter, $first: Int, $after: String) {
+    cdmWorkComments(filter: $filter, first: $first, after: $after) {
+      edges {
+        cursor
+        node {
+          cdmId
+          sourceSystem
+          itemCdmId
+          parentIssueKey
+          projectCdmId
+          body
+          createdAt
+          updatedAt
+          author {
+            cdmId
+            displayName
+            email
+          }
+          datasetId
+          sourceEndpointId
+          raw
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+export const CDM_WORK_LOGS_QUERY = `
+  query CdmWorkLogs($filter: CdmWorkLogFilter, $first: Int, $after: String) {
+    cdmWorkLogs(filter: $filter, first: $first, after: $after) {
+      edges {
+        cursor
+        node {
+          cdmId
+          sourceSystem
+          itemCdmId
+          parentIssueKey
+          projectCdmId
+          startedAt
+          timeSpentSeconds
+          comment
+          author {
+            cdmId
+            displayName
+            email
+          }
+          datasetId
+          sourceEndpointId
+          raw
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+export const CDM_WORK_DATASETS_QUERY = `
+  query CdmWorkDatasets {
+    cdmWorkDatasets {
+      id
+      datasetId
+      label
+      entityKind
+      endpointId
+      endpointName
+    }
+  }
+`;
+export const CDM_WORK_USERS_QUERY = `
+  query CdmWorkUsers($filter: CdmWorkUserFilter, $first: Int, $after: String) {
+    cdmWorkUsers(filter: $filter, first: $first, after: $after) {
+      edges {
+        cursor
+        node {
+          cdmId
+          sourceSystem
+          sourceUserId
+          displayName
+          email
+          active
+          datasetId
+          sourceEndpointId
+          raw
         }
       }
       pageInfo {
@@ -559,7 +695,7 @@ export const CDM_WORK_ITEMS_QUERY = `
   }
 `;
 export const CDM_WORK_ITEM_DETAIL_QUERY = `
-	  query CdmWorkItemDetail($cdmId: ID!) {
+  query CdmWorkItemDetail($cdmId: ID!) {
     cdmWorkItem(cdmId: $cdmId) {
       item {
         cdmId
@@ -582,19 +718,34 @@ export const CDM_WORK_ITEM_DETAIL_QUERY = `
           displayName
           email
         }
+        datasetId
+        sourceEndpointId
+        raw
       }
       comments {
         cdmId
+        sourceSystem
+        itemCdmId
+        parentIssueKey
+        projectCdmId
         body
         createdAt
+        updatedAt
         author {
           cdmId
           displayName
           email
         }
+        datasetId
+        sourceEndpointId
+        raw
       }
       worklogs {
         cdmId
+        sourceSystem
+        itemCdmId
+        parentIssueKey
+        projectCdmId
         startedAt
         timeSpentSeconds
         comment
@@ -603,10 +754,13 @@ export const CDM_WORK_ITEM_DETAIL_QUERY = `
           displayName
           email
         }
+        datasetId
+        sourceEndpointId
+        raw
       }
     }
   }
-	`;
+`;
 export const CDM_ENTITY_CONNECTION_QUERY = `
 	  query CdmEntities($filter: CdmEntityFilter!, $first: Int!, $after: String) {
 	    cdmEntities(filter: $filter, first: $first, after: $after) {

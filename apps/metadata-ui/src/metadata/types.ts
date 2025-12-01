@@ -50,6 +50,13 @@ export type DatasetPreviewResult = {
   sampledAt?: string | null;
 };
 
+export type GraphPageInfo = {
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  startCursor?: string | null;
+  endCursor?: string | null;
+};
+
 export type IngestionSinkDescriptor = {
   id: string;
   supportedCdmModels?: string[] | null;
@@ -176,12 +183,43 @@ export type CdmWorkProject = {
   sourceProjectKey: string;
   name: string;
   description?: string | null;
+  url?: string | null;
+  datasetId?: string | null;
+  sourceEndpointId?: string | null;
+  raw: Record<string, unknown>;
 };
 
 export type CdmWorkUser = {
   cdmId: string;
+  sourceSystem?: string | null;
+  sourceUserId?: string | null;
   displayName?: string | null;
   email?: string | null;
+  active?: boolean | null;
+  datasetId?: string | null;
+  sourceEndpointId?: string | null;
+  raw?: Record<string, unknown>;
+};
+
+export type CdmWorkEntityKind = "ITEM" | "COMMENT" | "WORKLOG" | "PROJECT" | "USER";
+
+export type CdmWorkProjectConnection = {
+  edges: Array<{ cursor: string; node: CdmWorkProject }>;
+  pageInfo: GraphPageInfo;
+};
+
+export type CdmWorkUserConnection = {
+  edges: Array<{ cursor: string; node: CdmWorkUser }>;
+  pageInfo: GraphPageInfo;
+};
+
+export type CdmWorkDataset = {
+  id: string;
+  datasetId: string;
+  label: string;
+  entityKind: CdmWorkEntityKind;
+  endpointId: string;
+  endpointName: string;
 };
 
 export type CdmWorkItem = {
@@ -197,6 +235,9 @@ export type CdmWorkItem = {
   closedAt?: string | null;
   reporter?: CdmWorkUser | null;
   assignee?: CdmWorkUser | null;
+  datasetId?: string | null;
+  sourceEndpointId?: string | null;
+  raw?: Record<string, unknown> | null;
 };
 
 export type CdmWorkItemEdge = {
@@ -216,17 +257,62 @@ export type CdmWorkItemConnection = {
 
 export type CdmWorkComment = {
   cdmId: string;
+  sourceSystem: string;
+  itemCdmId: string;
+  parentIssueKey?: string | null;
+  projectCdmId?: string | null;
   body: string;
   createdAt?: string | null;
+  updatedAt?: string | null;
   author?: CdmWorkUser | null;
+  datasetId?: string | null;
+  sourceEndpointId?: string | null;
+  raw?: Record<string, unknown> | null;
+};
+
+export type CdmWorkCommentEdge = {
+  cursor: string;
+  node: CdmWorkComment;
+};
+
+export type CdmWorkCommentConnection = {
+  edges: CdmWorkCommentEdge[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string | null;
+    endCursor?: string | null;
+  };
 };
 
 export type CdmWorkLog = {
   cdmId: string;
+  sourceSystem: string;
+  itemCdmId: string;
+  parentIssueKey?: string | null;
+  projectCdmId?: string | null;
   startedAt?: string | null;
   timeSpentSeconds?: number | null;
   comment?: string | null;
   author?: CdmWorkUser | null;
+  datasetId?: string | null;
+  sourceEndpointId?: string | null;
+  raw?: Record<string, unknown> | null;
+};
+
+export type CdmWorkLogEdge = {
+  cursor: string;
+  node: CdmWorkLog;
+};
+
+export type CdmWorkLogConnection = {
+  edges: CdmWorkLogEdge[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string | null;
+    endCursor?: string | null;
+  };
 };
 
 export type CdmWorkItemDetail = {

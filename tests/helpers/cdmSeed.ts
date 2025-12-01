@@ -1,6 +1,16 @@
 import { Pool } from "pg";
 
 let seeded = false;
+const SEEDED_ENDPOINT_ID = "seeded-endpoint";
+
+function buildSeedProperties(datasetId: string) {
+  return JSON.stringify({
+    _metadata: {
+      sourceDatasetId: datasetId,
+      sourceEndpointId: SEEDED_ENDPOINT_ID,
+    },
+  });
+}
 
 export async function seedCdmData() {
   if (seeded) {
@@ -77,39 +87,39 @@ async function insertSeedRows(pool: Pool, schema: string, prefix: string) {
   const worklogId = "cdm:work:worklog:seed:ENG-1:1";
 
   await pool.query(
-    `INSERT INTO "${schema}"."${prefix}work_project" (cdm_id, source_system, source_project_key, name, description)
-     VALUES ($1, 'jira', 'ENG', 'Seed Engineering', 'Seeded project for CDM explorer')
-     ON CONFLICT (cdm_id) DO UPDATE SET name = EXCLUDED.name`,
-    [projectId],
+    `INSERT INTO "${schema}"."${prefix}work_project" (cdm_id, source_system, source_project_key, name, description, url, properties)
+     VALUES ($1, 'jira', 'ENG', 'Seed Engineering', 'Seeded project for CDM explorer', NULL, $2::jsonb)
+     ON CONFLICT (cdm_id) DO UPDATE SET name = EXCLUDED.name, properties = EXCLUDED.properties`,
+    [projectId, buildSeedProperties("jira.projects")],
   );
   await pool.query(
-    `INSERT INTO "${schema}"."${prefix}work_user" (cdm_id, display_name, email)
-     VALUES ($1, 'Seed Reporter', 'reporter@example.com')
-     ON CONFLICT (cdm_id) DO UPDATE SET display_name = EXCLUDED.display_name`,
-    [reporterId],
+    `INSERT INTO "${schema}"."${prefix}work_user" (cdm_id, source_system, source_user_id, display_name, email, active, properties)
+     VALUES ($1, 'jira', 'seed-reporter', 'Seed Reporter', 'reporter@example.com', true, $2::jsonb)
+     ON CONFLICT (cdm_id) DO UPDATE SET display_name = EXCLUDED.display_name, properties = EXCLUDED.properties`,
+    [reporterId, buildSeedProperties("jira.users")],
   );
   await pool.query(
-    `INSERT INTO "${schema}"."${prefix}work_user" (cdm_id, display_name, email)
-     VALUES ($1, 'Seed Assignee', 'assignee@example.com')
-     ON CONFLICT (cdm_id) DO UPDATE SET display_name = EXCLUDED.display_name`,
-    [assigneeId],
+    `INSERT INTO "${schema}"."${prefix}work_user" (cdm_id, source_system, source_user_id, display_name, email, active, properties)
+     VALUES ($1, 'jira', 'seed-assignee', 'Seed Assignee', 'assignee@example.com', true, $2::jsonb)
+     ON CONFLICT (cdm_id) DO UPDATE SET display_name = EXCLUDED.display_name, properties = EXCLUDED.properties`,
+    [assigneeId, buildSeedProperties("jira.users")],
   );
   await pool.query(
-    `INSERT INTO "${schema}"."${prefix}work_item" (cdm_id, source_system, source_issue_key, project_cdm_id, summary, status, priority, assignee_cdm_id, reporter_cdm_id, created_at, updated_at, closed_at)
-     VALUES ($1, 'jira', 'ENG-1', $2, 'Seeded issue summary', 'In Progress', 'High', $3, $4, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 day', NULL)
-     ON CONFLICT (cdm_id) DO UPDATE SET summary = EXCLUDED.summary, status = EXCLUDED.status, priority = EXCLUDED.priority`,
-    [itemId, projectId, assigneeId, reporterId],
+    `INSERT INTO "${schema}"."${prefix}work_item" (cdm_id, source_system, source_issue_key, project_cdm_id, summary, status, priority, assignee_cdm_id, reporter_cdm_id, created_at, updated_at, closed_at, properties)
+     VALUES ($1, 'jira', 'ENG-1', $2, 'Seeded issue summary', 'In Progress', 'High', $3, $4, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 day', NULL, $5::jsonb)
+     ON CONFLICT (cdm_id) DO UPDATE SET summary = EXCLUDED.summary, status = EXCLUDED.status, priority = EXCLUDED.priority, properties = EXCLUDED.properties`,
+    [itemId, projectId, assigneeId, reporterId, buildSeedProperties("jira.issues")],
   );
   await pool.query(
-    `INSERT INTO "${schema}"."${prefix}work_comment" (cdm_id, item_cdm_id, author_cdm_id, body, created_at)
-     VALUES ($1, $2, $3, 'Seeded comment body', NOW() - INTERVAL '12 hours')
-     ON CONFLICT (cdm_id) DO UPDATE SET body = EXCLUDED.body`,
-    [commentId, itemId, reporterId],
+    `INSERT INTO "${schema}"."${prefix}work_comment" (cdm_id, source_system, item_cdm_id, author_cdm_id, body, created_at, properties)
+     VALUES ($1, 'jira', $2, $3, 'Seeded comment body', NOW() - INTERVAL '12 hours', $4::jsonb)
+     ON CONFLICT (cdm_id) DO UPDATE SET body = EXCLUDED.body, source_system = EXCLUDED.source_system, properties = EXCLUDED.properties`,
+    [commentId, itemId, reporterId, buildSeedProperties("jira.comments")],
   );
   await pool.query(
-    `INSERT INTO "${schema}"."${prefix}work_worklog" (cdm_id, item_cdm_id, author_cdm_id, started_at, time_spent_seconds, comment)
-     VALUES ($1, $2, $3, NOW() - INTERVAL '6 hours', 5400, 'Seeded implementation work')
-     ON CONFLICT (cdm_id) DO UPDATE SET time_spent_seconds = EXCLUDED.time_spent_seconds`,
-    [worklogId, itemId, assigneeId],
+    `INSERT INTO "${schema}"."${prefix}work_worklog" (cdm_id, source_system, item_cdm_id, author_cdm_id, started_at, time_spent_seconds, comment, properties)
+     VALUES ($1, 'jira', $2, $3, NOW() - INTERVAL '6 hours', 5400, 'Seeded implementation work', $4::jsonb)
+     ON CONFLICT (cdm_id) DO UPDATE SET time_spent_seconds = EXCLUDED.time_spent_seconds, source_system = EXCLUDED.source_system, properties = EXCLUDED.properties`,
+    [worklogId, itemId, assigneeId, buildSeedProperties("jira.worklogs")],
   );
 }

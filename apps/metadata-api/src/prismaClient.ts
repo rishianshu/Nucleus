@@ -2,7 +2,15 @@ import path from "node:path";
 
 let clientPromise: Promise<any> | null = null;
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __metadataPrismaClient: any | undefined;
+}
+
 export function getPrismaClient(): Promise<any> {
+  if (globalThis.__metadataPrismaClient) {
+    return Promise.resolve(globalThis.__metadataPrismaClient);
+  }
   if (!clientPromise) {
     clientPromise = loadClient();
   }

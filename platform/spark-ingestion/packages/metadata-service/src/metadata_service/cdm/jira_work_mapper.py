@@ -34,6 +34,7 @@ def map_jira_project_to_cdm(project: Dict[str, Any], *, source_system: str = "ji
             "projectType": project.get("projectTypeKey"),
             "lead": project.get("lead"),
             "category": project.get("projectCategory"),
+            "raw": project,
         },
     )
 
@@ -51,6 +52,7 @@ def map_jira_user_to_cdm(user: Dict[str, Any], *, source_system: str = "jira") -
         properties={
             "timeZone": user.get("timeZone"),
             "accountType": user.get("accountType"),
+            "raw": user,
         },
     )
 
@@ -82,6 +84,7 @@ def map_jira_issue_to_cdm(issue: Dict[str, Any], *, project_cdm_id: str, source_
         closed_at=_parse_datetime(fields.get("resolutiondate")),
         properties={
             "rawFields": fields,
+            "raw": issue,
         },
     )
 

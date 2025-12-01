@@ -1885,39 +1885,223 @@
     "version": "8e37553c3a774d3bb00a955d56d4f79c",
     "updatedAt": "2025-11-30T10:05:15.784Z"
   },
+  "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.projects::sink::cdm": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-01T01:34:09.793320"
+      },
+      "lastRunId": "528a218e-e399-4a96-bb21-fbdcbb350ca7",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T20:04:09.938Z"
+    },
+    "version": "dbd26dbcbe814c28a4ea0dc7813caa32",
+    "updatedAt": "2025-11-30T20:04:09.938Z"
+  },
+  "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.projects::sink::cdm": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T20:04:09.940Z"
+    },
+    "version": "21065b64ee864a1da6295e40a8f6b4e5",
+    "updatedAt": "2025-11-30T20:04:09.940Z"
+  },
+  "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.users::sink::cdm": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-01T01:34:17.092523"
+      },
+      "lastRunId": "4ec809b7-b14a-48da-95db-9bdc53056080",
+      "stats": {
+        "recordCount": 220,
+        "unitId": "jira.users",
+        "usersSynced": 220
+      },
+      "lastUpdatedAt": "2025-11-30T20:04:17.451Z"
+    },
+    "version": "e32d670167ae4132a41912ed2635fd9c",
+    "updatedAt": "2025-11-30T20:04:17.452Z"
+  },
+  "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.users::sink::cdm": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T20:04:17.452Z"
+    },
+    "version": "be48c82e189c40c7a963b6c4c0966bf1",
+    "updatedAt": "2025-11-30T20:04:17.453Z"
+  },
   "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::cdm": {
     "value": {
       "cursor": {
         "projects": {
           "CUS": {
-            "lastUpdated": "2025-11-30T21:24:09.914+0530"
+            "lastUpdated": "2025-12-01T09:06:08.005+0530"
           }
         }
       },
-      "lastRunId": "f532867d-ac25-4037-8747-6ca5cab8d30d",
+      "lastRunId": "1fac8110-d2de-4b0e-a704-f6d6caefe938",
       "stats": {
-        "issuesSynced": 5,
+        "issuesSynced": 21,
         "lastUpdated": null,
-        "recordCount": 5,
+        "recordCount": 21,
         "unitId": "jira.issues"
       },
-      "lastUpdatedAt": "2025-11-30T16:43:18.056Z"
+      "lastUpdatedAt": "2025-12-01T03:37:14.934Z"
     },
-    "version": "1e87da00848f479998cdadb92a0471b8",
-    "updatedAt": "2025-11-30T16:43:18.057Z"
+    "version": "84d18bf2bcc14850a8c8108718b0fdc1",
+    "updatedAt": "2025-12-01T03:37:14.935Z"
   },
   "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.issues::sink::cdm": {
     "value": {
       "state": {
         "projects": {
           "CUS": {
-            "lastUpdated": "2025-11-30T21:24:09.914+0530"
+            "lastUpdated": "2025-12-01T09:06:08.005+0530"
           }
         }
       },
-      "lastUpdatedAt": "2025-11-30T16:43:18.058Z"
+      "lastUpdatedAt": "2025-12-01T03:37:14.939Z"
     },
-    "version": "2d0cc02ce9424cf2b7e71f4be37f984e",
-    "updatedAt": "2025-11-30T16:43:18.059Z"
+    "version": "72c8a77faf6e482798e45bb518f1036c",
+    "updatedAt": "2025-12-01T03:37:14.939Z"
+  },
+  "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.comments::sink::cdm": {
+    "value": {
+      "cursor": {
+        "lastUpdated": "2025-12-01T07:11:07.571+0530"
+      },
+      "lastRunId": "c622cb3b-ad75-4388-847c-e4995cac0fe9",
+      "stats": {
+        "commentsSynced": 15,
+        "lastUpdated": "2025-12-01T07:11:07.571+0530",
+        "recordCount": 15,
+        "unitId": "jira.comments"
+      },
+      "lastUpdatedAt": "2025-12-01T03:37:38.791Z"
+    },
+    "version": "fa5c49b25e674a3685aa4a659b459ea4",
+    "updatedAt": "2025-12-01T03:37:38.793Z"
+  },
+  "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.comments::sink::cdm": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-01T03:37:38.793Z"
+    },
+    "version": "5285de037dfa4f4b909b2a588ab2ebe0",
+    "updatedAt": "2025-12-01T03:37:38.794Z"
+  },
+  "ingest::work.jira::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.worklogs::sink::cdm": {
+    "value": {
+      "cursor": {
+        "lastStarted": "2025-11-30T13:10:39.290+0530"
+      },
+      "lastRunId": "419e929b-ecbf-4583-92de-7d2b34a18697",
+      "stats": {
+        "lastStarted": "2025-11-30T13:10:39.290+0530",
+        "recordCount": 0,
+        "unitId": "jira.worklogs",
+        "worklogsSynced": 0
+      },
+      "lastUpdatedAt": "2025-12-01T03:37:43.468Z"
+    },
+    "version": "58e60ab1ded942e19da8bdd8fe4a9f27",
+    "updatedAt": "2025-12-01T03:37:43.471Z"
+  },
+  "ingest_state::endpoint::e43054c18d2b4a7a83e679ae6d1dc614::unit::jira.worklogs::sink::cdm": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-01T03:37:43.479Z"
+    },
+    "version": "223a101aff214ad38ffffaaeadcf7e11",
+    "updatedAt": "2025-12-01T03:37:43.479Z"
+  },
+  "ingest::global-playwright-jira-temporal-mim7qhng-239b8e825c36439db5a96cc8ed91eb1f::endpoint::3fc020ff8c284845b480eca3106b6711::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-01T02:39:02.640091"
+      },
+      "lastRunId": "9b90c21b-4c9f-4224-b93e-cdf79b2c6946",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T21:09:02.740Z"
+    },
+    "version": "c27b15c609f14525a1e54192803e2e56",
+    "updatedAt": "2025-11-30T21:09:02.741Z"
+  },
+  "ingest_state::endpoint::3fc020ff8c284845b480eca3106b6711::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T21:09:02.742Z"
+    },
+    "version": "7d2e0fdb0bb54994892959f25950bb58",
+    "updatedAt": "2025-11-30T21:09:02.742Z"
+  },
+  "ingest::global-playwright-jira-temporal-mim7tn4x-5857813609dd4cc1bdd879e1678c8fd0::endpoint::040e1d0213744c1e8dae08cc0291b8e9::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-01T02:41:29.363853"
+      },
+      "lastRunId": "e30760f6-9416-42ed-a20e-0615c9592448",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T21:11:29.436Z"
+    },
+    "version": "aa120e61a9ee4f88ae2d700f3316337c",
+    "updatedAt": "2025-11-30T21:11:29.437Z"
+  },
+  "ingest_state::endpoint::040e1d0213744c1e8dae08cc0291b8e9::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T21:11:29.439Z"
+    },
+    "version": "60ff61e6381b40ab818f3276aa6f553f",
+    "updatedAt": "2025-11-30T21:11:29.439Z"
+  },
+  "ingest::global-playwright-jira-temporal-mim95s1t-4935562de788470198599cc4482d9264::endpoint::faf165f153364d6c874ed0b1bb20ebc7::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-01T03:18:55.411631"
+      },
+      "lastRunId": "55d3be25-d367-4c08-b6e9-7d5a0b62efa3",
+      "stats": {
+        "projectsSynced": 1,
+        "recordCount": 1,
+        "unitId": "jira.projects"
+      },
+      "lastUpdatedAt": "2025-11-30T21:48:55.465Z"
+    },
+    "version": "f82c18446cf04906800ca0aa2cb3bdff",
+    "updatedAt": "2025-11-30T21:48:55.468Z"
+  },
+  "ingest_state::endpoint::faf165f153364d6c874ed0b1bb20ebc7::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-11-30T21:48:55.469Z"
+    },
+    "version": "ca3785658c4d4f6ca7c6e0132fa9cbdc",
+    "updatedAt": "2025-11-30T21:48:55.470Z"
   }
 }

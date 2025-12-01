@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+import os
+import random
+import time
+import logging
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -30,6 +34,12 @@ from .base import (
 )
 from .jira_catalog import JIRA_API_LIBRARY, JIRA_DATASET_DEFINITIONS
 
+MAX_JIRA_RECORDS_PER_RUN = max(1, int(os.environ.get("JIRA_MAX_RECORDS_PER_RUN", "500")))
+RATE_LIMIT_STATUSES = {429, 500, 502, 503, 504}
+JIRA_MAX_API_RETRIES = max(1, int(os.environ.get("JIRA_MAX_API_RETRIES", "5")))
+JIRA_RATE_LIMIT_FALLBACK_DELAY = max(1.0, float(os.environ.get("JIRA_RATE_LIMIT_DELAY_SECONDS", "5")))
+
+logger = logging.getLogger(__name__)
 
 class JiraEndpoint(SourceEndpoint):
     """Jira REST endpoint descriptor + placeholder source implementation."""
@@ -561,11 +571,30 @@ def _normalize_jira_parameters(policy: Dict[str, Any]) -> Dict[str, Any]:
             params.setdefault("username", policy.get("username"))
         if policy.get("api_token") or policy.get("password"):
             params.setdefault("api_token", policy.get("api_token") or policy.get("password"))
+        max_records_value = policy.get("max_records") or policy.get("maxRecords")
+        if max_records_value is not None:
+            params.setdefault("max_records", max_records_value)
     params["project_keys"] = _normalize_project_keys(params.get("project_keys"))
     params["users"] = _normalize_users(params.get("users"))
     params.setdefault("scope_org_id", "dev")
     params["auth_type"] = str(params.get("auth_type") or "basic").lower()
     return params
+
+
+def _resolve_max_records(params: Dict[str, Any], fallback: int) -> int:
+    candidate = params.get("max_records")
+    value = fallback
+    if isinstance(candidate, (int, float)):
+        value = int(candidate)
+    elif isinstance(candidate, str) and candidate.strip():
+        try:
+            value = int(float(candidate.strip()))
+        except ValueError:
+            value = fallback
+    value = max(1, value)
+    if MAX_JIRA_RECORDS_PER_RUN:
+        value = min(value, MAX_JIRA_RECORDS_PER_RUN)
+    return value
 
 
 def _normalize_ingestion_filter(raw: Optional[Dict[str, Any]]) -> Optional[JiraIngestionFilter]:
@@ -683,11 +712,36 @@ def _build_jira_session(params: Dict[str, Any]) -> requests.Session:
 
 def _jira_get(session: requests.Session, base_url: str, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
     url = f"{base_url.rstrip('/')}{path}"
-    response = session.get(url, params=params, timeout=30)
-    if response.status_code >= 400:
+    attempt = 0
+    delay = JIRA_RATE_LIMIT_FALLBACK_DELAY
+    while True:
+        response = session.get(url, params=params, timeout=30)
+        if response.status_code < 400:
+            return response.json()
         snippet = response.text[:200]
+        attempt += 1
+        if response.status_code in RATE_LIMIT_STATUSES and attempt < JIRA_MAX_API_RETRIES:
+            retry_after_header = response.headers.get("Retry-After")
+            wait_seconds: float = delay * attempt
+            if retry_after_header:
+                try:
+                    wait_seconds = float(retry_after_header)
+                except ValueError:
+                    wait_seconds = delay * attempt
+            jitter = random.uniform(0.0, 0.5)
+            total_sleep = max(wait_seconds + jitter, 1.0)
+            logger.warning(
+                "jira_api_rate_limited",
+                extra={
+                    "url": url,
+                    "status": response.status_code,
+                    "attempt": attempt,
+                    "sleepSeconds": round(total_sleep, 2),
+                },
+            )
+            time.sleep(total_sleep)
+            continue
         raise RuntimeError(f"Jira API call failed ({response.status_code}): {snippet}")
-    return response.json()
 
 
 def _sync_jira_projects(
@@ -1172,6 +1226,7 @@ def _run_issues_unit(
     state = state or JiraTransientState()
     records: List[Dict[str, Any]] = []
     new_cursor: Dict[str, Any] = {}
+    max_records = _resolve_max_records(params, 500)
     if "lastUpdated" in cursor:
         new_cursor["lastUpdated"] = cursor.get("lastUpdated")
     project_cursors = cursor.get("projects") if isinstance(cursor.get("projects"), dict) else {}
@@ -1209,6 +1264,7 @@ def _run_issues_unit(
             endpoint_id,
             scoped_params,
             since,
+            max_records=max_records,
         )
         records.extend(project_records)
         latest_value = latest or since
@@ -1258,6 +1314,7 @@ def _run_comments_unit(
     state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     since = cursor.get("lastUpdated")
+    max_records = _resolve_max_records(params, 500)
     records, latest = _sync_jira_comments(
         session,
         base_url,
@@ -1267,6 +1324,7 @@ def _run_comments_unit(
         endpoint_id,
         params,
         since,
+        max_records=max_records,
     )
     new_cursor = {"lastUpdated": latest or since}
     stats = {"commentsSynced": len(records), "lastUpdated": new_cursor["lastUpdated"]}
@@ -1287,6 +1345,7 @@ def _run_worklogs_unit(
     state: Optional[JiraTransientState] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     since = cursor.get("lastStarted")
+    max_records = _resolve_max_records(params, 500)
     records, latest = _sync_jira_worklogs(
         session,
         base_url,
@@ -1296,6 +1355,7 @@ def _run_worklogs_unit(
         endpoint_id,
         params,
         since,
+        max_records=max_records,
     )
     new_cursor = {"lastStarted": latest or since}
     stats = {"worklogsSynced": len(records), "lastStarted": new_cursor["lastStarted"]}

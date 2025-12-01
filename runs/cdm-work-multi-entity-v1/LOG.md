@@ -1,0 +1,6 @@
+2025-11-30T17:30:12Z {start: booting cdm-work-multi-entity-v1, next: RESUME protocol per RUNCARD}
+2025-11-30T17:40:15Z {done: boot + initial code inventory (GraphQL/Work store/UI), next: document gaps & design backend changes for multi-entity datasets, risks: need schema additions for dataset metadata w/out downtime}
+2025-11-30T18:00:37Z {done: jira ingestion metadata + GraphQL/store support for work comments/logs/datasets, next: finalize unit tests + start UI Work shell updates, risks: historical CDM rows may lack dataset metadata until reingested}
+2025-11-30T18:14:33Z {done: UI explorer refactor + datasets queries wired, next: exercise Playwright focus specs + update TODO/STATE, risks: seeded data missing source URLs so open-in-source may be best-effort}
+2025-11-30T18:35:02Z {done: stabilized cdm explorer Playwright spec + ran pnpm check:metadata-auth (still failing legacy catalog/ingestion tests), next: capture blockers in TODO/QUESTIONS + refresh STATE.md, risks: ingestion tests need driver-level work to autoprovision units under fake mode}
+2025-11-30T19:05:00Z {done: reran check:metadata-auth to green + documented deferrals + updated STATE/TODO/story, next: none (slug closed), risks: full pnpm ci-check deferred to later milestone along with Confluence/GitHub/OneDrive follow-up}

@@ -42,8 +42,22 @@ import {
 import type { IngestionUnitStateRow } from "./ingestion/stateStore.js";
 import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, saveIngestionUnitConfig, type IngestionUnitConfigRow } from "./ingestion/configStore.js";
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
+import { writeTransientState } from "./ingestion/transientState.js";
 import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
-import { CdmWorkStore, encodeCursor as encodeWorkCursor, type CdmWorkItemRow, type CdmWorkCommentRow, type CdmWorkLogRow, type CdmWorkProjectRow, type WorkItemFilter as CdmWorkItemFilterArgs } from "./cdm/workStore.js";
+import {
+  CdmWorkStore,
+  encodeCursor as encodeWorkCursor,
+  type CdmWorkItemRow,
+  type CdmWorkCommentRow,
+  type CdmWorkLogRow,
+  type CdmWorkProjectRow,
+  type CdmWorkUserRow,
+  type WorkItemFilter as CdmWorkItemFilterArgs,
+  type WorkCommentFilter as CdmWorkCommentFilterArgs,
+  type WorkLogFilter as CdmWorkLogFilterArgs,
+  type WorkProjectFilter as CdmWorkProjectFilterArgs,
+  type WorkUserFilter as CdmWorkUserFilterArgs,
+} from "./cdm/workStore.js";
 import { CdmEntityStore, type CdmEntityDomain, type CdmEntityEnvelope } from "./cdm/entityStore.js";
 
 type IngestionStateStoreImpl = {
@@ -80,6 +94,7 @@ const KB_SAMPLE_TIMESTAMP = "2024-01-01T00:00:00.000Z";
 const KB_FACET_CACHE_TTL_MS = Number(process.env.KB_FACET_CACHE_TTL_MS ?? 15 * 60 * 1000);
 const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
 const DEFAULT_INGESTION_SINK = process.env.INGESTION_DEFAULT_SINK ?? "kb";
+const INGESTION_WORKFLOW_MAX_ATTEMPTS = Math.max(1, Number(process.env.METADATA_INGESTION_MAX_RETRIES ?? "3"));
 
 type GraphQLKbFacetValue = {
   value: string;
@@ -755,18 +770,45 @@ export const typeDefs = `#graphql
     supportedCdmModels: [String!]
   }
 
+  enum CdmWorkEntityKind {
+    ITEM
+    COMMENT
+    WORKLOG
+    PROJECT
+    USER
+  }
+
+  type CdmWorkDataset {
+    id: ID!
+    datasetId: ID!
+    label: String!
+    entityKind: CdmWorkEntityKind!
+    endpointId: ID!
+    endpointName: String!
+  }
+
   type CdmWorkProject {
     cdmId: ID!
     sourceSystem: String!
     sourceProjectKey: String!
     name: String!
     description: String
+    url: String
+    datasetId: ID
+    sourceEndpointId: ID
+    raw: JSON!
   }
 
   type CdmWorkUser {
     cdmId: ID!
+    sourceSystem: String
+    sourceUserId: String
     displayName: String
     email: String
+    active: Boolean
+    datasetId: ID
+    sourceEndpointId: ID
+    raw: JSON!
   }
 
   type CdmWorkItem {
@@ -782,21 +824,39 @@ export const typeDefs = `#graphql
     closedAt: DateTime
     reporter: CdmWorkUser
     assignee: CdmWorkUser
+    datasetId: ID
+    sourceEndpointId: ID
+    raw: JSON!
   }
 
   type CdmWorkComment {
     cdmId: ID!
+    sourceSystem: String!
+    itemCdmId: ID!
+    parentIssueKey: String
+    projectCdmId: ID
     body: String!
     createdAt: DateTime
+    updatedAt: DateTime
     author: CdmWorkUser
+    datasetId: ID
+    sourceEndpointId: ID
+    raw: JSON!
   }
 
   type CdmWorkLog {
     cdmId: ID!
+    sourceSystem: String!
+    itemCdmId: ID!
+    parentIssueKey: String
+    projectCdmId: ID
     startedAt: DateTime
     timeSpentSeconds: Int
     comment: String
     author: CdmWorkUser
+    datasetId: ID
+    sourceEndpointId: ID
+    raw: JSON!
   }
 
   type CdmWorkItemDetail {
@@ -810,6 +870,60 @@ export const typeDefs = `#graphql
     statusIn: [String!]
     sourceSystems: [String!]
     search: String
+    datasetIds: [ID!]
+  }
+
+  input CdmWorkCommentFilter {
+    projectCdmId: ID
+    sourceSystems: [String!]
+    datasetIds: [ID!]
+    parentKeys: [String!]
+    authorIds: [ID!]
+    search: String
+  }
+
+  input CdmWorkLogFilter {
+    projectCdmId: ID
+    sourceSystems: [String!]
+    datasetIds: [ID!]
+    parentKeys: [String!]
+    authorIds: [ID!]
+    startedFrom: DateTime
+    startedTo: DateTime
+    search: String
+  }
+
+  input CdmWorkProjectFilter {
+    sourceSystems: [String!]
+    datasetIds: [ID!]
+    search: String
+  }
+
+  type CdmWorkProjectEdge {
+    cursor: String!
+    node: CdmWorkProject!
+  }
+
+  type CdmWorkProjectConnection {
+    edges: [CdmWorkProjectEdge!]!
+    pageInfo: PageInfo!
+  }
+
+  input CdmWorkUserFilter {
+    sourceSystems: [String!]
+    datasetIds: [ID!]
+    search: String
+    active: Boolean
+  }
+
+  type CdmWorkUserEdge {
+    cursor: String!
+    node: CdmWorkUser!
+  }
+
+  type CdmWorkUserConnection {
+    edges: [CdmWorkUserEdge!]!
+    pageInfo: PageInfo!
   }
 
   type CdmWorkItemEdge {
@@ -819,6 +933,26 @@ export const typeDefs = `#graphql
 
   type CdmWorkItemConnection {
     edges: [CdmWorkItemEdge!]!
+    pageInfo: PageInfo!
+  }
+
+  type CdmWorkCommentEdge {
+    cursor: String!
+    node: CdmWorkComment!
+  }
+
+  type CdmWorkCommentConnection {
+    edges: [CdmWorkCommentEdge!]!
+    pageInfo: PageInfo!
+  }
+
+  type CdmWorkLogEdge {
+    cursor: String!
+    node: CdmWorkLog!
+  }
+
+  type CdmWorkLogConnection {
+    edges: [CdmWorkLogEdge!]!
     pageInfo: PageInfo!
   }
 
@@ -906,7 +1040,12 @@ type ProvisionCdmSinkResult {
     jiraIngestionFilterOptions(endpointId: ID!): JiraIngestionFilterOptions!
     confluenceIngestionFilterOptions(endpointId: ID!): ConfluenceIngestionFilterOptions!
     cdmWorkProjects: [CdmWorkProject!]!
+    cdmWorkProjectConnection(filter: CdmWorkProjectFilter, first: Int = 25, after: String): CdmWorkProjectConnection!
     cdmWorkItems(filter: CdmWorkItemFilter, first: Int = 25, after: String): CdmWorkItemConnection!
+    cdmWorkComments(filter: CdmWorkCommentFilter, first: Int = 25, after: String): CdmWorkCommentConnection!
+    cdmWorkLogs(filter: CdmWorkLogFilter, first: Int = 25, after: String): CdmWorkLogConnection!
+    cdmWorkDatasets: [CdmWorkDataset!]!
+    cdmWorkUsers(filter: CdmWorkUserFilter, first: Int = 25, after: String): CdmWorkUserConnection!
     cdmWorkItem(cdmId: ID!): CdmWorkItemDetail
     cdmEntities(filter: CdmEntityFilter!, first: Int!, after: String): CdmEntityConnection!
     cdmEntity(id: ID!, domain: CdmDomain!): CdmEntity
@@ -1526,6 +1665,32 @@ export function createResolvers(
         const rows = await cdmWorkStore.listProjects(ctx.auth.projectId);
         return rows.map(mapCdmWorkProject);
       },
+      cdmWorkProjectConnection: async (
+        _parent: unknown,
+        args: { filter?: CdmWorkProjectFilterArgs | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const { rows, cursorOffset, hasNextPage } = await cdmWorkStore.listWorkProjects({
+          projectId: ctx.auth.projectId,
+          filter: args.filter ?? null,
+          first: args.first ?? 25,
+          after: args.after ?? null,
+        });
+        const edges = rows.map((row, index) => ({
+          cursor: encodeWorkCursor(cursorOffset + index + 1),
+          node: mapCdmWorkProject(row),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage,
+            hasPreviousPage: cursorOffset > 0,
+            startCursor: edges[0]?.cursor ?? null,
+            endCursor: edges[edges.length - 1]?.cursor ?? null,
+          },
+        };
+      },
       cdmWorkItems: async (
         _parent: unknown,
         args: { filter?: CdmWorkItemFilterArgs | null; first?: number | null; after?: string | null },
@@ -1541,6 +1706,108 @@ export function createResolvers(
         const edges = rows.map((row, index) => ({
           cursor: encodeWorkCursor(cursorOffset + index + 1),
           node: mapCdmWorkItem(row),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage,
+            hasPreviousPage: cursorOffset > 0,
+            startCursor: edges[0]?.cursor ?? null,
+            endCursor: edges[edges.length - 1]?.cursor ?? null,
+          },
+        };
+      },
+      cdmWorkComments: async (
+        _parent: unknown,
+        args: { filter?: CdmWorkCommentFilterArgs | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const { rows, cursorOffset, hasNextPage } = await cdmWorkStore.listWorkComments({
+          projectId: ctx.auth.projectId,
+          filter: args.filter ?? null,
+          first: args.first ?? 25,
+          after: args.after ?? null,
+        });
+        const edges = rows.map((row, index) => ({
+          cursor: encodeWorkCursor(cursorOffset + index + 1),
+          node: mapCdmWorkComment(row),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage,
+            hasPreviousPage: cursorOffset > 0,
+            startCursor: edges[0]?.cursor ?? null,
+            endCursor: edges[edges.length - 1]?.cursor ?? null,
+          },
+        };
+      },
+      cdmWorkLogs: async (
+        _parent: unknown,
+        args: { filter?: CdmWorkLogFilterArgs | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const { rows, cursorOffset, hasNextPage } = await cdmWorkStore.listWorkLogs({
+          projectId: ctx.auth.projectId,
+          filter: args.filter ?? null,
+          first: args.first ?? 25,
+          after: args.after ?? null,
+        });
+        const edges = rows.map((row, index) => ({
+          cursor: encodeWorkCursor(cursorOffset + index + 1),
+          node: mapCdmWorkLog(row),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage,
+            hasPreviousPage: cursorOffset > 0,
+            startCursor: edges[0]?.cursor ?? null,
+            endCursor: edges[edges.length - 1]?.cursor ?? null,
+          },
+        };
+      },
+      cdmWorkDatasets: async (_parent: unknown, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const prisma = await getPrismaClient();
+        const configs = await prisma.ingestionUnitConfig.findMany({
+          where: {
+            endpoint: {
+              projectId: ctx.auth.projectId ?? undefined,
+              deletedAt: null,
+            },
+            mode: "cdm",
+          },
+          include: {
+            endpoint: true,
+          },
+        });
+        const mapped = configs
+          .map((config: any) => mapCdmWorkDataset(config))
+          .filter(
+            (entry: ReturnType<typeof mapCdmWorkDataset> | null | undefined): entry is NonNullable<
+              ReturnType<typeof mapCdmWorkDataset>
+            > => Boolean(entry),
+          );
+        return mapped;
+      },
+      cdmWorkUsers: async (
+        _parent: unknown,
+        args: { filter?: CdmWorkUserFilterArgs | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const { rows, cursorOffset, hasNextPage } = await cdmWorkStore.listWorkUsers({
+          projectId: ctx.auth.projectId,
+          filter: args.filter ?? null,
+          first: args.first ?? 25,
+          after: args.after ?? null,
+        });
+        const edges = rows.map((row, index) => ({
+          cursor: encodeWorkCursor(cursorOffset + index + 1),
+          node: mapCdmWorkUserRecord(row),
         }));
         return {
           edges,
@@ -2046,6 +2313,7 @@ export function createResolvers(
         await client.workflow.start(WORKFLOW_NAMES.ingestionRun, {
           taskQueue,
           workflowId,
+          retry: { maximumAttempts: INGESTION_WORKFLOW_MAX_ATTEMPTS },
           args: [{ endpointId: endpointRowId, unitId: args.unitId, sinkId }],
         });
         await stateStore.markUnitState(
@@ -2088,6 +2356,10 @@ export function createResolvers(
           vendor: resolveVendorKeyForEndpoint(endpoint),
           sinkId,
         });
+        await writeTransientState(
+          { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+          null,
+        ).catch(() => undefined);
         await stateStore.markUnitState(
           { endpointId: endpointRowId, unitId: args.unitId, sinkId },
           { checkpoint: null, state: "IDLE", lastError: null },
@@ -4353,16 +4625,37 @@ function mapIngestionStateRow(row: IngestionUnitStateRow) {
 }
 
 function mapCdmWorkProject(row: CdmWorkProjectRow) {
+  const metadata = extractWorkSourceMetadata(row.properties);
   return {
     cdmId: row.cdm_id,
     sourceSystem: row.source_system,
     sourceProjectKey: row.source_project_key,
     name: row.name,
     description: row.description,
+    url: row.url ?? null,
+    datasetId: metadata.datasetId,
+    sourceEndpointId: metadata.endpointId,
+    raw: metadata.raw,
+  };
+}
+
+function mapCdmWorkUserRecord(row: CdmWorkUserRow) {
+  const metadata = extractWorkSourceMetadata(row.properties);
+  return {
+    cdmId: row.cdm_id,
+    sourceSystem: row.source_system ?? null,
+    sourceUserId: row.source_user_id ?? null,
+    displayName: row.display_name ?? null,
+    email: row.email ?? null,
+    active: typeof row.active === "boolean" ? row.active : null,
+    datasetId: metadata.datasetId,
+    sourceEndpointId: metadata.endpointId,
+    raw: metadata.raw,
   };
 }
 
 function mapCdmWorkItem(row: CdmWorkItemRow) {
+  const metadata = extractWorkSourceMetadata(row.properties);
   return {
     cdmId: row.cdm_id,
     sourceSystem: row.source_system,
@@ -4376,25 +4669,45 @@ function mapCdmWorkItem(row: CdmWorkItemRow) {
     closedAt: row.closed_at ? row.closed_at.toISOString() : null,
     reporter: mapCdmWorkUser(row.reporter_cdm_id, row.reporter_display_name, row.reporter_email),
     assignee: mapCdmWorkUser(row.assignee_cdm_id, row.assignee_display_name, row.assignee_email),
+    datasetId: metadata.datasetId,
+    sourceEndpointId: metadata.endpointId,
+    raw: metadata.raw,
   };
 }
 
 function mapCdmWorkComment(row: CdmWorkCommentRow) {
+  const metadata = extractWorkSourceMetadata(row.properties);
   return {
     cdmId: row.cdm_id,
+    sourceSystem: row.source_system,
+    itemCdmId: row.item_cdm_id,
+    parentIssueKey: row.item_source_issue_key ?? null,
+    projectCdmId: row.item_project_cdm_id ?? null,
     body: row.body,
     createdAt: row.created_at ? row.created_at.toISOString() : null,
+    updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
     author: mapCdmWorkUser(row.author_cdm_id, row.author_display_name, row.author_email),
+    datasetId: metadata.datasetId,
+    sourceEndpointId: metadata.endpointId,
+    raw: metadata.raw,
   };
 }
 
 function mapCdmWorkLog(row: CdmWorkLogRow) {
+  const metadata = extractWorkSourceMetadata(row.properties);
   return {
     cdmId: row.cdm_id,
+    sourceSystem: row.source_system,
+    itemCdmId: row.item_cdm_id,
+    parentIssueKey: row.item_source_issue_key ?? null,
+    projectCdmId: row.item_project_cdm_id ?? null,
     startedAt: row.started_at ? row.started_at.toISOString() : null,
     timeSpentSeconds: row.time_spent_seconds ?? null,
     comment: row.comment ?? null,
     author: mapCdmWorkUser(row.author_cdm_id, row.author_display_name, row.author_email),
+    datasetId: metadata.datasetId,
+    sourceEndpointId: metadata.endpointId,
+    raw: metadata.raw,
   };
 }
 
@@ -4420,6 +4733,102 @@ function mapCdmWorkUser(cdmId?: string | null, displayName?: string | null, emai
     cdmId,
     displayName: displayName ?? null,
     email: email ?? null,
+    sourceSystem: null,
+    sourceUserId: null,
+    active: null,
+    datasetId: null,
+    sourceEndpointId: null,
+    raw: {},
+  };
+}
+
+function extractWorkSourceMetadata(properties: Record<string, unknown> | null | undefined) {
+  const safeProperties = isPlainObject(properties) ? properties : {};
+  const metadataBlock = isPlainObject((safeProperties as Record<string, unknown>)["_metadata"])
+    ? ((safeProperties as Record<string, unknown>)["_metadata"] as Record<string, unknown>)
+    : {};
+  const datasetId = typeof metadataBlock["sourceDatasetId"] === "string" ? (metadataBlock["sourceDatasetId"] as string) : null;
+  const endpointId = typeof metadataBlock["sourceEndpointId"] === "string" ? (metadataBlock["sourceEndpointId"] as string) : null;
+  return {
+    datasetId,
+    endpointId,
+    raw: safeProperties,
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type WorkEntityKind = "ITEM" | "COMMENT" | "WORKLOG" | "PROJECT" | "USER";
+
+const WORK_DATASET_KIND_MAP: Record<string, WorkEntityKind> = {
+  "jira.issues": "ITEM",
+  "jira.comments": "COMMENT",
+  "jira.worklogs": "WORKLOG",
+  "jira.projects": "PROJECT",
+  "jira.users": "USER",
+};
+
+const WORK_DATASET_LABEL_MAP: Record<string, string> = {
+  "jira.issues": "Issues",
+  "jira.comments": "Comments",
+  "jira.worklogs": "Worklogs",
+  "jira.projects": "Projects",
+  "jira.users": "Users",
+};
+
+function inferWorkEntityKind(datasetId?: string | null): WorkEntityKind | null {
+  if (!datasetId) {
+    return null;
+  }
+  if (WORK_DATASET_KIND_MAP[datasetId]) {
+    return WORK_DATASET_KIND_MAP[datasetId];
+  }
+  const normalized = datasetId.toLowerCase();
+  if (normalized.includes("comment")) {
+    return "COMMENT";
+  }
+  if (normalized.includes("log")) {
+    return "WORKLOG";
+  }
+  if (normalized.includes("issue") || normalized.includes("item")) {
+    return "ITEM";
+  }
+  if (normalized.includes("project")) {
+    return "PROJECT";
+  }
+  if (normalized.includes("user")) {
+    return "USER";
+  }
+  return null;
+}
+
+function describeWorkDataset(datasetId: string): string {
+  return WORK_DATASET_LABEL_MAP[datasetId] ?? datasetId;
+}
+
+function mapCdmWorkDataset(config: any) {
+  if (!config) {
+    return null;
+  }
+  const datasetId = config.datasetId;
+  const endpoint = config.endpoint;
+  if (!datasetId || !endpoint) {
+    return null;
+  }
+  const entityKind = inferWorkEntityKind(datasetId);
+  if (!entityKind) {
+    return null;
+  }
+  const endpointName = endpoint.name ?? endpoint.id ?? endpoint.sourceId ?? "Endpoint";
+  return {
+    id: config.id,
+    datasetId,
+    label: `${endpointName} · ${describeWorkDataset(datasetId)}`,
+    entityKind,
+    endpointId: config.endpointId,
+    endpointName,
   };
 }
 
@@ -6107,6 +6516,9 @@ async function syncIngestionUnitSchedule(config: IngestionUnitConfigRow) {
     workflowId: buildIngestionWorkflowId(config.endpointId, config.unitId),
     workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
     args: [{ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId }],
+    retryPolicy: {
+      maximumAttempts: INGESTION_WORKFLOW_MAX_ATTEMPTS,
+    },
   };
   const policies = {
     overlap: ScheduleOverlapPolicy.SKIP,

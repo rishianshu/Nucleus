@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-explorer-shell-v1 (success @ 2025-11-30T15:23Z)
+cdm-work-multi-entity-v1 (success @ 2025-11-30T19:05Z)
 
 ## Last Run
-- slug: cdm-explorer-shell-v1
+- slug: cdm-work-multi-entity-v1
 - status: success
-- duration: 12:22Z → 15:23Z
-- tests: pnpm ci-check
-- commits: pending (worktree dirty)
-- decisions: 3 (see runs/cdm-explorer-shell-v1/DECISIONS.md)
-- next_step: Await assignment for next slug
+- duration: 17:30Z → 19:05Z
+- tests: `pnpm check:metadata-auth` green (full `ci-check` deferred to Confluence/GitHub/OneDrive milestone)
+- commits: local branch (worktree dirty, not pushed)
+- decisions: 0
+- next_step: when the broader milestone is ready, run full `pnpm ci-check` alongside Confluence/GitHub/OneDrive ingestion validation
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-11-30T19:05Z run success (cdm-work-multi-entity-v1, multi-entity Work Explorer + Playwright green; ci-check deferred)
 - 2025-11-29T07:30Z run heartbeat (confluence-ingestion-v1, resumed run + context sync)
 - 2025-11-29T06:28Z run started (confluence-ingestion-v1, boot + context sync)
 - 2025-11-28T20:05Z run success (semantic-confluence-source-v1, ci-check green + confluence harness artifacts)

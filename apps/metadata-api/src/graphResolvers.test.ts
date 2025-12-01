@@ -6,6 +6,7 @@ import test from "node:test";
 import { FileMetadataStore, createGraphStore } from "@metadata/core";
 import { createResolvers } from "./schema.js";
 import type { CdmEntityEnvelope } from "./cdm/entityStore.js";
+import type { CdmWorkItemRow, CdmWorkCommentRow, CdmWorkLogRow } from "./cdm/workStore.js";
 
 const TEST_TENANT = "tenant-graph";
 const TEST_PROJECT = "project-graph";
@@ -366,6 +367,99 @@ class FakeCdmEntityStore {
   }
 }
 
+const SAMPLE_WORK_ITEM_ROW: CdmWorkItemRow = {
+  cdm_id: "cdm:work:item:jira:ENG-1",
+  source_system: "jira",
+  source_issue_key: "ENG-1",
+  project_cdm_id: "cdm:work:project:jira:ENG",
+  summary: "Seeded Jira issue",
+  status: "In Progress",
+  priority: "High",
+  assignee_cdm_id: "cdm:work:user:jira:assignee",
+  reporter_cdm_id: "cdm:work:user:jira:reporter",
+  created_at: new Date("2024-01-02T00:00:00Z"),
+  updated_at: new Date("2024-01-03T00:00:00Z"),
+  closed_at: null,
+  reporter_display_name: "Reporter",
+  reporter_email: "reporter@example.com",
+  assignee_display_name: "Assignee",
+  assignee_email: "assignee@example.com",
+  properties: {
+    _metadata: {
+      sourceDatasetId: "jira.issues",
+      sourceEndpointId: "endpoint-1",
+    },
+    rawFields: { key: "ENG-1" },
+  },
+};
+
+const SAMPLE_WORK_COMMENT_ROW: CdmWorkCommentRow = {
+  cdm_id: "cdm:work:comment:jira:ENG-1:1",
+  source_system: "jira",
+  item_cdm_id: SAMPLE_WORK_ITEM_ROW.cdm_id,
+  author_cdm_id: "cdm:work:user:jira:commenter",
+  body: "First comment",
+  created_at: new Date("2024-01-03T10:00:00Z"),
+  updated_at: new Date("2024-01-03T11:00:00Z"),
+  author_display_name: "Commenter",
+  author_email: "commenter@example.com",
+  visibility: null,
+  properties: {
+    _metadata: {
+      sourceDatasetId: "jira.comments",
+      sourceEndpointId: "endpoint-1",
+    },
+  },
+  item_project_cdm_id: SAMPLE_WORK_ITEM_ROW.project_cdm_id,
+  item_source_issue_key: SAMPLE_WORK_ITEM_ROW.source_issue_key,
+};
+
+const SAMPLE_WORK_LOG_ROW: CdmWorkLogRow = {
+  cdm_id: "cdm:work:worklog:jira:ENG-1:1",
+  source_system: "jira",
+  item_cdm_id: SAMPLE_WORK_ITEM_ROW.cdm_id,
+  author_cdm_id: "cdm:work:user:jira:logger",
+  started_at: new Date("2024-01-04T09:00:00Z"),
+  time_spent_seconds: 3600,
+  comment: "Investigating",
+  author_display_name: "Logger",
+  author_email: "logger@example.com",
+  properties: {
+    _metadata: {
+      sourceDatasetId: "jira.worklogs",
+      sourceEndpointId: "endpoint-1",
+    },
+  },
+  item_project_cdm_id: SAMPLE_WORK_ITEM_ROW.project_cdm_id,
+  item_source_issue_key: SAMPLE_WORK_ITEM_ROW.source_issue_key,
+};
+
+class FakeCdmWorkStore {
+  async listProjects() {
+    return [];
+  }
+
+  async listWorkItems() {
+    return { rows: [SAMPLE_WORK_ITEM_ROW], cursorOffset: 0, hasNextPage: false };
+  }
+
+  async listWorkComments() {
+    return { rows: [SAMPLE_WORK_COMMENT_ROW], cursorOffset: 0, hasNextPage: false };
+  }
+
+  async listWorkLogs() {
+    return { rows: [SAMPLE_WORK_LOG_ROW], cursorOffset: 0, hasNextPage: false };
+  }
+
+  async getWorkItemDetail() {
+    return {
+      item: SAMPLE_WORK_ITEM_ROW,
+      comments: [SAMPLE_WORK_COMMENT_ROW],
+      worklogs: [SAMPLE_WORK_LOG_ROW],
+    };
+  }
+}
+
 function buildResolverContext() {
   return {
     auth: {
@@ -378,3 +472,49 @@ function buildResolverContext() {
     bypassWrites: false,
   };
 }
+
+test("cdmWork queries surface dataset metadata per entity", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-cdm-work-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const fakeWorkStore = new FakeCdmWorkStore();
+  const fakePrisma = {
+    ingestionUnitConfig: {
+      findMany: async () => [
+        { id: "cfg-issues", datasetId: "jira.issues", endpointId: "endpoint-1", endpoint: { id: "endpoint-1", name: "Customer Success Jira" } },
+        { id: "cfg-comments", datasetId: "jira.comments", endpointId: "endpoint-1", endpoint: { id: "endpoint-1", name: "Customer Success Jira" } },
+        { id: "cfg-worklogs", datasetId: "jira.worklogs", endpointId: "endpoint-1", endpoint: { id: "endpoint-1", name: "Customer Success Jira" } },
+      ],
+    },
+  };
+  globalThis.__metadataPrismaClient = fakePrisma;
+  t.after(() => {
+    delete globalThis.__metadataPrismaClient;
+  });
+  const resolvers = createResolvers(store, { graphStore, cdmWorkStore: fakeWorkStore as any });
+  const ctx = buildResolverContext();
+
+  const issues = await (resolvers.Query.cdmWorkItems as any)(null, { first: 10 }, ctx as any);
+  assert.equal(issues.edges.length, 1);
+  assert.equal(issues.edges[0].node.datasetId, "jira.issues");
+  assert.equal(issues.edges[0].node.sourceEndpointId, "endpoint-1");
+
+  const comments = await (resolvers.Query.cdmWorkComments as any)(null, { first: 10 }, ctx as any);
+  assert.equal(comments.edges.length, 1);
+  assert.equal(comments.edges[0].node.parentIssueKey, "ENG-1");
+  assert.equal(comments.edges[0].node.datasetId, "jira.comments");
+
+  const worklogs = await (resolvers.Query.cdmWorkLogs as any)(null, { first: 10 }, ctx as any);
+  assert.equal(worklogs.edges.length, 1);
+  assert.equal(worklogs.edges[0].node.datasetId, "jira.worklogs");
+  assert.equal(worklogs.edges[0].node.timeSpentSeconds, 3600);
+
+  const datasets = await (resolvers.Query.cdmWorkDatasets as any)(null, {}, ctx as any);
+  assert.equal(datasets.length, 3);
+  const commentDataset = datasets.find((entry: any) => entry.datasetId === "jira.comments");
+  assert.equal(commentDataset.entityKind, "COMMENT");
+  assert.ok(commentDataset.label.includes("Customer Success Jira"));
+});
