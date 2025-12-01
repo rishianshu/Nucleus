@@ -2103,5 +2103,19 @@
     },
     "version": "ca3785658c4d4f6ca7c6e0132fa9cbdc",
     "updatedAt": "2025-11-30T21:48:55.470Z"
+  },
+  "ingest::docs.confluence::endpoint::confluence-dev::unit::confluence.space::sink::cdm": {
+    "value": {
+      "cursor": {},
+      "lastRunId": "e3fbc960-da95-4c0d-a6c5-8356b2b6931a",
+      "stats": {
+        "recordCount": 38,
+        "spacesSynced": 38,
+        "unitId": "confluence.space"
+      },
+      "lastUpdatedAt": "2025-12-01T05:35:52.627Z"
+    },
+    "version": "a904b2287e264d7aad85bfec3bd6538f",
+    "updatedAt": "2025-12-01T05:35:52.661Z"
   }
 }

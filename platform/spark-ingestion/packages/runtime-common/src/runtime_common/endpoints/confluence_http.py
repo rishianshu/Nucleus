@@ -30,6 +30,10 @@ from .base import (
 )
 from .confluence_catalog import CONFLUENCE_API_LIBRARY, CONFLUENCE_DATASET_DEFINITIONS
 
+DEFAULT_MAX_SPACE_ITEMS = 5
+MAX_PAGE_FETCH_SIZE = 5
+MAX_ATTACHMENT_FETCH_SIZE = 1
+
 
 class ConfluenceEndpoint(SourceEndpoint):
     """Confluence HTTP endpoint descriptor and metadata bridge."""
@@ -606,10 +610,13 @@ def _fetch_pages_for_space(
     space_key: str,
     since: Optional[str],
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    max_pages = params.get("max_pages_per_space")
+    max_pages_param = params.get("max_pages_per_space")
+    max_pages: int = DEFAULT_MAX_SPACE_ITEMS
+    if isinstance(max_pages_param, int) and max_pages_param > 0:
+        max_pages = max_pages_param
     fetched = 0
     start = 0
-    page_size = 25
+    page_size = min(MAX_PAGE_FETCH_SIZE, max_pages)
     pages: List[Dict[str, Any]] = []
     max_updated = since
     cql = _build_page_cql(space_key, since, content_type="page")
@@ -640,6 +647,8 @@ def _fetch_pages_for_space(
             candidate = version.get("when") or (entry.get("history") or {}).get("lastUpdated")
             max_updated = _max_timestamp(max_updated, candidate)
         fetched += len(results)
+        if fetched >= max_pages:
+            break
         if len(results) < limit:
             break
         start += len(results)
@@ -653,9 +662,13 @@ def _fetch_attachments_for_space(
     space_key: str,
     since: Optional[str],
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    max_items_param = params.get("max_attachments_per_space")
+    max_items: int = DEFAULT_MAX_SPACE_ITEMS
+    if isinstance(max_items_param, int) and max_items_param > 0:
+        max_items = max_items_param
     fetched = 0
     start = 0
-    page_size = 25
+    page_size = min(MAX_ATTACHMENT_FETCH_SIZE, max_items)
     attachments: List[Dict[str, Any]] = []
     max_created = since
     cql = _build_page_cql(space_key, since, content_type="attachment")
@@ -679,6 +692,8 @@ def _fetch_attachments_for_space(
             created = entry.get("created") or (entry.get("history") or {}).get("createdDate")
             max_created = _max_timestamp(max_created, created)
         fetched += len(results)
+        if fetched >= max_items:
+            break
         if len(results) < page_size:
             break
         start += len(results)

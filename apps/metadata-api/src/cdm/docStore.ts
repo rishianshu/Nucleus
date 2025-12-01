@@ -4,6 +4,7 @@ import { getCdmSinkPool, resolveFallbackConfigFromEnv, type PoolEntry } from "./
 export type DocItemFilter = {
   sourceSystems?: string[] | null;
   spaceCdmIds?: string[] | null;
+  datasetIds?: string[] | null;
   search?: string | null;
 };
 
@@ -12,6 +13,9 @@ export type CdmDocItemRow = {
   source_system: string;
   source_item_id: string;
   space_cdm_id: string | null;
+  space_key: string | null;
+  space_name: string | null;
+  space_url: string | null;
   parent_item_cdm_id: string | null;
   title: string | null;
   doc_type: string | null;
@@ -23,6 +27,8 @@ export type CdmDocItemRow = {
   url: string | null;
   tags: unknown;
   properties: unknown;
+  dataset_id: string | null;
+  endpoint_id: string | null;
 };
 
 export type CdmDocSpaceRow = {
@@ -48,11 +54,31 @@ export class CdmDocStore {
     const { pool, config } = await this.ensurePool(args.projectId);
     const limit = Math.min(Math.max(args.first ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const offset = args.after ? decodeCursor(args.after) : 0;
-    const { whereClause, params } = buildDocItemWhereClause(args.filter);
-    const query = `SELECT cdm_id, source_system, source_item_id, space_cdm_id, parent_item_cdm_id, title, doc_type, mime_type, created_by_cdm_id, updated_by_cdm_id, created_at, updated_at, url, tags, properties
-      FROM ${docItemTable(config)}
+    const { whereClause, params } = buildDocItemWhereClause(args.filter, "item");
+    const query = `SELECT item.cdm_id,
+        item.source_system,
+        item.source_item_id,
+        item.space_cdm_id,
+        space.key AS space_key,
+        space.name AS space_name,
+        space.url AS space_url,
+        item.parent_item_cdm_id,
+        item.title,
+        item.doc_type,
+        item.mime_type,
+        item.created_by_cdm_id,
+        item.updated_by_cdm_id,
+        item.created_at,
+        item.updated_at,
+        item.url,
+        item.tags,
+        item.properties,
+        (item.properties -> '_metadata' ->> 'sourceDatasetId') AS dataset_id,
+        (item.properties -> '_metadata' ->> 'sourceEndpointId') AS endpoint_id
+      FROM ${docItemTable(config)} AS item
+      LEFT JOIN ${docSpaceTable(config)} AS space ON space.cdm_id = item.space_cdm_id
       ${whereClause}
-      ORDER BY updated_at DESC NULLS LAST, cdm_id ASC
+      ORDER BY item.updated_at DESC NULLS LAST, item.cdm_id ASC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const queryParams = [...params, limit + 1, offset];
     const result = await pool.query(query, queryParams);
@@ -63,9 +89,29 @@ export class CdmDocStore {
 
   async getDocItem(args: { projectId?: string | null; cdmId: string }): Promise<CdmDocItemRow | null> {
     const { pool, config } = await this.ensurePool(args.projectId);
-    const sql = `SELECT cdm_id, source_system, source_item_id, space_cdm_id, parent_item_cdm_id, title, doc_type, mime_type, created_by_cdm_id, updated_by_cdm_id, created_at, updated_at, url, tags, properties
-      FROM ${docItemTable(config)}
-      WHERE cdm_id = $1`;
+    const sql = `SELECT item.cdm_id,
+        item.source_system,
+        item.source_item_id,
+        item.space_cdm_id,
+        space.key AS space_key,
+        space.name AS space_name,
+        space.url AS space_url,
+        item.parent_item_cdm_id,
+        item.title,
+        item.doc_type,
+        item.mime_type,
+        item.created_by_cdm_id,
+        item.updated_by_cdm_id,
+        item.created_at,
+        item.updated_at,
+        item.url,
+        item.tags,
+        item.properties,
+        (item.properties -> '_metadata' ->> 'sourceDatasetId') AS dataset_id,
+        (item.properties -> '_metadata' ->> 'sourceEndpointId') AS endpoint_id
+      FROM ${docItemTable(config)} AS item
+      LEFT JOIN ${docSpaceTable(config)} AS space ON space.cdm_id = item.space_cdm_id
+      WHERE item.cdm_id = $1`;
     const result = await pool.query(sql, [args.cdmId]);
     if (result.rowCount === 0) {
       return null;
@@ -86,7 +132,7 @@ export class CdmDocStore {
   }
 }
 
-function buildDocItemWhereClause(filter?: DocItemFilter | null) {
+function buildDocItemWhereClause(filter?: DocItemFilter | null, alias = "item") {
   if (!filter) {
     return { whereClause: "", params: [] as unknown[] };
   }
@@ -94,15 +140,20 @@ function buildDocItemWhereClause(filter?: DocItemFilter | null) {
   const params: unknown[] = [];
   if (filter.sourceSystems && filter.sourceSystems.length > 0) {
     params.push(filter.sourceSystems);
-    conditions.push(`source_system = ANY($${params.length})`);
+    conditions.push(`${alias}.source_system = ANY($${params.length})`);
   }
   if (filter.spaceCdmIds && filter.spaceCdmIds.length > 0) {
     params.push(filter.spaceCdmIds);
-    conditions.push(`space_cdm_id = ANY($${params.length})`);
+    conditions.push(`${alias}.space_cdm_id = ANY($${params.length})`);
+  }
+  if (filter.datasetIds && filter.datasetIds.length > 0) {
+    params.push(filter.datasetIds);
+    conditions.push(`(${alias}.properties -> '_metadata' ->> 'sourceDatasetId') = ANY($${params.length})`);
   }
   if (filter.search && filter.search.trim().length > 0) {
     params.push(`%${filter.search.trim()}%`);
-    conditions.push(`title ILIKE $${params.length}`);
+    const column = `${alias}.title ILIKE $${params.length} OR ${alias}.url ILIKE $${params.length}`;
+    conditions.push(`(${column})`);
   }
   if (conditions.length === 0) {
     return { whereClause: "", params };

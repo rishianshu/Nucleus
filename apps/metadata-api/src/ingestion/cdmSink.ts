@@ -311,7 +311,7 @@ function inferModelId(batch: NormalizedBatch): string | null {
 }
 
 function buildRow(record: NormalizedRecord, definition: TableDefinition): unknown[] {
-  const payload = ensureRecordPayload(record.payload);
+  const payload = sanitizePayload(ensureRecordPayload(record.payload));
   return definition.columns.map((column) => column.extract(payload, record));
 }
 
@@ -346,7 +346,16 @@ async function upsertRows(
   const sql = `INSERT INTO ${qualifiedTable(config, definition)} (${qualifiedColumns}) VALUES ${valueClause} ON CONFLICT (cdm_id)
     DO UPDATE SET ${updateClause}`;
   const values = dedupedRows.flat();
-  await connection.query(sql, values);
+  try {
+    await connection.query(sql, values);
+  } catch (error: any) {
+    if (isMissingRelationError(error)) {
+      await ensureTableExists(connection, config, definition);
+      await connection.query(sql, values);
+      return;
+    }
+    throw error;
+  }
 }
 
 function dedupeRowsByPrimaryKey(rows: unknown[][], primaryIndex: number): unknown[][] {
@@ -434,7 +443,83 @@ function normalizeJson(value: unknown, fallback: () => unknown) {
   if (value && typeof value === "object") {
     return value;
   }
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      const braceMatch = value.trim();
+      if (braceMatch.startsWith("{") && braceMatch.endsWith("}") && !braceMatch.includes(":")) {
+        const inner = braceMatch.slice(1, -1);
+        const tokens = inner
+          .split(",")
+          .map((part) => part.trim().replace(/^"+|"+$/g, ""))
+          .filter((part) => part.length > 0);
+        if (tokens.length > 0) {
+          return tokens;
+        }
+      }
+      return fallback();
+    }
+  }
   return fallback();
+}
+
+function sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return sanitizeJsonValue(payload) as Record<string, unknown>;
+}
+
+function sanitizeJsonValue(value: unknown): unknown {
+  if (value === undefined) {
+    return null;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  if (typeof value === "string") {
+    return sanitizeString(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeJsonValue(entry));
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = sanitizeJsonValue(entry);
+    }
+    return result;
+  }
+  if (["string", "number", "boolean"].includes(typeof value)) {
+    return value;
+  }
+  return String(value);
+}
+
+function sanitizeString(value: string): string {
+  return value.replace(/\r?\n/g, "\\n");
+}
+
+async function ensureTableExists(connection: PoolHandle, config: SinkConnectionConfig, definition: TableDefinition) {
+  await connection.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(config.schema)};`);
+  const sql = buildCreateTableSql(config, definition);
+  await connection.query(sql);
+}
+
+function buildCreateTableSql(config: SinkConnectionConfig, definition: TableDefinition): string {
+  const columns = definition.columns
+    .map((column) => `${quoteIdent(column.name)} ${column.type}`)
+    .join(", ");
+  return `CREATE TABLE IF NOT EXISTS ${qualifiedTable(config, definition)} (${columns}, PRIMARY KEY (cdm_id))`;
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  const code = (error as { code?: string })?.code;
+  return code === "42P01";
 }
 
 function toBoolean(value: unknown): boolean | null {

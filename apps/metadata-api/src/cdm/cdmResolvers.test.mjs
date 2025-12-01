@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createResolvers } from "../schema.js";
+import { CdmEntityStore } from "./entityStore.js";
 
 const sampleProject = {
   cdm_id: "cdm:work:project:test:ENG",
@@ -56,6 +57,49 @@ const fakeCdmStore = {
   getWorkItemDetail: async () => ({ item: sampleItem, comments: [sampleComment], worklogs: [sampleWorklog] }),
 };
 
+const sampleDocItem = {
+  cdm_id: "cdm:doc:item:confluence:seed:1",
+  source_system: "confluence",
+  source_item_id: "123",
+  space_cdm_id: "cdm:doc:space:confluence:CUS",
+  space_key: "CUS",
+  space_name: "Customer Success",
+  space_url: "https://example/wiki/spaces/CUS",
+  parent_item_cdm_id: null,
+  title: "Seeded doc",
+  doc_type: "page",
+  mime_type: "storage",
+  created_by_cdm_id: null,
+  updated_by_cdm_id: null,
+  created_at: new Date("2024-02-01T00:00:00Z"),
+  updated_at: new Date("2024-02-02T00:00:00Z"),
+  url: "https://example/wiki/spaces/CUS/pages/123",
+  tags: [],
+  properties: {
+    _metadata: {
+      sourceDatasetId: "confluence.page",
+      sourceEndpointId: "endpoint-doc",
+    },
+    spaceKey: "CUS",
+    spaceName: "Customer Success",
+    path: "Customer Success / Seeded doc",
+    raw: {
+      body: {
+        storage: {
+          value: "<p>Seeded docs content</p>",
+        },
+      },
+    },
+  },
+  dataset_id: "confluence.page",
+  endpoint_id: "endpoint-doc",
+};
+
+const fakeDocStore = {
+  listDocItems: async () => ({ rows: [sampleDocItem], cursorOffset: 0, hasNextPage: false }),
+  getDocItem: async () => sampleDocItem,
+};
+
 const context = {
   auth: { tenantId: "tenant", projectId: "project", roles: ["viewer"], subject: "user" },
   userId: "user",
@@ -77,4 +121,58 @@ test("cdm work queries map CDM tables", async () => {
   const detail = await resolvers.Query.cdmWorkItem(null, { cdmId: sampleItem.cdm_id }, context);
   assert.equal(detail?.comments[0]?.body, "Looks good");
   assert.equal(detail?.worklogs[0]?.timeSpentSeconds, 3600);
+});
+
+test("cdm docs entities expose doc-specific fields", async () => {
+  const cdmEntityStore = new CdmEntityStore({
+    workStore: fakeCdmStore,
+    docStore: fakeDocStore,
+  });
+  const resolvers = createResolvers({}, { cdmEntityStore });
+  const docsConnection = await resolvers.Query.cdmEntities(
+    null,
+    { filter: { domain: "DOC_ITEM", docDatasetIds: ["confluence.page"] }, first: 10 },
+    context,
+  );
+  assert.equal(docsConnection.edges.length, 1);
+  const node = docsConnection.edges[0]?.node;
+  assert.equal(node.docTitle, "Seeded doc");
+  assert.equal(node.docDatasetId, "confluence.page");
+  assert.equal(node.docProjectKey, "CUS");
+  assert.ok(node.docContentExcerpt.includes("Seeded"));
+
+  const singleDoc = await resolvers.Query.cdmEntity(
+    null,
+    { id: sampleDocItem.cdm_id, domain: "DOC_ITEM" },
+    context,
+  );
+  assert.equal(singleDoc?.docSourceEndpointId, "endpoint-doc");
+});
+
+test("cdm docs dataset query filters doc configs", async () => {
+  const fakePrisma = {
+    ingestionUnitConfig: {
+      findMany: async () => [
+        {
+          id: "cfg-doc",
+          datasetId: "confluence.page",
+          unitId: "confluence.page",
+          endpointId: "endpoint-doc",
+          endpoint: { id: "endpoint-doc", name: "Customer Success Confluence", vendor: "confluence" },
+        },
+        {
+          id: "cfg-work",
+          datasetId: "jira.issues",
+          unitId: "jira.issues",
+          endpointId: "endpoint-work",
+          endpoint: { id: "endpoint-work", name: "Customer Success Jira", vendor: "jira" },
+        },
+      ],
+    },
+  };
+  const resolvers = createResolvers({}, { prismaClient: fakePrisma });
+  const datasets = await resolvers.Query.cdmDocsDatasets(null, undefined, context);
+  assert.equal(datasets.length, 1);
+  assert.equal(datasets[0]?.datasetId, "confluence.page");
+  assert.equal(datasets[0]?.sourceSystem, "confluence");
 });

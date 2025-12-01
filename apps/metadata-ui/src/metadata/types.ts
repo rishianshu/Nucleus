@@ -222,6 +222,15 @@ export type CdmWorkDataset = {
   endpointName: string;
 };
 
+export type CdmDocsDataset = {
+  id: string;
+  datasetId: string;
+  name: string;
+  sourceSystem: string;
+  endpointId: string;
+  endpointName: string;
+};
+
 export type CdmWorkItem = {
   cdmId: string;
   sourceSystem: string;
@@ -331,6 +340,18 @@ export type CdmEntity = {
   updatedAt?: string | null;
   state?: string | null;
   data: Record<string, unknown>;
+  docTitle?: string | null;
+  docType?: string | null;
+  docProjectKey?: string | null;
+  docProjectName?: string | null;
+  docLocation?: string | null;
+  docUpdatedAt?: string | null;
+  docSourceSystem?: string | null;
+  docDatasetId?: string | null;
+  docDatasetName?: string | null;
+  docSourceEndpointId?: string | null;
+  docUrl?: string | null;
+  docContentExcerpt?: string | null;
 };
 
 export type CdmEntityEdge = {

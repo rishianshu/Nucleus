@@ -668,6 +668,18 @@ export const CDM_WORK_DATASETS_QUERY = `
     }
   }
 `;
+export const CDM_DOCS_DATASETS_QUERY = `
+  query CdmDocsDatasets {
+    cdmDocsDatasets {
+      id
+      datasetId
+      name
+      sourceSystem
+      endpointId
+      endpointName
+    }
+  }
+`;
 export const CDM_WORK_USERS_QUERY = `
   query CdmWorkUsers($filter: CdmWorkUserFilter, $first: Int, $after: String) {
     cdmWorkUsers(filter: $filter, first: $first, after: $after) {
@@ -762,25 +774,37 @@ export const CDM_WORK_ITEM_DETAIL_QUERY = `
   }
 `;
 export const CDM_ENTITY_CONNECTION_QUERY = `
-	  query CdmEntities($filter: CdmEntityFilter!, $first: Int!, $after: String) {
-	    cdmEntities(filter: $filter, first: $first, after: $after) {
-	      edges {
-	        cursor
-	        node {
-	          id
-	          domain
-	          sourceSystem
-	          cdmId
-	          title
-	          createdAt
-	          updatedAt
-	          state
-	          data
-	        }
-	      }
-	      pageInfo {
-	        hasNextPage
-	        hasPreviousPage
+  query CdmEntities($filter: CdmEntityFilter!, $first: Int!, $after: String) {
+    cdmEntities(filter: $filter, first: $first, after: $after) {
+      edges {
+        cursor
+        node {
+          id
+          domain
+          sourceSystem
+          cdmId
+          title
+          createdAt
+          updatedAt
+          state
+          data
+          docTitle
+          docType
+          docProjectKey
+          docProjectName
+          docLocation
+          docUpdatedAt
+          docSourceSystem
+          docDatasetId
+          docDatasetName
+          docSourceEndpointId
+          docUrl
+          docContentExcerpt
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
 	        startCursor
 	        endCursor
 	      }
@@ -788,17 +812,29 @@ export const CDM_ENTITY_CONNECTION_QUERY = `
 	  }
 	`;
 export const CDM_ENTITY_QUERY = `
-	  query CdmEntity($id: ID!, $domain: CdmDomain!) {
-	    cdmEntity(id: $id, domain: $domain) {
-	      id
-	      domain
-	      sourceSystem
-	      cdmId
-	      title
-	      createdAt
-	      updatedAt
-	      state
-	      data
-	    }
-	  }
-	`;
+  query CdmEntity($id: ID!, $domain: CdmDomain!) {
+    cdmEntity(id: $id, domain: $domain) {
+      id
+      domain
+      sourceSystem
+      cdmId
+      title
+      createdAt
+      updatedAt
+      state
+      data
+      docTitle
+      docType
+      docProjectKey
+      docProjectName
+      docLocation
+      docUpdatedAt
+      docSourceSystem
+      docDatasetId
+      docDatasetName
+      docSourceEndpointId
+      docUrl
+      docContentExcerpt
+    }
+  }
+`;

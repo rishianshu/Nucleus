@@ -44,6 +44,7 @@ import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, 
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 import { writeTransientState } from "./ingestion/transientState.js";
 import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
+import { CDM_MODEL_TABLES } from "./ingestion/cdmSink.js";
 import {
   CdmWorkStore,
   encodeCursor as encodeWorkCursor,
@@ -59,6 +60,7 @@ import {
   type WorkUserFilter as CdmWorkUserFilterArgs,
 } from "./cdm/workStore.js";
 import { CdmEntityStore, type CdmEntityDomain, type CdmEntityEnvelope } from "./cdm/entityStore.js";
+import { describeDocDataset, inferDocSourceSystem, isDocDatasetId } from "./cdm/docHelpers.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -787,6 +789,15 @@ export const typeDefs = `#graphql
     endpointName: String!
   }
 
+  type CdmDocsDataset {
+    id: ID!
+    datasetId: ID!
+    name: String!
+    sourceSystem: String!
+    endpointId: ID!
+    endpointName: String!
+  }
+
   type CdmWorkProject {
     cdmId: ID!
     sourceSystem: String!
@@ -983,6 +994,18 @@ type ProvisionCdmSinkResult {
     updatedAt: DateTime
     state: String
     data: JSON!
+    docTitle: String
+    docType: String
+    docProjectKey: String
+    docProjectName: String
+    docLocation: String
+    docUpdatedAt: DateTime
+    docSourceSystem: String
+    docDatasetId: ID
+    docDatasetName: String
+    docSourceEndpointId: ID
+    docUrl: String
+    docContentExcerpt: String
   }
 
   type CdmEntityEdge {
@@ -1001,6 +1024,9 @@ type ProvisionCdmSinkResult {
     search: String
     workProjectIds: [ID!]
     docSpaceIds: [ID!]
+    docDatasetIds: [ID!]
+    docSourceSystems: [String!]
+    docSearch: String
   }
 
   type Query {
@@ -1046,6 +1072,7 @@ type ProvisionCdmSinkResult {
     cdmWorkLogs(filter: CdmWorkLogFilter, first: Int = 25, after: String): CdmWorkLogConnection!
     cdmWorkDatasets: [CdmWorkDataset!]!
     cdmWorkUsers(filter: CdmWorkUserFilter, first: Int = 25, after: String): CdmWorkUserConnection!
+    cdmDocsDatasets: [CdmDocsDataset!]!
     cdmWorkItem(cdmId: ID!): CdmWorkItemDetail
     cdmEntities(filter: CdmEntityFilter!, first: Int!, after: String): CdmEntityConnection!
     cdmEntity(id: ID!, domain: CdmDomain!): CdmEntity
@@ -1082,9 +1109,10 @@ export function createResolvers(
     ingestionStateStore?: Partial<IngestionStateStoreImpl>;
     ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
     cdmWorkStore?: CdmWorkStore;
-     cdmEntityStore?: CdmEntityStore;
+    cdmEntityStore?: CdmEntityStore;
     cdmProvisioner?: typeof provisionCdmSinkTables;
     temporalClientFactory?: typeof getTemporalClient;
+    prismaClient?: Awaited<ReturnType<typeof getPrismaClient>>;
   },
 ) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
@@ -1101,6 +1129,7 @@ export function createResolvers(
     listIngestionUnitConfigs: options?.ingestionConfigStore?.listIngestionUnitConfigs ?? listIngestionUnitConfigs,
     saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
   };
+  const resolvePrismaClient = async () => options?.prismaClient ?? (await getPrismaClient());
 
   const fetchCatalogDatasetRecord = async (
     datasetId: string,
@@ -1771,7 +1800,7 @@ export function createResolvers(
       },
       cdmWorkDatasets: async (_parent: unknown, _args: unknown, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
-        const prisma = await getPrismaClient();
+        const prisma = await resolvePrismaClient();
         const configs = await prisma.ingestionUnitConfig.findMany({
           where: {
             endpoint: {
@@ -1789,6 +1818,30 @@ export function createResolvers(
           .filter(
             (entry: ReturnType<typeof mapCdmWorkDataset> | null | undefined): entry is NonNullable<
               ReturnType<typeof mapCdmWorkDataset>
+            > => Boolean(entry),
+          );
+        return mapped;
+      },
+      cdmDocsDatasets: async (_parent: unknown, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const prisma = await resolvePrismaClient();
+        const configs = await prisma.ingestionUnitConfig.findMany({
+          where: {
+            endpoint: {
+              projectId: ctx.auth.projectId ?? undefined,
+              deletedAt: null,
+            },
+            mode: "cdm",
+          },
+          include: {
+            endpoint: true,
+          },
+        });
+        const mapped = configs
+          .map((config: any) => mapCdmDocsDataset(config))
+          .filter(
+            (entry: ReturnType<typeof mapCdmDocsDataset> | null | undefined): entry is NonNullable<
+              ReturnType<typeof mapCdmDocsDataset>
             > => Boolean(entry),
           );
         return mapped;
@@ -2425,6 +2478,25 @@ export function createResolvers(
               extensions: { code: "E_CDM_SINK_ENDPOINT_UNSUPPORTED", sinkEndpointId },
             });
           }
+          const targetProjectId = sinkEndpoint.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID;
+          await provisionCdmSinkFn({
+            store,
+            sinkEndpoint,
+            cdmModelId: unit.cdmModelId,
+            projectId: targetProjectId,
+          });
+          if (unit.cdmModelId.startsWith("cdm.doc.")) {
+            const docModels = Object.keys(CDM_MODEL_TABLES).filter((id) => id.startsWith("cdm.doc."));
+            for (const docModelId of docModels) {
+              if (docModelId === unit.cdmModelId) continue;
+              await provisionCdmSinkFn({
+                store,
+                sinkEndpoint,
+                cdmModelId: docModelId,
+                projectId: targetProjectId,
+              });
+            }
+          }
         } else if (sinkEndpoint && !endpointSupportsCdmSink(sinkEndpoint)) {
           throw new GraphQLError("Selected sink endpoint only supports CDM mode.", {
             extensions: { code: "E_SINK_ENDPOINT_MODE_MISMATCH", sinkEndpointId },
@@ -2484,6 +2556,18 @@ export function createResolvers(
           cdmModelId: args.input.cdmModelId,
           projectId: targetProjectId,
         });
+        if (args.input.cdmModelId.startsWith("cdm.doc.")) {
+          const docModels = Object.keys(CDM_MODEL_TABLES).filter((id) => id.startsWith("cdm.doc."));
+          for (const docModelId of docModels) {
+            if (docModelId === args.input.cdmModelId) continue;
+            await provisionCdmSinkFn({
+              store,
+              sinkEndpoint,
+              cdmModelId: docModelId,
+              projectId: targetProjectId,
+            });
+          }
+        }
         return { ok: true, datasetId: result.datasetId, schema: result.schema, tableName: result.tableName };
       },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
@@ -3381,6 +3465,9 @@ type CdmEntityFilterArgs = {
   search?: string | null;
   workProjectIds?: string[] | null;
   docSpaceIds?: string[] | null;
+  docDatasetIds?: string[] | null;
+  docSourceSystems?: string[] | null;
+  docSearch?: string | null;
 };
 
 type MetadataCollectionStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
@@ -4722,6 +4809,18 @@ function mapGraphCdmEntity(envelope: CdmEntityEnvelope) {
     updatedAt: envelope.updatedAt,
     state: envelope.state,
     data: envelope.data,
+    docTitle: envelope.docTitle ?? null,
+    docType: envelope.docType ?? null,
+    docProjectKey: envelope.docProjectKey ?? null,
+    docProjectName: envelope.docProjectName ?? null,
+    docLocation: envelope.docLocation ?? null,
+    docUpdatedAt: envelope.docUpdatedAt ?? null,
+    docSourceSystem: envelope.docSourceSystem ?? null,
+    docDatasetId: envelope.docDatasetId ?? null,
+    docDatasetName: envelope.docDatasetName ?? null,
+    docSourceEndpointId: envelope.docSourceEndpointId ?? null,
+    docUrl: envelope.docUrl ?? null,
+    docContentExcerpt: envelope.docContentExcerpt ?? null,
   };
 }
 
@@ -4827,6 +4926,29 @@ function mapCdmWorkDataset(config: any) {
     datasetId,
     label: `${endpointName} · ${describeWorkDataset(datasetId)}`,
     entityKind,
+    endpointId: config.endpointId,
+    endpointName,
+  };
+}
+
+function mapCdmDocsDataset(config: any) {
+  if (!config) {
+    return null;
+  }
+  const datasetId = config.datasetId;
+  const endpoint = config.endpoint;
+  if (!datasetId || !endpoint) {
+    return null;
+  }
+  if (!isDocDatasetId(datasetId, config.unitId)) {
+    return null;
+  }
+  const endpointName = endpoint.name ?? endpoint.id ?? endpoint.sourceId ?? "Endpoint";
+  return {
+    id: config.id,
+    datasetId,
+    name: describeDocDataset(datasetId) ?? datasetId,
+    sourceSystem: inferDocSourceSystem(datasetId, endpoint.vendor ?? null),
     endpointId: config.endpointId,
     endpointName,
   };

@@ -1,5 +1,6 @@
 import { CdmWorkStore, type CdmWorkItemRow, type WorkItemFilter, encodeCursor as encodeWorkCursor } from "./workStore.js";
 import { CdmDocStore, type CdmDocItemRow, type DocItemFilter } from "./docStore.js";
+import { describeDocDataset } from "./docHelpers.js";
 
 export type CdmEntityDomain = "WORK_ITEM" | "DOC_ITEM";
 
@@ -9,6 +10,9 @@ export type CdmEntityStoreFilter = {
   search?: string | null;
   workProjectIds?: string[] | null;
   docSpaceIds?: string[] | null;
+  docDatasetIds?: string[] | null;
+  docSourceSystems?: string[] | null;
+  docSearch?: string | null;
 };
 
 export type CdmEntityEnvelope = {
@@ -20,6 +24,18 @@ export type CdmEntityEnvelope = {
   updatedAt: string | null;
   state: string | null;
   data: Record<string, unknown>;
+  docTitle?: string | null;
+  docType?: string | null;
+  docProjectKey?: string | null;
+  docProjectName?: string | null;
+  docLocation?: string | null;
+  docUpdatedAt?: string | null;
+  docSourceSystem?: string | null;
+  docDatasetId?: string | null;
+  docDatasetName?: string | null;
+  docSourceEndpointId?: string | null;
+  docUrl?: string | null;
+  docContentExcerpt?: string | null;
 };
 
 type ListResult = {
@@ -108,9 +124,10 @@ function mapWorkFilter(filter: CdmEntityStoreFilter): WorkItemFilter {
 
 function mapDocFilter(filter: CdmEntityStoreFilter): DocItemFilter {
   return {
-    sourceSystems: filter.sourceSystems ?? null,
+    sourceSystems: filter.docSourceSystems ?? filter.sourceSystems ?? null,
     spaceCdmIds: filter.docSpaceIds ?? null,
-    search: filter.search ?? null,
+    datasetIds: filter.docDatasetIds ?? null,
+    search: filter.docSearch ?? filter.search ?? null,
   };
 }
 
@@ -151,6 +168,15 @@ function mapWorkRow(row: CdmWorkItemRow): CdmEntityEnvelope {
 }
 
 function mapDocRow(row: CdmDocItemRow): CdmEntityEnvelope {
+  const properties = normalizeJson(row.properties, {}) as Record<string, unknown>;
+  const safeProperties = isPlainObject(properties) ? (properties as Record<string, unknown>) : {};
+  const metadata = extractDocSourceMetadata(safeProperties);
+  const datasetName = metadata.datasetId ? describeDocDataset(metadata.datasetId) : null;
+  const projectKey = coerceString(row.space_key) ?? coerceString(safeProperties["spaceKey"]);
+  const projectName = coerceString(row.space_name) ?? coerceString(safeProperties["spaceName"]);
+  const location = buildDocLocation(row, safeProperties);
+  const excerpt = extractDocContentExcerpt(safeProperties);
+  const docType = row.doc_type ?? row.mime_type ?? null;
   return {
     domain: "DOC_ITEM",
     cdmId: row.cdm_id,
@@ -158,20 +184,38 @@ function mapDocRow(row: CdmDocItemRow): CdmEntityEnvelope {
     title: row.title ?? row.source_item_id,
     createdAt: serializeTimestamp(row.created_at),
     updatedAt: serializeTimestamp(row.updated_at),
-    state: row.doc_type ?? null,
+    state: docType,
     data: {
-      docType: row.doc_type,
+      docType,
       mimeType: row.mime_type,
       spaceCdmId: row.space_cdm_id,
+      spaceKey: projectKey,
+      spaceName: projectName,
+      spaceUrl: row.space_url,
       parentItemCdmId: row.parent_item_cdm_id,
       createdByCdmId: row.created_by_cdm_id,
       updatedByCdmId: row.updated_by_cdm_id,
       url: row.url,
       tags: normalizeJson(row.tags, []),
-      properties: normalizeJson(row.properties, {}),
+      properties: safeProperties,
       createdAt: serializeTimestamp(row.created_at),
       updatedAt: serializeTimestamp(row.updated_at),
+      datasetId: metadata.datasetId,
+      datasetName,
+      sourceEndpointId: metadata.endpointId,
     },
+    docTitle: row.title ?? row.source_item_id,
+    docType,
+    docProjectKey: projectKey,
+    docProjectName: projectName,
+    docLocation: location,
+    docUpdatedAt: serializeTimestamp(row.updated_at),
+    docSourceSystem: row.source_system,
+    docDatasetId: metadata.datasetId,
+    docDatasetName: datasetName,
+    docSourceEndpointId: metadata.endpointId,
+    docUrl: row.url,
+    docContentExcerpt: excerpt,
   };
 }
 
@@ -200,3 +244,71 @@ function normalizeJson(value: unknown, fallback: unknown) {
 }
 
 export { encodeWorkCursor as encodeCursor };
+
+function extractDocSourceMetadata(properties: Record<string, unknown>) {
+  const metadataBlock = isPlainObject(properties["_metadata"]) ? (properties["_metadata"] as Record<string, unknown>) : {};
+  const datasetId = coerceString(metadataBlock["sourceDatasetId"]);
+  const endpointId = coerceString(metadataBlock["sourceEndpointId"]);
+  return { datasetId, endpointId };
+}
+
+function buildDocLocation(row: CdmDocItemRow, properties: Record<string, unknown>) {
+  const segments: string[] = [];
+  const path = coerceString(properties["path"]);
+  const spaceName = coerceString(row.space_name) ?? coerceString(properties["spaceName"]);
+  if (spaceName) {
+    segments.push(spaceName);
+  }
+  if (path && path !== spaceName) {
+    segments.push(path);
+  }
+  return segments.length ? segments.join(" • ") : null;
+}
+
+function extractDocContentExcerpt(properties: Record<string, unknown>) {
+  const metadata = isPlainObject(properties["metadata"]) ? (properties["metadata"] as Record<string, unknown>) : {};
+  const metadataExcerpt = coerceString(metadata["excerpt"] ?? metadata["summary"]);
+  if (metadataExcerpt) {
+    return clampExcerpt(metadataExcerpt);
+  }
+  const raw = isPlainObject(properties["raw"]) ? (properties["raw"] as Record<string, unknown>) : null;
+  if (raw) {
+    const storage = isPlainObject(raw["body"]) ? (raw["body"] as Record<string, unknown>) : null;
+    if (storage && isPlainObject(storage["storage"])) {
+      const html = coerceString((storage["storage"] as Record<string, unknown>)["value"]);
+      if (html) {
+        return clampExcerpt(stripHtml(html));
+      }
+    }
+    if (storage && isPlainObject(storage["atlas_doc_format"])) {
+      const html = coerceString((storage["atlas_doc_format"] as Record<string, unknown>)["value"]);
+      if (html) {
+        return clampExcerpt(stripHtml(html));
+      }
+    }
+  }
+  const path = coerceString(properties["path"]);
+  return path ? clampExcerpt(path) : null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function coerceString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+  return null;
+}
+
+function stripHtml(input: string) {
+  return input.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function clampExcerpt(input: string, limit = 280) {
+  if (input.length <= limit) {
+    return input.trim();
+  }
+  return `${input.slice(0, limit).trim()}…`;
+}

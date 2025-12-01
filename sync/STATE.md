@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-work-multi-entity-v1 (success @ 2025-11-30T19:05Z)
+cdm-docs-explorer-v1 (in-progress @ 2025-12-01T04:21Z)
 
 ## Last Run
-- slug: cdm-work-multi-entity-v1
-- status: success
-- duration: 17:30Z → 19:05Z
-- tests: `pnpm check:metadata-auth` green (full `ci-check` deferred to Confluence/GitHub/OneDrive milestone)
-- commits: local branch (worktree dirty, not pushed)
+- slug: cdm-docs-explorer-v1
+- status: in-progress
+- duration: started 2025-12-01T04:21Z
+- tests: not yet run
+- commits: pending
 - decisions: 0
-- next_step: when the broader milestone is ready, run full `pnpm ci-check` alongside Confluence/GitHub/OneDrive ingestion validation
+- next_step: follow RUNCARD RESUME protocol, review PLAN/TODO, then resume implementation loop
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-01T04:21Z run started (cdm-docs-explorer-v1, boot + artifact sync)
 - 2025-11-30T19:05Z run success (cdm-work-multi-entity-v1, multi-entity Work Explorer + Playwright green; ci-check deferred)
 - 2025-11-29T07:30Z run heartbeat (confluence-ingestion-v1, resumed run + context sync)
 - 2025-11-29T06:28Z run started (confluence-ingestion-v1, boot + context sync)
@@ -74,3 +75,4 @@ LATER:
 - 2025-11-18T14:38Z run success (catalog-view-and-ux-v1, metadata-auth Playwright green)
 - 2025-11-16T17:45Z run blocked (metadata-identity-hardening, metadata-auth needs reporting `/api/graphql`)
 - 2025-11-16T17:25Z run success (collection-lifecycle, canonical dataset identity + collection UI/tests complete)
+2025-12-01T13:05Z run success (cdm-docs-explorer-v1, docs sink provision + JSON/tag handling stabilized; ingestion verified)
