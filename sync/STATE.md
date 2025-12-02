@@ -1,12 +1,12 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-docs-explorer-v1 (in-progress @ 2025-12-01T04:21Z)
+ingestion-strategy-unification-v1 (in-progress @ 2025-12-01T13:20Z)
 
 ## Last Run
-- slug: cdm-docs-explorer-v1
+- slug: ingestion-strategy-unification-v1
 - status: in-progress
-- duration: started 2025-12-01T04:21Z
+- duration: started 2025-12-01T13:20Z
 - tests: not yet run
 - commits: pending
 - decisions: 0
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-01T13:20Z run started (ingestion-strategy-unification-v1, boot + artifact sync)
 - 2025-12-01T04:21Z run started (cdm-docs-explorer-v1, boot + artifact sync)
 - 2025-11-30T19:05Z run success (cdm-work-multi-entity-v1, multi-entity Work Explorer + Playwright green; ci-check deferred)
 - 2025-11-29T07:30Z run heartbeat (confluence-ingestion-v1, resumed run + context sync)

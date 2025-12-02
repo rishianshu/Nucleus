@@ -7,6 +7,7 @@ details when pulling or landing data.
 """
 
 from .base import (
+    ConfigurableEndpoint,
     EndpointCapabilities,
     EndpointRole,
     EndpointType,
@@ -44,4 +45,5 @@ __all__ = [
     "SinkWriteResult",
     "SourceEndpoint",
     "SliceStageResult",
+    "ConfigurableEndpoint",
 ]

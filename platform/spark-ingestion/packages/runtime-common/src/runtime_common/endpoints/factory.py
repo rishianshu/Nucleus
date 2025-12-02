@@ -4,12 +4,9 @@ from typing import Any, Dict, Tuple
 
 from runtime_common.query.plan import QueryPlan, QueryResult, SelectItem
 
-from .base import REGISTRY, SinkEndpoint, SourceEndpoint, SupportsQueryExecution
+from .base import SinkEndpoint, SourceEndpoint, SupportsQueryExecution
+from .registry import build_endpoint
 from .hdfs import HdfsParquetEndpoint
-from .jdbc import JdbcEndpoint
-from .jdbc_mssql import MSSQLEndpoint
-from .jdbc_oracle import OracleEndpoint
-from .jdbc_postgres import PostgresEndpoint
 
 
 class HiveQueryEndpoint(SupportsQueryExecution):
@@ -55,14 +52,13 @@ class EndpointFactory:
             raise ValueError("Execution tool required for source endpoint")
         jdbc_cfg = cfg.get("jdbc", {})
         dialect = (jdbc_cfg.get("dialect") or table_cfg.get("dialect") or "generic").lower()
-        if dialect == "oracle":
-            endpoint = OracleEndpoint(tool, jdbc_cfg, table_cfg, metadata_access=metadata, emitter=emitter)
-        elif dialect in {"postgres", "postgresql"}:
-            endpoint = PostgresEndpoint(tool, jdbc_cfg, table_cfg, metadata_access=metadata, emitter=emitter)
-        elif dialect in {"mssql", "sqlserver"}:
-            endpoint = MSSQLEndpoint(tool, jdbc_cfg, table_cfg, metadata_access=metadata, emitter=emitter)
-        else:
-            endpoint = JdbcEndpoint(tool, jdbc_cfg, table_cfg, metadata_access=metadata, emitter=emitter)
+        template_id = f"jdbc.{dialect}"
+        endpoint_cfg = jdbc_cfg if isinstance(jdbc_cfg, dict) else {}
+        endpoint = build_endpoint(template_id, tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
+        if metadata is not None:
+            setattr(endpoint, "metadata_access", metadata)
+        if emitter is not None:
+            setattr(endpoint, "emitter", emitter)
         return endpoint
 
     @staticmethod
@@ -74,8 +70,10 @@ class EndpointFactory:
         spark = getattr(tool, "spark", None)
         if spark is None:
             raise ValueError("Execution tool must expose a Spark session for HDFS sinks")
-        endpoint = HdfsParquetEndpoint(spark, cfg, table_cfg)
-        return endpoint
+        endpoint_cfg = cfg.get("hdfs", {}) if isinstance(cfg, dict) else {}
+        table_cfg = dict(table_cfg)
+        table_cfg.setdefault("runtime", cfg.get("runtime") if isinstance(cfg, dict) else None)
+        return build_endpoint("hdfs.parquet", tool=spark, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
 
     @staticmethod
     def build_query_endpoint(
@@ -97,7 +95,7 @@ class EndpointFactory:
                     table_name = f"{db}.{tbl}" if db else tbl
                     return HiveQueryEndpoint(spark, table_name)
             if prefer_sink:
-                endpoint = HdfsParquetEndpoint(spark, cfg, table_cfg)
+                endpoint = EndpointFactory.build_sink(tool, cfg, table_cfg)
                 if isinstance(endpoint, SupportsQueryExecution):
                     return endpoint
         try:
@@ -118,11 +116,3 @@ class EndpointFactory:
             EndpointFactory.build_source(cfg, table_cfg, tool, metadata=metadata, emitter=emitter),
             EndpointFactory.build_sink(tool, cfg, table_cfg),
         )
-
-
-# Register defaults for simple lookup when needed
-REGISTRY.register_source("jdbc", JdbcEndpoint)
-REGISTRY.register_source("oracle", OracleEndpoint)
-REGISTRY.register_source("postgres", PostgresEndpoint)
-REGISTRY.register_source("mssql", MSSQLEndpoint)
-REGISTRY.register_sink("hdfs", HdfsParquetEndpoint)

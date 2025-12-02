@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime, date, time, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -71,6 +71,10 @@ def to_serializable(value: Any) -> Any:
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat()
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, time):
+        return value.isoformat()
     if isinstance(value, dict):
         return {key: to_serializable(val) for key, val in value.items()}
     if isinstance(value, (list, tuple, set)):

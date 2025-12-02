@@ -88,9 +88,11 @@ def _build_jdbc_config(connection_url: str) -> Dict[str, Any]:
     if "+" in prefix:
         prefix = prefix.split("+", 1)[1]
     dialect = prefix.lower()
+    # Normalize common aliases to match registered templates
+    if dialect == "postgresql":
+        dialect = "postgres"
     parsed = _parse_url(connection_url)
     driver = {
-        "postgresql": "org.postgresql.Driver",
         "postgres": "org.postgresql.Driver",
         "oracle": "oracle.jdbc.OracleDriver",
         "mssql": "com.microsoft.sqlserver.jdbc.SQLServerDriver",

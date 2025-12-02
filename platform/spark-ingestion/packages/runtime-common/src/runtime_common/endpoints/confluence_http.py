@@ -8,11 +8,6 @@ from urllib.parse import urljoin, urlparse
 import requests
 from requests.auth import HTTPBasicAuth
 
-try:
-    from metadata_service.adapters import ConfluenceMetadataSubsystem as _ConfluenceMetadataSubsystem  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    _ConfluenceMetadataSubsystem = None  # type: ignore
-
 from .base import (
     EndpointCapabilities,
     EndpointCapabilityDescriptor,
@@ -25,8 +20,11 @@ from .base import (
     EndpointProbingPlan,
     EndpointTestResult,
     EndpointUnitDescriptor,
+    IngestionCapableEndpoint,
+    SupportsPreview,
     MetadataSubsystem,
-    SourceEndpoint,
+    SupportsIngestionExecution,
+    load_metadata_adapter,
 )
 from .confluence_catalog import CONFLUENCE_API_LIBRARY, CONFLUENCE_DATASET_DEFINITIONS
 
@@ -35,7 +33,7 @@ MAX_PAGE_FETCH_SIZE = 5
 MAX_ATTACHMENT_FETCH_SIZE = 1
 
 
-class ConfluenceEndpoint(SourceEndpoint):
+class ConfluenceEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, SupportsPreview):
     """Confluence HTTP endpoint descriptor and metadata bridge."""
 
     TEMPLATE_ID = "http.confluence"
@@ -180,10 +178,25 @@ class ConfluenceEndpoint(SourceEndpoint):
     @classmethod
     def build_connection(cls, parameters: Dict[str, Any]) -> EndpointConnectionResult:
         normalized = _normalize_confluence_parameters(parameters)
+        validation = cls.test_connection(normalized)
+        if not validation.success:
+            raise ValueError(validation.message or "Invalid parameters")
         base_url = normalized.get("base_url")
         if not base_url:
             raise ValueError("base_url is required")
-        return EndpointConnectionResult(url=base_url, config=normalized, labels=("confluence", "semantic"))
+        descriptor = cls.descriptor()
+        connection = descriptor.connection
+        if not connection:
+            raise ValueError(f"Endpoint {descriptor.id} is missing a connection template.")
+        url = connection.url_template.format(base_url=base_url)
+        config = {"templateId": descriptor.id, "parameters": normalized}
+        return EndpointConnectionResult(
+            url=url,
+            config=config,
+            labels=descriptor.default_labels,
+            domain=descriptor.domain,
+            verb=connection.default_verb,
+        )
 
     @classmethod
     def test_connection(cls, parameters: Dict[str, Any]) -> EndpointTestResult:
@@ -198,11 +211,12 @@ class ConfluenceEndpoint(SourceEndpoint):
         finally:
             session.close()
         version = site_info.get("versionNumber") if isinstance(site_info, dict) else None
+        capabilities = tuple(capability.key for capability in cls.descriptor_capabilities())
         return EndpointTestResult(
             success=True,
             message=f"Authenticated as {user_info.get('displayName') or user_info.get('username')}.",
             detected_version=str(version or ""),
-            capabilities=("metadata", "preview"),
+            capabilities=capabilities,
         )
 
     def __init__(
@@ -219,13 +233,14 @@ class ConfluenceEndpoint(SourceEndpoint):
         if metadata_access is not None:
             self.metadata_access = metadata_access
         else:
-            subsystem_cls = _load_confluence_metadata_subsystem()
-            self.metadata_access = subsystem_cls(self) if subsystem_cls else None
+            adapter_cls = load_metadata_adapter(self.DISPLAY_NAME, "metadata_service.adapters.ConfluenceMetadataSubsystem")
+            self.metadata_access = adapter_cls(self)  # type: ignore[call-arg]
         self.emitter = emitter
         self._caps = EndpointCapabilities(
             supports_full=True,
             supports_incremental=False,
-            supports_metadata=bool(self.metadata_access),
+            supports_metadata=True,
+            supports_preview=True,
         )
 
     def configure(self, table_cfg: Dict[str, Any]) -> None:  # pragma: no cover
@@ -250,7 +265,7 @@ class ConfluenceEndpoint(SourceEndpoint):
     def count_between(self, *, lower: str, upper: Optional[str]) -> int:  # pragma: no cover
         raise NotImplementedError("ConfluenceEndpoint does not expose count_between. Use metadata collection or ingestion.")
 
-    def metadata_subsystem(self) -> MetadataSubsystem | None:
+    def metadata_subsystem(self) -> MetadataSubsystem:
         return self.metadata_access
 
     def list_units(
@@ -275,8 +290,41 @@ class ConfluenceEndpoint(SourceEndpoint):
                     default_policy=ingestion_meta.get("default_policy"),
                     cdm_model_id=ingestion_meta.get("cdm_model_id"),
                 )
-        )
+            )
         return units
+
+    def run_ingestion_unit(
+        self,
+        unit_id: str,
+        *,
+        endpoint_id: str,
+        policy: Dict[str, Any],
+        checkpoint: Optional[Dict[str, Any]] = None,
+        mode: Optional[str] = None,
+        filter: Optional[Dict[str, Any]] = None,
+        transient_state: Optional[Dict[str, Any]] = None,
+    ) -> ConfluenceIngestionResult:
+        return run_confluence_ingestion_unit(
+            unit_id,
+            endpoint_id=endpoint_id,
+            policy=policy,
+            checkpoint=checkpoint,
+            mode=mode,
+            filter=filter,
+        )
+
+    def preview(
+        self,
+        *,
+        unit_id: Optional[str] = None,
+        limit: int = 50,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        subsystem = self.metadata_subsystem()
+        if subsystem and hasattr(subsystem, "preview_dataset"):
+            dataset_id = unit_id or self.table_cfg.get("dataset") or self.table_cfg.get("table") or "confluence.page"
+            return subsystem.preview_dataset(dataset_id=dataset_id, limit=limit, config=self.endpoint_cfg)
+        raise ValueError("Preview not supported for Confluence without metadata subsystem")
 
 
 @dataclass
@@ -964,18 +1012,6 @@ def _render_page_preview(page_payload: Dict[str, Any]) -> ConfluencePagePreview:
         updated_at=updated,
         updated_by=updated_by,
     )
-
-
-def _load_confluence_metadata_subsystem():
-    global _ConfluenceMetadataSubsystem
-    if _ConfluenceMetadataSubsystem is None:
-        try:  # pragma: no cover - lazy import for metadata adapters
-            from metadata_service.adapters import ConfluenceMetadataSubsystem as _Subsystem  # type: ignore
-
-            _ConfluenceMetadataSubsystem = _Subsystem  # type: ignore
-        except Exception:  # pragma: no cover - dependency not available
-            return None
-    return _ConfluenceMetadataSubsystem
 
 
 __all__ = [

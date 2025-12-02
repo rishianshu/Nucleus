@@ -70,6 +70,7 @@ export type MetadataActivities = {
   completeIngestionRun(input: CompleteIngestionRunInput): Promise<void>;
   failIngestionRun(input: FailIngestionRunInput): Promise<void>;
   persistIngestionBatches(input: PersistIngestionBatchesInput): Promise<void>;
+  loadStagedRecords(input: { path: string; stagingProviderId?: string | null }): Promise<unknown[]>;
 };
 
 const DEFAULT_METADATA_PROJECT = process.env.METADATA_DEFAULT_PROJECT ?? "global";
@@ -592,6 +593,25 @@ export const activities: MetadataActivities = {
       await sink.commit(context, stats ?? null);
     }
   },
+  async loadStagedRecords({
+    path: filePath,
+    stagingProviderId,
+  }: {
+    path: string;
+    stagingProviderId?: string | null;
+  }): Promise<unknown[]> {
+    const provider = stagingProviderId ?? DEFAULT_STAGING_PROVIDER;
+    const loader = STAGING_LOADERS[provider];
+    if (!loader) {
+      throw new Error(`Unsupported staging provider '${provider}'`);
+    }
+    try {
+      const content = await loader(filePath);
+      return Array.isArray(content) ? content : [];
+    } finally {
+      await deleteTempFile(filePath).catch(() => {});
+    }
+  },
 };
 
 async function resolveCdmModelIdForUnit(
@@ -620,7 +640,8 @@ function resolveSchemas(run: any): string[] {
   if (Array.isArray(filterSchemas) && filterSchemas.length > 0) {
     return normalizeSchemas(filterSchemas);
   }
-  const endpointSchemas = run.endpoint.config?.schemas;
+  const endpointSchemas =
+    run.endpoint.config?.schemas || run.endpoint.config?.parameters?.schemas?.split(",");
   if (Array.isArray(endpointSchemas) && endpointSchemas.length > 0) {
     return normalizeSchemas(endpointSchemas);
   }
@@ -631,6 +652,16 @@ function normalizeSchemas(input: unknown[]): string[] {
   return input
     .map((schema) => (typeof schema === "string" ? schema.trim() : ""))
     .filter((schema) => Boolean(schema)) as string[];
+}
+
+const STAGING_LOADERS: Record<string, (path: string) => Promise<unknown>> = {
+  file: readJsonFile,
+  in_memory: readJsonFile,
+};
+
+async function readJsonFile(filePath: string): Promise<unknown> {
+  const content = await fs.readFile(filePath, "utf-8");
+  return JSON.parse(content);
 }
 
 function groupRecordsByCdmModel(

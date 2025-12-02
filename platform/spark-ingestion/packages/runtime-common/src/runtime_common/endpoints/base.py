@@ -86,6 +86,8 @@ class EndpointProbingPlan:
 
 @dataclass(frozen=True)
 class EndpointDescriptor:
+    """Static description consumed by the console + registry for configuration."""
+
     id: str
     family: str
     title: str
@@ -134,6 +136,7 @@ class EndpointCapabilities:
     supports_full: bool = True
     supports_incremental: bool = False
     supports_count_probe: bool = False
+    supports_preview: bool = False
     supports_write: bool = False
     supports_finalize: bool = False
     supports_publish: bool = False
@@ -150,13 +153,39 @@ class EndpointCapabilities:
 class BaseEndpoint(Protocol):
     """Common methods for both source and sink endpoints."""
 
-    tool: "ExecutionTool"
+    tool: Any
 
     def configure(self, table_cfg: Dict[str, Any]) -> None: ...
 
     def capabilities(self) -> EndpointCapabilities: ...
 
     def describe(self) -> Dict[str, Any]: ...
+
+
+@runtime_checkable
+class DescribedEndpoint(Protocol):
+    """Endpoints that can describe themselves for registration/UIs."""
+
+    @classmethod
+    def descriptor(cls) -> EndpointDescriptor: ...
+
+    @classmethod
+    def descriptor_fields(cls) -> Tuple[EndpointFieldDescriptor, ...]: ...
+
+    @classmethod
+    def descriptor_capabilities(cls) -> Tuple[EndpointCapabilityDescriptor, ...]: ...
+
+    @classmethod
+    def test_connection(cls, parameters: Dict[str, Any]) -> EndpointTestResult: ...
+
+    @classmethod
+    def build_connection(cls, parameters: Dict[str, Any]) -> EndpointConnectionResult: ...
+
+
+@runtime_checkable
+class ConfigurableEndpoint(BaseEndpoint, DescribedEndpoint, Protocol):
+    """Endpoints that expose both runtime operations and descriptors for configuration."""
+    ...
 
 
 @runtime_checkable
@@ -178,7 +207,21 @@ class SupportsDataFrameQuery(Protocol):
 
 
 @runtime_checkable
-class SourceEndpoint(BaseEndpoint, Protocol):
+class SupportsPreview(Protocol):
+    """Endpoints that can return a small preview of data/records."""
+
+    def preview(
+        self,
+        *,
+        unit_id: Optional[str] = None,
+        limit: int = 50,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        ...
+
+
+@runtime_checkable
+class SourceEndpoint(ConfigurableEndpoint, Protocol):
     """Contract for any endpoint that can provide data."""
 
     def read_full(self) -> Any: ...
@@ -257,7 +300,7 @@ class IncrementalCommitResult:
 
 
 @runtime_checkable
-class SinkEndpoint(BaseEndpoint, Protocol):
+class SinkEndpoint(ConfigurableEndpoint, Protocol):
     """Contract for landing data and finalising outputs."""
 
     def write_raw(
@@ -344,18 +387,21 @@ class MetadataCapableEndpoint(SourceEndpoint, Protocol):
     def metadata_subsystem(self) -> MetadataSubsystem: ...
 
 
-@runtime_checkable
-class DescribedEndpoint(Protocol):
-    """Endpoints that can describe themselves for registration/UIs."""
+def load_metadata_adapter(endpoint_name: str, adapter_import: str):
+    """
+    Import a metadata adapter by dotted path and fail fast with a clear error.
 
-    @classmethod
-    def descriptor(cls) -> EndpointDescriptor: ...
-
-    @classmethod
-    def test_connection(cls, parameters: Dict[str, Any]) -> EndpointTestResult: ...
-
-    @classmethod
-    def build_connection(cls, parameters: Dict[str, Any]) -> EndpointConnectionResult: ...
+    The adapter is expected to implement MetadataSubsystem.
+    """
+    module_path, _, class_name = adapter_import.rpartition(".")
+    if not module_path or not class_name:
+        raise RuntimeError(f"Invalid metadata adapter path for {endpoint_name}: {adapter_import}")
+    try:
+        module = __import__(module_path, fromlist=[class_name])
+        adapter_cls = getattr(module, class_name)
+    except Exception as exc:  # pragma: no cover - import-time guard
+        raise RuntimeError(f"Metadata adapter {adapter_import} required for {endpoint_name} is not available") from exc
+    return adapter_cls
 
 
 class EndpointRegistry:
@@ -407,3 +453,38 @@ class SupportsIncrementalPlanning(Protocol):
         limit: Optional[int] = None,
     ) -> List[IngestionSlice]:
         ...
+
+
+@runtime_checkable
+class SupportsIngestionExecution(Protocol):
+    """Endpoints that can execute ingestion units directly."""
+
+    def run_ingestion_unit(
+        self,
+        unit_id: str,
+        *,
+        endpoint_id: str,
+        policy: Dict[str, Any],
+        checkpoint: Optional[Dict[str, Any]] = None,
+        mode: Optional[str] = None,
+        filter: Optional[Dict[str, Any]] = None,
+        transient_state: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        ...
+
+
+@runtime_checkable
+class IngestionCapableEndpoint(SourceEndpoint, SupportsIngestionUnits, SupportsIngestionExecution, Protocol):
+    """Source endpoints that expose ingestion units and can execute them."""
+    ...
+
+
+@runtime_checkable
+class IncrementalPlanningEndpoint(
+    IngestionCapableEndpoint,
+    SupportsIncrementalPlanning,
+    SupportsIngestionExecution,
+    Protocol,
+):
+    """Ingestion-capable endpoints that can also plan incremental slices."""
+    ...

@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
 import os
 import random
 import time
 import logging
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 from requests.auth import HTTPBasicAuth
-
-try:
-    from metadata_service.adapters import JiraMetadataSubsystem as _JiraMetadataSubsystem  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    _JiraMetadataSubsystem = None  # type: ignore
 
 from .base import (
     EndpointCapabilities,
@@ -29,8 +24,13 @@ from .base import (
     EndpointProbingPlan,
     EndpointTestResult,
     EndpointUnitDescriptor,
+    IngestionCapableEndpoint,
+    SupportsIngestionExecution,
+    SupportsPreview,
+    MetadataCapableEndpoint,
     MetadataSubsystem,
     SourceEndpoint,
+    load_metadata_adapter,
 )
 from .jira_catalog import JIRA_API_LIBRARY, JIRA_DATASET_DEFINITIONS
 
@@ -41,7 +41,7 @@ JIRA_RATE_LIMIT_FALLBACK_DELAY = max(1.0, float(os.environ.get("JIRA_RATE_LIMIT_
 
 logger = logging.getLogger(__name__)
 
-class JiraEndpoint(SourceEndpoint):
+class JiraEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, SupportsPreview):
     """Jira REST endpoint descriptor + placeholder source implementation."""
 
     TEMPLATE_ID = "jira.http"
@@ -207,6 +207,9 @@ class JiraEndpoint(SourceEndpoint):
     @classmethod
     def build_connection(cls, parameters: Dict[str, Any]) -> EndpointConnectionResult:
         normalized = _normalize_jira_parameters(parameters)
+        validation = cls.test_connection(normalized)
+        if not validation.success:
+            raise ValueError(validation.message or "Invalid parameters")
         base_url = normalized.get("base_url")
         if not base_url:
             raise ValueError("Jira base_url is required.")
@@ -270,15 +273,15 @@ class JiraEndpoint(SourceEndpoint):
         self.table_cfg = dict(table_cfg)
         if metadata_access is not None:
             self.metadata_access = metadata_access
-        elif _JiraMetadataSubsystem:
-            self.metadata_access = _JiraMetadataSubsystem(self)
         else:
-            self.metadata_access = None
+            adapter_cls = load_metadata_adapter(self.DISPLAY_NAME, "metadata_service.adapters.JiraMetadataSubsystem")
+            self.metadata_access = adapter_cls(self)  # type: ignore[call-arg]
         self.emitter = emitter
         self._caps = EndpointCapabilities(
             supports_full=True,
             supports_incremental=True,
-            supports_metadata=bool(self.metadata_access),
+            supports_metadata=True,
+            supports_preview=True,
         )
 
     def configure(self, table_cfg: Dict[str, Any]) -> None:  # pragma: no cover
@@ -303,7 +306,7 @@ class JiraEndpoint(SourceEndpoint):
     def count_between(self, *, lower: str, upper: str | None) -> int:  # pragma: no cover - not implemented yet
         raise NotImplementedError("JiraEndpoint runtime export has not been implemented. Use ingestion workflows.")
 
-    def metadata_subsystem(self) -> MetadataSubsystem | None:
+    def metadata_subsystem(self) -> MetadataSubsystem:
         return self.metadata_access
 
     def list_units(
@@ -337,6 +340,40 @@ class JiraEndpoint(SourceEndpoint):
                 )
             )
         return units
+
+    def run_ingestion_unit(
+        self,
+        unit_id: str,
+        *,
+        endpoint_id: str,
+        policy: Dict[str, Any],
+        checkpoint: Optional[Dict[str, Any]] = None,
+        mode: Optional[str] = None,
+        filter: Optional[Dict[str, Any]] = None,
+        transient_state: Optional[Dict[str, Any]] = None,
+    ) -> JiraIngestionResult:
+        return run_jira_ingestion_unit(
+            unit_id,
+            endpoint_id=endpoint_id,
+            policy=policy,
+            checkpoint=checkpoint,
+            mode=mode,
+            filter=filter,
+            transient_state=transient_state,
+        )
+
+    def preview(
+        self,
+        *,
+        unit_id: Optional[str] = None,
+        limit: int = 50,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        subsystem = self.metadata_subsystem()
+        if subsystem and hasattr(subsystem, "preview_dataset"):
+            dataset_id = unit_id or self.table_cfg.get("dataset") or self.table_cfg.get("table") or "jira.issues"
+            return subsystem.preview_dataset(dataset_id=dataset_id, limit=limit, config=self.endpoint_cfg)
+        raise ValueError("Preview not supported for Jira without metadata subsystem")
 
 
 @dataclass

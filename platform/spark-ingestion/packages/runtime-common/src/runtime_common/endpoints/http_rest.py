@@ -4,6 +4,8 @@ from typing import Any, Dict
 from urllib.parse import urlparse
 
 from .base import (
+    ConfigurableEndpoint,
+    EndpointCapabilities,
     EndpointCapabilityDescriptor,
     EndpointConnectionResult,
     EndpointConnectionTemplate,
@@ -16,7 +18,7 @@ from .base import (
 )
 
 
-class HttpApiEndpoint:
+class HttpApiEndpoint(ConfigurableEndpoint):
     """Descriptor-only HTTP API endpoint template."""
 
     TEMPLATE_ID = "http.rest"
@@ -212,13 +214,18 @@ class HttpApiEndpoint:
         validation = cls.test_connection(normalized)
         if not validation.success:
             raise ValueError(validation.message or "Invalid parameters")
-        url = normalized["base_url"]
+        descriptor = cls.descriptor()
+        connection = descriptor.connection
+        if not connection:
+            raise ValueError(f"Endpoint {descriptor.id} is missing a connection template.")
+        url = connection.url_template.format(**normalized)
+        verb = normalized.get("http_method") or connection.default_verb
         return EndpointConnectionResult(
             url=url,
             config={"templateId": cls.TEMPLATE_ID, "parameters": normalized},
-            labels=cls.DEFAULT_LABELS,
-            domain=cls.DOMAIN,
-            verb=normalized.get("http_method", "GET"),
+            labels=descriptor.default_labels,
+            domain=descriptor.domain,
+            verb=verb,
         )
 
     @classmethod
@@ -242,3 +249,24 @@ class HttpApiEndpoint:
     @staticmethod
     def _normalize(parameters: Dict[str, Any]) -> Dict[str, str]:
         return {key: "" if value is None else str(value).strip() for key, value in parameters.items()}
+
+    # --- BaseEndpoint protocol -------------------------------------------------
+    def __init__(self, tool, endpoint_cfg: Dict[str, Any], table_cfg: Dict[str, Any], metadata_access=None, emitter=None) -> None:
+        self.tool = tool
+        self.endpoint_cfg = dict(endpoint_cfg)
+        self.table_cfg = dict(table_cfg)
+        self.emitter = emitter
+        self._caps = EndpointCapabilities()
+
+    def configure(self, table_cfg: Dict[str, Any]) -> None:  # pragma: no cover
+        self.table_cfg.update(table_cfg)
+
+    def capabilities(self) -> EndpointCapabilities:
+        return self._caps
+
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "base_url": self.endpoint_cfg.get("base_url"),
+            "http_method": self.endpoint_cfg.get("http_method"),
+            "auth_type": self.endpoint_cfg.get("auth_type"),
+        }

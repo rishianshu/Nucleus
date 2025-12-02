@@ -14,7 +14,13 @@ from ...io.filesystem import HDFSUtil
 from ...io.paths import Paths
 from ...staging import Staging
 from ..base import (
+    EndpointCapabilityDescriptor,
+    EndpointConnectionResult,
+    EndpointConnectionTemplate,
+    EndpointDescriptor,
+    EndpointFieldDescriptor,
     EndpointCapabilities,
+    EndpointTestResult,
     SupportsQueryExecution,
     IncrementalCommitResult,
     IncrementalContext,
@@ -54,7 +60,79 @@ def _load_raw_increment_df(
 class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
     """Handles landing to RAW directories and optional Hive registration."""
 
+    TEMPLATE_ID = "hdfs.parquet"
+    DISPLAY_NAME = "HDFS Parquet Sink"
+    VENDOR = "Apache HDFS"
+    DESCRIPTION = "Land datasets to HDFS in Parquet format and optionally publish to Hive/Iceberg."
+    DOMAIN = "storage.hdfs"
+    DEFAULT_LABELS: Tuple[str, ...] = ("hdfs", "parquet")
+    DESCRIPTOR_VERSION = "1.0"
+
+    @classmethod
+    def descriptor(cls) -> EndpointDescriptor:
+        return EndpointDescriptor(
+            id=cls.TEMPLATE_ID,
+            family="HDFS",
+            title=cls.DISPLAY_NAME,
+            vendor=cls.VENDOR,
+            description=cls.DESCRIPTION,
+            domain=cls.DOMAIN,
+            categories=("storage",),
+            protocols=("hdfs",),
+            default_labels=cls.DEFAULT_LABELS,
+            fields=cls.descriptor_fields(),
+            capabilities=cls.descriptor_capabilities(),
+            connection=EndpointConnectionTemplate(url_template="{base_path}", default_verb="PUT"),
+            descriptor_version=cls.DESCRIPTOR_VERSION,
+        )
+
+    @classmethod
+    def descriptor_fields(cls) -> Tuple[EndpointFieldDescriptor, ...]:
+        return (
+            EndpointFieldDescriptor(
+                key="base_path",
+                label="Base path",
+                value_type="STRING",
+                required=False,
+                description="Optional base HDFS path for staging/publishing. Typically supplied by runtime config.",
+            ),
+        )
+
+    @classmethod
+    def descriptor_capabilities(cls) -> Tuple[EndpointCapabilityDescriptor, ...]:
+        return (
+            EndpointCapabilityDescriptor(key="write", label="Write", description="Supports writing raw/staged files."),
+            EndpointCapabilityDescriptor(key="finalize", label="Finalize", description="Finalizes raw data to published location."),
+            EndpointCapabilityDescriptor(key="publish", label="Publish", description="Publishes datasets via Hive/Iceberg helpers."),
+            EndpointCapabilityDescriptor(key="watermark", label="Watermark", description="Carries watermarks for incremental loads."),
+            EndpointCapabilityDescriptor(key="merge", label="Merge", description="Supports merge semantics for SCD/CDC workloads."),
+            EndpointCapabilityDescriptor(key="staging", label="Staging", description="Writes intermediate staged slices."),
+        )
+
+    @classmethod
+    def test_connection(cls, parameters: Dict[str, Any]) -> EndpointTestResult:
+        # HDFS sinks rely on runtime environment; accept parameters as-is.
+        return EndpointTestResult(
+            success=True,
+            message="Validated by runtime; no remote connectivity check performed.",
+        )
+
+    @classmethod
+    def build_connection(cls, parameters: Dict[str, Any]) -> EndpointConnectionResult:
+        normalized = dict(parameters or {})
+        validation = cls.test_connection(normalized)
+        if not validation.success:
+            raise ValueError(validation.message or "Invalid parameters")
+        return EndpointConnectionResult(
+            url=str(normalized.get("base_path", "")),
+            config={"templateId": cls.TEMPLATE_ID, "parameters": normalized},
+            labels=cls.DEFAULT_LABELS,
+            domain=cls.DOMAIN,
+            verb="PUT",
+        )
+
     def __init__(self, spark: SparkSession, cfg: Dict[str, Any], table_cfg: Dict[str, Any]) -> None:
+        self.tool = spark
         self.spark = spark
         self.cfg = cfg
         self.runtime_cfg = cfg["runtime"]

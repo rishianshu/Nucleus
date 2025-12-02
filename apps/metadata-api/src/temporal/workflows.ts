@@ -25,6 +25,7 @@ const {
   completeIngestionRun: completeIngestionRunActivity,
   failIngestionRun: failIngestionRunActivity,
   persistIngestionBatches: persistIngestionBatchesActivity,
+  loadStagedRecords: loadStagedRecordsActivity,
 } = proxyActivities<MetadataActivities>({
   startToCloseTimeout: "1 hour",
 });
@@ -76,6 +77,8 @@ type PythonIngestionResult = {
   stats?: Record<string, unknown> | null;
   records?: NormalizedRecordInput[] | null;
   transientState?: Record<string, unknown> | null;
+  stagingPath?: string | null;
+  stagingProviderId?: string | null;
 };
 
 type NormalizedRecordInput = {
@@ -185,8 +188,14 @@ export async function previewDatasetWorkflow(input: {
   schema: string;
   table: string;
   limit?: number;
-  connectionUrl: string;
+  templateId: string;
+  parameters: Record<string, unknown>;
+  connectionUrl?: string | null;
 }) {
+  const normalizedInput = {
+    ...input,
+    connectionUrl: input.connectionUrl ?? "",
+  };
   return pythonActivities.previewDataset.executeWithOptions(
     {
       taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
@@ -196,7 +205,7 @@ export async function previewDatasetWorkflow(input: {
         nonRetryableErrorTypes: ["SampleDatasetPreview"],
       },
     },
-    [input],
+    [normalizedInput],
   );
 }
 
@@ -237,7 +246,16 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       transientState: context.transientState ?? null,
       transientStateVersion: context.transientStateVersion ?? null,
     });
-    if (ingestionResult.records && ingestionResult.records.length > 0) {
+    let stagedRecords: any[] = [];
+    if (ingestionResult.stagingPath) {
+      stagedRecords = await loadStagedRecordsActivity({
+        path: ingestionResult.stagingPath,
+        stagingProviderId: ingestionResult.stagingProviderId ?? context.stagingProviderId ?? null,
+      });
+    } else if (ingestionResult.records && ingestionResult.records.length > 0) {
+      stagedRecords = ingestionResult.records;
+    }
+    if (stagedRecords.length > 0) {
       if (!context.sinkId) {
         throw new Error("Ingestion sink is not defined for this run.");
       }
@@ -246,7 +264,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
         unitId: input.unitId,
         sinkId: context.sinkId,
         runId: context.runId,
-        records: ingestionResult.records,
+        records: stagedRecords,
         stats: ingestionResult.stats ?? null,
         sinkEndpointId: context.sinkEndpointId ?? null,
         dataMode: context.dataMode ?? null,

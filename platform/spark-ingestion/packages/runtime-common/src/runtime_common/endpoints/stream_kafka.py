@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from .base import (
+    ConfigurableEndpoint,
+    EndpointCapabilities,
     EndpointCapabilityDescriptor,
     EndpointConnectionResult,
     EndpointConnectionTemplate,
@@ -15,7 +17,7 @@ from .base import (
 )
 
 
-class KafkaStreamEndpoint:
+class KafkaStreamEndpoint(ConfigurableEndpoint):
     """Descriptor-only template for Apache Kafka/Confluent streaming sources."""
 
     TEMPLATE_ID = "stream.kafka"
@@ -183,13 +185,17 @@ class KafkaStreamEndpoint:
         validation = cls.test_connection(normalized)
         if not validation.success:
             raise ValueError(validation.message or "Invalid parameters")
-        url = f"kafka://{normalized['bootstrap_servers']}"
+        descriptor = cls.descriptor()
+        connection = descriptor.connection
+        if not connection:
+            raise ValueError(f"Endpoint {descriptor.id} is missing a connection template.")
+        url = connection.url_template.format(**normalized)
         return EndpointConnectionResult(
             url=url,
-            config={"templateId": cls.TEMPLATE_ID, "parameters": normalized},
-            labels=cls.DEFAULT_LABELS,
-            domain=cls.DOMAIN,
-            verb="POST",
+            config={"templateId": descriptor.id, "parameters": normalized},
+            labels=descriptor.default_labels,
+            domain=descriptor.domain,
+            verb=connection.default_verb,
         )
 
     @classmethod
@@ -212,3 +218,24 @@ class KafkaStreamEndpoint:
     @staticmethod
     def _normalize(parameters: Dict[str, Any]) -> Dict[str, str]:
         return {key: "" if value is None else str(value).strip() for key, value in parameters.items()}
+
+    # --- BaseEndpoint protocol -------------------------------------------------
+    def __init__(self, tool, endpoint_cfg: Dict[str, Any], table_cfg: Dict[str, Any], metadata_access=None, emitter=None) -> None:
+        self.tool = tool
+        self.endpoint_cfg = dict(endpoint_cfg)
+        self.table_cfg = dict(table_cfg)
+        self.emitter = emitter
+        self._caps = EndpointCapabilities(supports_full=False, supports_incremental=False)
+
+    def configure(self, table_cfg: Dict[str, Any]) -> None:  # pragma: no cover
+        self.table_cfg.update(table_cfg)
+
+    def capabilities(self) -> EndpointCapabilities:
+        return self._caps
+
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "bootstrap_servers": self.endpoint_cfg.get("bootstrap_servers"),
+            "topics": self.endpoint_cfg.get("topics"),
+            "security_protocol": self.endpoint_cfg.get("security_protocol"),
+        }

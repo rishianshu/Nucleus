@@ -8,12 +8,14 @@ from .base import (
     EndpointFieldOption,
     EndpointProbingMethod,
     EndpointUnitDescriptor,
+    IngestionCapableEndpoint,
     MetadataSubsystem,
+    load_metadata_adapter,
 )
 from .jdbc import JdbcEndpoint
 
 
-class PostgresEndpoint(JdbcEndpoint):
+class PostgresEndpoint(JdbcEndpoint, IngestionCapableEndpoint):
     """Postgres-specific JDBC source with metadata capabilities."""
 
     DIALECT = "postgres"
@@ -59,13 +61,10 @@ class PostgresEndpoint(JdbcEndpoint):
         metadata_access=None,
         emitter=None,
     ) -> None:
-        try:
-            from metadata_service.adapters import PostgresMetadataSubsystem as _PostgresMetadataSubsystem
-        except Exception as exc:  # pragma: no cover - optional dependency at descriptor export time
-            raise RuntimeError("metadata_service.adapters.PostgresMetadataSubsystem is required for runtime usage") from exc
         super().__init__(tool, jdbc_cfg, table_cfg, metadata_access=metadata_access, emitter=emitter)
+        adapter_cls = load_metadata_adapter(self.DISPLAY_NAME, "metadata_service.adapters.PostgresMetadataSubsystem")
         self._caps.supports_metadata = True
-        self._metadata = _PostgresMetadataSubsystem(self)
+        self._metadata = adapter_cls(self)  # type: ignore[call-arg]
 
     def _literal(self, value: str) -> str:
         safe = value.replace("'", "''")

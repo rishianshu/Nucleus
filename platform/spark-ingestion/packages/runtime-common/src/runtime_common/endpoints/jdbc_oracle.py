@@ -11,12 +11,14 @@ from .base import (
     EndpointProbingMethod,
     EndpointTestResult,
     EndpointUnitDescriptor,
+    IngestionCapableEndpoint,
     MetadataSubsystem,
+    load_metadata_adapter,
 )
 from .jdbc import JdbcEndpoint
 
 
-class OracleEndpoint(JdbcEndpoint):
+class OracleEndpoint(JdbcEndpoint, IngestionCapableEndpoint):
     """Oracle-specific JDBC source."""
 
     DIALECT = "oracle"
@@ -56,13 +58,10 @@ class OracleEndpoint(JdbcEndpoint):
         metadata_access=None,
         emitter=None,
     ) -> None:
-        try:
-            from metadata_service.adapters import OracleMetadataSubsystem as _OracleMetadataSubsystem
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError("metadata_service.adapters.OracleMetadataSubsystem is required for runtime usage") from exc
         super().__init__(tool, jdbc_cfg, table_cfg, metadata_access=metadata_access, emitter=emitter)
+        adapter_cls = load_metadata_adapter(self.DISPLAY_NAME, "metadata_service.adapters.OracleMetadataSubsystem")
         self._caps.supports_metadata = True
-        self._metadata = _OracleMetadataSubsystem(self)
+        self._metadata = adapter_cls(self)  # type: ignore[call-arg]
 
     def _literal(self, value: str) -> str:
         incr_type = (self.table_cfg.get("incr_col_type") or "").lower()

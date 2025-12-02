@@ -9,21 +9,22 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES_DIR = ROOT / "packages"
+TEMPORAL_DIR = ROOT / "temporal"
 
 PACKAGE_ROOTS = [
     PACKAGES_DIR / "runtime-common" / "src",
     PACKAGES_DIR / "core" / "src",
     PACKAGES_DIR / "metadata-service" / "src",
     PACKAGES_DIR / "metadata-gateway" / "src",
+    TEMPORAL_DIR,
 ]
 
 
@@ -51,23 +52,14 @@ from metadata_service.cache.manager import MetadataCacheConfig, MetadataCacheMan
 from metadata_service.collector import MetadataCollectionService, MetadataServiceConfig
 from metadata_service.planning import plan_metadata_jobs
 from metadata_service.repository import CacheMetadataRepository
-from metadata_service.utils import collect_rows, to_serializable
-from runtime_common.endpoints.factory import EndpointFactory
-from runtime_common.endpoints.registry import get_endpoint_class
-from runtime_common.endpoints.jira_http import run_jira_ingestion_unit
-from runtime_common.endpoints.jira_catalog import JIRA_DATASET_DEFINITIONS
-from runtime_common.endpoints.confluence_http import run_confluence_ingestion_unit
-from runtime_common.endpoints.confluence_catalog import CONFLUENCE_DATASET_DEFINITIONS
-from metadata_service.cdm import jira_work_mapper
-from metadata_service.cdm import confluence_docs_mapper
-from runtime_core.cdm.docs import CDM_DOC_ITEM, CDM_DOC_LINK, CDM_DOC_REVISION, CDM_DOC_SPACE
-from runtime_common.tools.sqlalchemy import SQLAlchemyTool
+from ingestion import run_ingestion_unit as _run_ingestion_unit
+from preview import preview_dataset as _preview_via_endpoint
+from staging import stage_records
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
     raise RuntimeError(
         f"metadata_service resolved to {_metadata_service_file}, expected under {ROOT}."
     )
-
 
 @dataclass
 class CollectionJobRequest:
@@ -103,7 +95,9 @@ class PreviewRequest:
     datasetId: str
     schema: str
     table: str
-    connectionUrl: str
+    templateId: str
+    parameters: Dict[str, Any]
+    connectionUrl: Optional[str] = None
     limit: Optional[int] = 50
 
 
@@ -130,6 +124,8 @@ class IngestionUnitResult:
     stats: Dict[str, Any]
     records: Optional[List[Dict[str, Any]]] = None
     transientState: Optional[Dict[str, Any]] = None
+    stagingPath: Optional[str] = None
+    stagingProviderId: Optional[str] = None
 
 
 class ActivityLogger:
@@ -152,62 +148,6 @@ class ActivityLogger:
 
     def error(self, message: Optional[str] = None, **fields: Any) -> None:
         self._log("ERROR", message, **fields)
-
-
-def _build_sqlalchemy_tool(connection_url: str) -> SQLAlchemyTool:
-    cfg = {
-        "runtime": {
-            "sqlalchemy": {
-                "url": connection_url,
-            },
-        },
-    }
-    return SQLAlchemyTool.from_config(cfg)
-
-
-def _expand_tables(tool: SQLAlchemyTool, schemas: Iterable[str]) -> List[Dict[str, str]]:
-    expanded: List[Dict[str, str]] = []
-    sql = """
-        SELECT table_schema, table_name
-        FROM information_schema.tables
-        WHERE table_schema = :schema
-          AND table_type IN ('BASE TABLE', 'VIEW', 'MATERIALIZED VIEW')
-          AND table_name NOT LIKE '_prisma%%'
-        ORDER BY table_schema, table_name
-    """
-    for schema in schemas:
-        rows = tool.execute_sql(sql, {"schema": schema})
-        for row in rows:
-            expanded.append({"schema": row["table_schema"], "table": row["table_name"]})
-    return expanded
-
-
-def _guess_dialect(connection_url: str) -> str:
-    prefix = connection_url.split("://", 1)[0]
-    if "+" in prefix:
-        prefix = prefix.split("+", 1)[1]
-    return prefix.lower()
-
-
-def _build_jdbc_config(connection_url: str) -> Dict[str, Any]:
-    dialect = _guess_dialect(connection_url)
-    parsed = urlparse(connection_url)
-    driver = {
-        "postgresql": "org.postgresql.Driver",
-        "postgres": "org.postgresql.Driver",
-        "oracle": "oracle.jdbc.OracleDriver",
-        "mssql": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
-    }.get(dialect, "")
-    return {
-        "url": connection_url,
-        "user": parsed.username or "",
-        "password": parsed.password or "",
-        "dialect": dialect,
-        "driver": driver,
-        "host": parsed.hostname,
-        "port": parsed.port,
-        "database": parsed.path[1:] if parsed.path.startswith("/") else parsed.path or None,
-    }
 
 
 def _write_records_manifest(records: List[CatalogRecordOutput], run_id: str) -> Optional[str]:
@@ -310,11 +250,23 @@ def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, 
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def _resolve_template_id_from_policy(policy: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(policy, dict):
+        return None
+    for key in ("templateId", "template_id", "template"):
+        candidate = policy.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    parameters = policy.get("parameters")
+    if isinstance(parameters, dict):
+        for key in ("templateId", "template_id", "template"):
+            candidate = parameters.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return None
+
+
 def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
-    """
-    Placeholder ingestion worker that will call the Spark ingestion runtime in follow-up slugs.
-    For now it records telemetry and echoes the prior checkpoint so TS can persist run metadata.
-    """
     logger = ActivityLogger()
     logger.info(
         event="ingestion_unit_start",
@@ -323,297 +275,60 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         sink_id=request.sinkId,
         staging_provider=request.stagingProviderId or "in_memory",
     )
-    completed_at = datetime.now(timezone.utc).isoformat()
     normalized_mode = (request.mode or "").upper()
     checkpoint = None if normalized_mode == "FULL" else request.checkpoint
-    if request.unitId.startswith("jira."):
-        result = run_jira_ingestion_unit(
-            request.unitId,
-            endpoint_id=request.endpointId,
-            policy=request.policy or {},
-            checkpoint=checkpoint,
-            mode=normalized_mode or None,
-            filter=request.filter,
-            transient_state=request.transientState,
+    template_id = _resolve_template_id_from_policy(request.policy)
+    if not template_id:
+        raise ApplicationError(
+            "templateId is required for ingestion execution",
+            type="TemplateMissing",
+            non_retryable=True,
         )
-        records = result.records
-        if str(request.dataMode or "").lower() == "cdm":
-            cdm_model_id = request.cdmModelId or _resolve_cdm_model_id(request.unitId)
-            records = _apply_jira_cdm_mapping(
-                request.unitId,
-                result.records,
-                cdm_model_id,
-                endpoint_id=request.endpointId,
-            )
-        logger.info(event="jira_ingestion_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=result.stats)
-        return IngestionUnitResult(
-            newCheckpoint=result.cursor,
-            stats=result.stats,
-            records=records,
-            transientState=result.transient_state,
-        ).__dict__
-    if request.unitId.startswith("confluence."):
-        result = run_confluence_ingestion_unit(
-            request.unitId,
-            endpoint_id=request.endpointId,
-            policy=request.policy or {},
-            checkpoint=checkpoint,
-            mode=normalized_mode or None,
-            filter=request.filter,
-        )
-        records = result.records
-        if str(request.dataMode or "").lower() == "cdm":
-            cdm_model_id = request.cdmModelId or _resolve_confluence_cdm_model_id(request.unitId)
-            records = _apply_confluence_cdm_mapping(request.unitId, records, cdm_model_id)
-        logger.info(
-            event="confluence_ingestion_complete",
+    try:
+        resp = _run_ingestion_unit(
             endpoint_id=request.endpointId,
             unit_id=request.unitId,
-            stats=result.stats,
+            template_id=template_id,
+            policy=request.policy or {},
+            checkpoint=checkpoint,
+            mode=normalized_mode or None,
+            data_mode=request.dataMode,
+            filter=request.filter,
+            transient_state=request.transientState,
+            cdm_model_id=request.cdmModelId,
+            logger=logger,
         )
-        return IngestionUnitResult(
-            newCheckpoint=result.cursor,
-            stats=result.stats,
-            records=records,
-        ).__dict__
-    stats = {
-        "note": "python_ingestion_worker_stub",
-        "stagingProviderId": request.stagingProviderId or "in_memory",
-        "unitId": request.unitId,
-        "completedAt": completed_at,
-    }
-    logger.info(event="ingestion_unit_complete", endpoint_id=request.endpointId, unit_id=request.unitId, stats=stats)
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        raise ApplicationError(str(exc), type="IngestionExecutionFailed", non_retryable=True) from exc
+
+    result = resp.get("result")
+    stats = resp.get("stats")
+    if result is None:
+        stats = stats or {"note": "ingestion_noop", "unitId": request.unitId}
+        return IngestionUnitResult(newCheckpoint=checkpoint, stats=stats).__dict__
+
+    records = resp.get("records") or []
+    staging_path, staging_provider = stage_records(records, request.stagingProviderId)
+    records_payload: Optional[List[Dict[str, Any]]] = None
+    if staging_path is None and str(request.dataMode or "").lower() != "cdm":
+        records_payload = records
+    logger.info(
+        event="ingestion_complete",
+        endpoint_id=request.endpointId,
+        unit_id=request.unitId,
+        template_id=template_id,
+        stats=result.stats,
+    )
     return IngestionUnitResult(
-        newCheckpoint=checkpoint or {"lastRunAt": completed_at},
-        stats=stats,
+        newCheckpoint=result.cursor,
+        stats=result.stats,
+        records=records_payload,
+        transientState=getattr(result, "transient_state", None),
+        stagingPath=staging_path,
+        stagingProviderId=staging_provider,
     ).__dict__
-
-
-def _resolve_cdm_model_id(unit_id: str) -> Optional[str]:
-    definition = JIRA_DATASET_DEFINITIONS.get(unit_id) or {}
-    ingestion_meta = definition.get("ingestion") or {}
-    return ingestion_meta.get("cdm_model_id")
-
-
-def _apply_jira_cdm_mapping(
-    unit_id: str,
-    records: List[Dict[str, Any]],
-    cdm_model_id: Optional[str],
-    *,
-    endpoint_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    if not cdm_model_id:
-        return records
-    mapper = _resolve_jira_cdm_mapper(unit_id)
-    if mapper is None:
-        return records
-    mapped: List[Dict[str, Any]] = []
-    for record in records:
-        payload = record.get("payload") if isinstance(record, dict) else record
-        if not isinstance(payload, dict):
-            mapped.append(record)
-            continue
-        source_payload = _select_cdm_source_payload(unit_id, payload)
-        mapped_payload = mapper(source_payload)
-        serialized = _serialize_cdm_record(mapped_payload)
-        _attach_cdm_source_metadata(serialized, dataset_id=unit_id, endpoint_id=endpoint_id)
-        new_record = dict(record)
-        new_record["entityType"] = cdm_model_id
-        new_record["cdmModelId"] = cdm_model_id
-        new_record["payload"] = serialized
-        mapped.append(new_record)
-    return mapped
-
-
-def _resolve_jira_cdm_mapper(unit_id: str):
-    if unit_id == "jira.projects":
-        return lambda payload: jira_work_mapper.map_jira_project_to_cdm(payload)
-    if unit_id == "jira.users":
-        return lambda payload: jira_work_mapper.map_jira_user_to_cdm(payload)
-    if unit_id == "jira.issues":
-        return lambda payload: jira_work_mapper.map_jira_issue_to_cdm(payload, project_cdm_id=_extract_project_cdm(payload))
-    if unit_id == "jira.comments":
-        return lambda payload: jira_work_mapper.map_jira_comment_to_cdm(payload, item_cdm_id=_extract_item_cdm(payload))
-    if unit_id == "jira.worklogs":
-        return lambda payload: jira_work_mapper.map_jira_worklog_to_cdm(payload, item_cdm_id=_extract_item_cdm(payload))
-    return None
-
-
-def _extract_project_cdm(payload: Dict[str, Any]) -> str:
-    project = payload.get("project") or payload.get("projectKey") or payload.get("project_key")
-    if not project and isinstance(payload.get("fields"), dict):
-        project = payload["fields"].get("project")
-    key = ""
-    if isinstance(project, dict):
-        key = project.get("key") or ""
-    elif isinstance(project, str):
-        key = project
-    return f"cdm:work:project:jira:{str(key).upper()}"
-
-
-def _extract_item_cdm(payload: Dict[str, Any]) -> str:
-    issue = payload.get("issue") or payload.get("issueKey") or payload.get("issue_key")
-    key = ""
-    if isinstance(issue, dict):
-        key = issue.get("key") or ""
-    elif isinstance(issue, str):
-        key = issue
-    return f"cdm:work:item:jira:{str(key)}"
-
-
-def _select_cdm_source_payload(unit_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(payload, dict):
-        return {}
-    raw_payload = payload.get("raw")
-    if isinstance(raw_payload, dict):
-        enriched = dict(raw_payload)
-        issue_key = payload.get("issueKey")
-        if issue_key and not enriched.get("issueKey"):
-            enriched["issueKey"] = issue_key
-        if unit_id == "jira.issues":
-            fields = enriched.get("fields")
-            if not isinstance(fields, dict):
-                enriched["fields"] = payload.get("fields") or raw_payload.get("fields") or {}
-        return enriched
-    return payload
-
-
-def _resolve_confluence_cdm_model_id(unit_id: str) -> Optional[str]:
-    definition = CONFLUENCE_DATASET_DEFINITIONS.get(unit_id) or {}
-    ingestion_meta = definition.get("ingestion") or {}
-    return ingestion_meta.get("cdm_model_id")
-
-
-def _apply_confluence_cdm_mapping(unit_id: str, records: List[Dict[str, Any]], default_model_id: Optional[str]) -> List[Dict[str, Any]]:
-    if not default_model_id:
-        return records
-    mapped: List[Dict[str, Any]] = []
-    for record in records:
-        payload = record.get("payload") if isinstance(record, dict) else None
-        if not isinstance(payload, dict):
-            mapped.append(record)
-            continue
-        if unit_id == "confluence.space":
-            doc_space = confluence_docs_mapper.map_confluence_space_to_cdm(payload)
-            mapped.append(_wrap_cdm_record(record, doc_space, CDM_DOC_SPACE))
-            continue
-        if unit_id == "confluence.page":
-            space_cdm_id = _resolve_space_cdm_id(payload)
-            doc_item = confluence_docs_mapper.map_confluence_page_to_cdm(
-                payload,
-                space_cdm_id=space_cdm_id,
-                parent_item_cdm_id=None,
-            )
-            mapped.append(_wrap_cdm_record(record, doc_item, CDM_DOC_ITEM))
-            version = payload.get("version")
-            if isinstance(version, dict) and version:
-                doc_revision = confluence_docs_mapper.map_confluence_page_version_to_cdm(
-                    payload,
-                    version,
-                    item_cdm_id=doc_item.cdm_id,
-                )
-                mapped.append(_wrap_cdm_record(record, doc_revision, CDM_DOC_REVISION))
-            continue
-        if unit_id == "confluence.attachment":
-            doc_link = _map_attachment_to_link(payload)
-            if doc_link:
-                mapped.append(_wrap_cdm_record(record, doc_link, CDM_DOC_LINK))
-            else:
-                mapped.append(record)
-            continue
-        mapped.append(record)
-    return mapped
-
-
-def _attach_cdm_source_metadata(payload: Dict[str, Any], *, dataset_id: Optional[str], endpoint_id: Optional[str]) -> None:
-    properties = payload.get("properties") or {}
-    if not isinstance(properties, dict):
-        properties = {}
-    metadata_block = properties.get("_metadata") or {}
-    if not isinstance(metadata_block, dict):
-        metadata_block = {}
-    if dataset_id and "sourceDatasetId" not in metadata_block:
-        metadata_block["sourceDatasetId"] = dataset_id
-    if endpoint_id and "sourceEndpointId" not in metadata_block:
-        metadata_block["sourceEndpointId"] = endpoint_id
-    if metadata_block:
-        properties["_metadata"] = metadata_block
-    payload["properties"] = properties
-
-
-def _wrap_cdm_record(record: Dict[str, Any], cdm_obj: Any, model_id: str) -> Dict[str, Any]:
-    serialized = _serialize_cdm_record(cdm_obj)
-    new_record = dict(record)
-    new_record["entityType"] = model_id
-    new_record["cdmModelId"] = model_id
-    new_record["payload"] = serialized
-    logical_id = serialized.get("cdm_id")
-    if logical_id:
-        new_record["logicalId"] = logical_id
-    display_name = serialized.get("name") or serialized.get("title")
-    if display_name:
-        new_record["displayName"] = display_name
-    return new_record
-
-
-def _resolve_space_cdm_id(payload: Dict[str, Any]) -> str:
-    space = payload.get("space")
-    if isinstance(space, dict):
-        try:
-            mapped_space = confluence_docs_mapper.map_confluence_space_to_cdm(space)
-            return mapped_space.cdm_id
-        except Exception:
-            pass
-    space_key = payload.get("spaceKey")
-    if isinstance(space_key, str) and space_key:
-        return f"cdm:doc:space:confluence:{space_key}"
-    identifier = payload.get("spaceId") or payload.get("id")
-    return f"cdm:doc:space:confluence:{identifier or 'unknown'}"
-
-
-def _map_attachment_to_link(payload: Dict[str, Any]):
-    container = payload.get("container") or {}
-    container_id = container.get("id") or (container.get("content") or {}).get("id")
-    from_item_cdm_id = _build_confluence_item_cdm_id(container_id)
-    if not from_item_cdm_id:
-        return None
-    link_payload = {
-        "id": payload.get("id"),
-        "url": payload.get("downloadLink"),
-        "type": "attachment",
-        "linkType": payload.get("mediaType") or "attachment",
-        "title": payload.get("title"),
-        "created_at": payload.get("createdAt"),
-    }
-    return confluence_docs_mapper.map_confluence_link_to_cdm(link_payload, from_item_cdm_id=from_item_cdm_id, maybe_target_item_cdm_id=None)
-
-
-def _build_confluence_item_cdm_id(native_id: Optional[str]) -> Optional[str]:
-    if not native_id:
-        return None
-    return f"cdm:doc:item:confluence:{native_id}"
-
-
-def _serialize_cdm_record(record_obj: Any) -> Dict[str, Any]:
-    if hasattr(record_obj, "__dict__"):
-        return _to_serializable(record_obj.__dict__)
-    if hasattr(record_obj, "_asdict"):
-        return _to_serializable(record_obj._asdict())
-    if isinstance(record_obj, dict):
-        return _to_serializable(record_obj)
-    return _to_serializable(dict(record_obj))
-
-
-def _to_serializable(value: Any):
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, list):
-        return [_to_serializable(entry) for entry in value]
-    if isinstance(value, tuple):
-        return [_to_serializable(entry) for entry in value]
-    if isinstance(value, dict):
-        return {key: _to_serializable(val) for key, val in value.items()}
-    return value
 
 
 @activity.defn(name="collectCatalogSnapshots")
@@ -628,85 +343,25 @@ def _preview_dataset_sync(request: PreviewRequest) -> Dict[str, Any]:
             type="SampleDatasetPreview",
             non_retryable=True,
         )
-    payload = _decode_preview_payload(request.connectionUrl)
-    if payload:
-        return _preview_endpoint_dataset(request, payload)
-    return _preview_jdbc_dataset(request)
-
-
-def _preview_jdbc_dataset(request: PreviewRequest) -> Dict[str, Any]:
-    if not request.connectionUrl:
-        raise ValueError("connectionUrl is required for dataset preview")
-    if _looks_like_sample_connection(request.connectionUrl):
-        raise ApplicationError(
-            "Sample connection URLs do not support live preview.",
-            type="SampleDatasetPreview",
-            non_retryable=True,
-        )
-    tool = _build_sqlalchemy_tool(request.connectionUrl)
-    try:
-        schema = request.schema.strip('"')
-        table = request.table.strip('"')
-        limit = max(1, min(int(request.limit or 50), 500))
-        jdbc_cfg = _build_jdbc_config(request.connectionUrl)
-        cfg = {"jdbc": jdbc_cfg}
-        table_cfg = {
-            "schema": schema,
-            "table": table,
-            "mode": "full",
-            "query_sql": f'SELECT * FROM "{schema}"."{table}" LIMIT {limit}',
-        }
-        endpoint = EndpointFactory.build_source(cfg, table_cfg, tool)
-        rows = [to_serializable(row) for row in collect_rows(endpoint.read_full())]
-        sampled_at = datetime.now(timezone.utc).isoformat()
-        return {
-            "rows": rows,
-            "sampledAt": sampled_at,
-        }
-    finally:
-        tool.stop()
-
-
-def _preview_endpoint_dataset(request: PreviewRequest, payload: Dict[str, Any]) -> Dict[str, Any]:
-    template_id = payload.get("templateId")
+    template_id = (request.templateId or "").strip()
+    parameters = request.parameters if isinstance(request.parameters, dict) else {}
     if not template_id:
-        raise ValueError("Preview payload is missing templateId")
-    endpoint_cls = get_endpoint_class(template_id)
-    if not endpoint_cls:
-        raise ValueError(f"Unknown endpoint template '{template_id}' for preview")
-    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
-    dataset_id = payload.get("datasetId") or request.datasetId
-    table_cfg = {
-        "schema": payload.get("schema") or request.schema or "default",
-        "table": payload.get("table") or request.table or dataset_id,
-        "dataset": dataset_id,
-    }
-    endpoint = endpoint_cls(tool=None, endpoint_cfg=parameters, table_cfg=table_cfg)
-    metadata_subsystem = getattr(endpoint, "metadata_subsystem", None)
-    subsystem = metadata_subsystem() if callable(metadata_subsystem) else metadata_subsystem
-    if subsystem is None or not hasattr(subsystem, "preview_dataset"):
-        raise ValueError(f"Endpoint template '{template_id}' does not expose preview capabilities")
+        raise ApplicationError("templateId is required for preview", type="PreviewTemplateMissing", non_retryable=True)
+
+    dataset_id = request.datasetId
+    schema = request.schema or "default"
+    table = request.table or dataset_id
     limit = max(1, min(int(request.limit or 50), 200))
-    rows = subsystem.preview_dataset(dataset_id=dataset_id, limit=limit, config=parameters)
-    return {
-        "rows": rows,
-        "sampledAt": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def _decode_preview_payload(connection_url: Optional[str]) -> Optional[Dict[str, Any]]:
-    if not connection_url:
-        return None
-    trimmed = connection_url.strip()
-    if not trimmed.startswith("{"):
-        return None
-    try:
-        payload = json.loads(trimmed)
-    except json.JSONDecodeError:
-        return None
-    if isinstance(payload, dict) and payload.get("templateId"):
-        return payload
-    return None
+    result = _preview_via_endpoint(
+        template_id=template_id,
+        parameters=parameters,
+        dataset_id=dataset_id,
+        schema=schema,
+        table=table,
+        limit=limit,
+        connection_url=request.connectionUrl,
+    )
+    return result
 
 
 def _is_seed_preview_request(request: PreviewRequest) -> bool:

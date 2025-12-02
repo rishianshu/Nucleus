@@ -97,6 +97,7 @@ const KB_FACET_CACHE_TTL_MS = Number(process.env.KB_FACET_CACHE_TTL_MS ?? 15 * 6
 const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
 const DEFAULT_INGESTION_SINK = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 const INGESTION_WORKFLOW_MAX_ATTEMPTS = Math.max(1, Number(process.env.METADATA_INGESTION_MAX_RETRIES ?? "3"));
+const COLLECTION_WORKFLOW_TIMEOUT_MS = Math.max(5 * 60 * 1000, Number(process.env.METADATA_COLLECTION_WORKFLOW_TIMEOUT_MS ?? 30 * 60 * 1000));
 
 type GraphQLKbFacetValue = {
   value: string;
@@ -2610,8 +2611,21 @@ export function createResolvers(
             extensions: { code: "E_CAPABILITY_MISSING" },
           });
         }
-        const encodedPreviewPayload = buildPreviewConnectionPayload(endpoint, record.id, schema, table);
-        const connectionTarget = encodedPreviewPayload ?? endpoint.url;
+        const endpointConfig = normalizePayload(endpoint.config);
+        const rawTemplateId = endpointConfig?.templateId;
+        const templateId =
+          typeof rawTemplateId === "string" && rawTemplateId.trim().length > 0
+            ? rawTemplateId.trim()
+            : endpoint.url?.toLowerCase().startsWith("postgres")
+              ? "jdbc.postgres"
+              : null;
+        if (!templateId) {
+          throw new GraphQLError("Endpoint is missing templateId for preview", {
+            extensions: { code: "E_PREVIEW_TEMPLATE_MISSING" },
+          });
+        }
+        const parameters = normalizePayload(endpointConfig?.parameters) ?? {};
+        const connectionTarget = endpoint.url ?? null;
         const { client, taskQueue } = await resolveTemporalClient();
         return client.workflow.execute(WORKFLOW_NAMES.previewDataset, {
           taskQueue,
@@ -2622,6 +2636,8 @@ export function createResolvers(
               schema,
               table,
               limit: args.limit ?? 50,
+              templateId,
+              parameters,
               connectionUrl: connectionTarget,
             },
           ],
@@ -3958,6 +3974,7 @@ async function triggerCollectionForEndpoint(
     taskQueue,
     workflowId,
     args: [{ runId: run.id, endpointId: endpoint.id, collectionId: collectionRecord.id }],
+    workflowExecutionTimeout: COLLECTION_WORKFLOW_TIMEOUT_MS,
   });
   await prisma.metadataCollectionRun.update({
     where: { id: run.id },
@@ -5328,10 +5345,42 @@ async function ensureCollectionIsEnabled(collection: PrismaCollectionWithEndpoin
 async function ensureCollectionIdle(prisma: PrismaClientInstance, collectionId: string) {
   const activeRun = await prisma.metadataCollectionRun.findFirst({
     where: { collectionId, status: "RUNNING" },
+    orderBy: { createdAt: "desc" },
   });
   if (activeRun) {
+    const workflowId = activeRun.workflowId;
+    if (workflowId) {
+      try {
+        const { client } = await getTemporalClient();
+        const handle = client.workflow.getHandle(workflowId);
+        const desc = await handle.describe();
+        const statusName = (desc.status && typeof desc.status === "object" && "name" in desc.status
+          ? (desc.status as { name?: string }).name
+          : undefined) || String(desc.status ?? "");
+        const normalizedStatus = statusName.toUpperCase();
+        if (normalizedStatus !== "RUNNING") {
+          await prisma.metadataCollectionRun.update({
+            where: { id: activeRun.id },
+            data: { status: "FAILED", error: `Temporal workflow not active (${normalizedStatus || "UNKNOWN"})`, completedAt: new Date() },
+          });
+          return;
+        }
+      } catch (error) {
+        await prisma.metadataCollectionRun.update({
+          where: { id: activeRun.id },
+          data: { status: "FAILED", error: "Temporal workflow not found; clearing stale run", completedAt: new Date() },
+        });
+        return;
+      }
+    } else {
+      await prisma.metadataCollectionRun.update({
+        where: { id: activeRun.id },
+        data: { status: "FAILED", error: "Stale run without workflowId", completedAt: new Date() },
+      });
+      return;
+    }
     throw new GraphQLError("Collection already has an active run.", {
-      extensions: { code: "E_COLLECTION_IN_PROGRESS", runId: activeRun.id },
+      extensions: { code: "E_COLLECTION_IN_PROGRESS", runId: activeRun.id, workflowId },
     });
   }
 }

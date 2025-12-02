@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..tools.base import ExecutionTool, QueryRequest
@@ -16,13 +17,15 @@ from .base import (
     EndpointProbingPlan,
     EndpointTestResult,
     SourceEndpoint,
+    SupportsPreview,
     SupportsQueryExecution,
+    MetadataCapableEndpoint,
 )
 from runtime_common.query.plan import QueryPlan, QueryResult, SelectItem
 from runtime_core import MetadataTarget
 
 
-class JdbcEndpoint(SourceEndpoint, SupportsQueryExecution):
+class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPreview):
     """Generic JDBC endpoint with dialect-specific subclasses."""
 
     DIALECT = "generic"
@@ -90,6 +93,7 @@ class JdbcEndpoint(SourceEndpoint, SupportsQueryExecution):
             supports_full=True,
             supports_incremental=bool(self.incremental_column),
             supports_count_probe=True,
+            supports_preview=True,
             incremental_literal=(table_cfg.get("incr_col_type") or "timestamp").lower(),
             default_fetchsize=int(jdbc_cfg.get("fetchsize", 10000)),
         )
@@ -233,6 +237,7 @@ class JdbcEndpoint(SourceEndpoint, SupportsQueryExecution):
             EndpointCapabilityDescriptor(key="tables", label="Tables & views", description="Discovers table/view names, owners, storage stats."),
             EndpointCapabilityDescriptor(key="columns", label="Column metadata", description="Data types, nullability, default expressions."),
             EndpointCapabilityDescriptor(key="dependencies", label="Foreign keys", description="Extracts FK relationships for lineage overlays."),
+            EndpointCapabilityDescriptor(key="preview", label="Live preview", description="Supports sampling queries via read-only sessions."),
         )
 
     @classmethod
@@ -336,7 +341,16 @@ class JdbcEndpoint(SourceEndpoint, SupportsQueryExecution):
         query = self.table_cfg.get("query_sql")
         if query and query.strip():
             return f"({query}) q"
-        return f"{self.schema}.{self.table}"
+        return f"{self._quote_ident(self.schema)}.{self._quote_ident(self.table)}"
+
+    def _quote_ident(self, ident: Optional[str]) -> str:
+        if ident is None:
+            return ""
+        # Safe unquoted if purely lowercase alnum + underscore starting with letter/underscore
+        if re.fullmatch(r"[a-z_][a-z0-9_]*", ident):
+            return ident
+        escaped = ident.replace('"', '""')
+        return f'"{escaped}"'
 
     def _count_query(self, lower: str, upper: Optional[str]) -> str:
         col = self.incremental_column
@@ -496,3 +510,29 @@ class JdbcEndpoint(SourceEndpoint, SupportsQueryExecution):
 
     def _literal(self, value: str) -> str:
         return f"'{value}'"
+
+    # --- Preview support -------------------------------------------------------
+    def preview(
+        self,
+        *,
+        unit_id: Optional[str] = None,
+        limit: int = 50,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        plan_filters = list(self._source_filters())
+        extra_filters = []
+        if isinstance(filters, dict):
+            custom = filters.get("where") or filters.get("filter")
+            if isinstance(custom, str) and custom.strip():
+                extra_filters.append(custom.strip())
+            if isinstance(filters.get("predicates"), (list, tuple)):
+                extra_filters.extend(str(f).strip() for f in filters["predicates"] if str(f).strip())
+        plan_filters.extend(extra_filters)
+        plan = QueryPlan(
+            selects=(SelectItem(expression="*"),),
+            source=self.base_from_sql,
+            filters=tuple(plan_filters),
+            limit=max(1, min(int(limit), 500)),
+        )
+        result = self.execute_query_plan(plan)
+        return result.to_dicts()
