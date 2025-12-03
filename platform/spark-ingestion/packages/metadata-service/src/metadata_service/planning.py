@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
-from runtime_common.endpoints.base import MetadataCapableEndpoint
-from runtime_common.endpoints.jdbc import JdbcEndpoint
-from runtime_common.endpoints.registry import build_endpoint, get_endpoint_class
-from runtime_common.tools.sqlalchemy import SQLAlchemyTool
-
+from endpoint_service.endpoints.jdbc import JdbcEndpoint
+from endpoint_service.tools.sqlalchemy import SQLAlchemyTool
+from ingestion_models.endpoints import MetadataCapableEndpoint  # type: ignore[unused-import]
+from metadata_service.endpoints.registry import build_endpoint, get_endpoint_class
 from metadata_service.models import MetadataConfigValidationResult, MetadataPlanningResult
 
 
@@ -41,7 +40,7 @@ def plan_metadata_jobs(request: Any, logger) -> MetadataPlanningResult:
         return MetadataPlanningResult(jobs=[])
 
     endpoint, cleanup_callback = _instantiate_endpoint(template_id, endpoint_cls, parameters, logger, request)
-    if endpoint is None or not isinstance(endpoint, MetadataCapableEndpoint):
+    if endpoint is None:
         logger.info(
             event="metadata_planning_unsupported",
             endpoint=getattr(request, "endpointId", None),
@@ -157,7 +156,11 @@ def _instantiate_endpoint(
             if issubclass(endpoint_cls, JdbcEndpoint)
             else parameters
         )
-        return build_endpoint(template_id, tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg), cleanup
+        if issubclass(endpoint_cls, JdbcEndpoint):
+            endpoint = endpoint_cls(tool, endpoint_cfg, table_cfg)
+        else:
+            endpoint = endpoint_cls(tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
+        return endpoint, cleanup
     except Exception as exc:
         logger.error(
             event="metadata_planning_endpoint_init_failed",

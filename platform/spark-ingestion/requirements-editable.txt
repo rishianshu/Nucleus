@@ -1,8 +1,4 @@
 --editable ./packages/core
---editable ./packages/metadata-gateway
 --editable ./packages/metadata-service
---editable ./packages/metadata-sdk
 --editable ./packages/runtime-common
 --editable ./packages/ingestion-runtime
---editable ./packages/recon-runtime
---editable ./packages/runtime-orchestration

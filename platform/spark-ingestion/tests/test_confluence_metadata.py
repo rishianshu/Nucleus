@@ -6,7 +6,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
 sys.path.insert(0, str(PACKAGES / "metadata-service" / "src"))
 sys.path.insert(0, str(PACKAGES / "runtime-common" / "src"))
-sys.path.insert(0, str(PACKAGES / "metadata-gateway" / "src"))
 
 import pytest
 
@@ -15,10 +14,11 @@ for module_name in list(sys.modules):
     if module_name.startswith("metadata_service"):
         sys.modules.pop(module_name)
 
-import metadata_service.adapters.confluence as confluence_adapter
-from metadata_service.adapters.confluence import ConfluenceMetadataSubsystem
-from runtime_common.endpoints.confluence_http import ConfluenceEndpoint
-from runtime_common.endpoints import confluence_http as confluence_runtime_module
+import endpoint_service.endpoints.confluence.metadata as confluence_adapter
+from endpoint_service.endpoints.confluence.metadata import ConfluenceMetadataSubsystem
+from endpoint_service.endpoints.confluence_http import ConfluenceEndpoint
+from endpoint_service.endpoints import confluence_http as confluence_runtime_module
+from ingestion_models.metadata import MetadataContext, MetadataRequest, MetadataTarget
 
 
 class StubRuntime:
@@ -99,7 +99,14 @@ def test_confluence_probe_and_snapshot(stub_runtime):
     assert isinstance(subsystem, ConfluenceMetadataSubsystem)
     environment = subsystem.probe_environment(config={})
     assert environment["authenticated_user"]["displayName"] == "Alice"
-    snapshot = subsystem.collect_snapshot(config={"dataset": "confluence.space"}, environment=environment)
+    request = MetadataRequest(
+        target=MetadataTarget(source_id="src", namespace="confluence", entity="space"),
+        artifact={"dataset": {"entity": "confluence.space"}},
+        context=MetadataContext(source_id="src"),
+        refresh=True,
+        config={"dataset": "confluence.space"},
+    )
+    snapshot = subsystem.collect_snapshot(request=request, environment=environment)
     assert snapshot.dataset.name == "Confluence Spaces"
     assert snapshot.schema_fields[0].name == "spaceKey"
 

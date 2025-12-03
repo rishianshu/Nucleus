@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+src/ingestion_models/__init__.py
+src/ingestion_models/endpoints.py
+src/ingestion_models/metadata.py
+src/ingestion_models/requests.py
+src/ingestion_models/schema.py
+src/ingestion_models.egg-info/PKG-INFO
+src/ingestion_models.egg-info/SOURCES.txt
+src/ingestion_models.egg-info/dependency_links.txt
+src/ingestion_models.egg-info/top_level.txt
+src/ingestion_models/cdm/__init__.py
+src/ingestion_models/cdm/docs.py
+src/ingestion_models/cdm/work.py
+tests/test_cdm_docs.py
+tests/test_cdm_work.py

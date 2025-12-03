@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
-from runtime_core import MetadataRepository, MetadataTarget
+from ingestion_models.metadata import MetadataRepository, MetadataTarget
 
 
 @dataclass

@@ -16,7 +16,7 @@ RUNTIME_COMMON_SRC = SPARK_ROOT / "packages" / "runtime-common" / "src"
 if str(RUNTIME_COMMON_SRC) not in sys.path:
     sys.path.insert(0, str(RUNTIME_COMMON_SRC))
 
-from runtime_common.tools.sqlalchemy import SQLAlchemyTool  # type: ignore  # noqa: E402
+from endpoint_service.tools.sqlalchemy import SQLAlchemyTool  # type: ignore  # noqa: E402
 
 
 def main() -> None:

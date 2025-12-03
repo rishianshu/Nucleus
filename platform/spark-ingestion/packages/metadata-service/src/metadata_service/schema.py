@@ -1,6 +1,6 @@
-"""Backward-compatible shim exposing schema helpers from metadata_sdk."""
+"""Backward-compatible shim exposing schema helpers via ingestion_models."""
 
-from metadata_sdk.schema import (
+from ingestion_models.schema import (
     SchemaDriftPolicy,
     SchemaDriftResult,
     SchemaDriftValidator,

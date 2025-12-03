@@ -1,10 +1,7 @@
 from __future__ import annotations
-from ingestion_runtime.ingestion.runtime import (
-    _maybe_emit_ingestion_metrics,
-    _maybe_emit_ingestion_runtime,
-)
-from ingestion_runtime.strategies import ExecutionContext
-from runtime_common.events.types import EventCategory, EventType
+from metadata_service.ingestion.strategies import ExecutionContext
+from metadata_service.ingestion.runtime import _maybe_emit_ingestion_metrics, _maybe_emit_metadata
+from endpoint_service.events.types import EventCategory, EventType
 
 
 class _StubCacheCfg:
@@ -72,10 +69,10 @@ def test_ingestion_metrics_emitted_when_flag_enabled() -> None:
     assert metric_payload["mode"] == "full"
 
 
-def test_ingestion_runtime_emitted_for_failure() -> None:
-    context, emitter = _make_context({"ingestion_runtime": True})
+def test_metadata_emitted_for_failure() -> None:
+    context, emitter = _make_context({"metadata": True})
 
-    _maybe_emit_ingestion_runtime(
+    _maybe_emit_metadata(
         context=context,
         schema="foo",
         table="bar",
@@ -91,7 +88,7 @@ def test_ingestion_runtime_emitted_for_failure() -> None:
     assert event.category == EventCategory.METADATA
     assert event.type == EventType.METADATA_METRIC
     record = event.payload["record"]
-    assert record.kind == "ingestion_runtime"
+    assert record.kind == "metadata"
     assert record.payload["status"] == "failure"
     metric_payload = event.payload["metric_payload"]
     assert metric_payload["status"] == "failure"

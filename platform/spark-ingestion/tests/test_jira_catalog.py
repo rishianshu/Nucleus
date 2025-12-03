@@ -7,8 +7,8 @@ RUNTIME_CORE_SRC = ROOT / "packages" / "core" / "src"
 sys.path.insert(0, str(RUNTIME_COMMON_SRC))
 sys.path.insert(0, str(RUNTIME_CORE_SRC))
 
-from runtime_common.endpoints.jira_catalog import JIRA_DATASET_DEFINITIONS
-from runtime_common.endpoints.jira_http import JIRA_INGESTION_HANDLERS
+from endpoint_service.endpoints.jira_catalog import JIRA_DATASET_DEFINITIONS
+from endpoint_service.endpoints.jira_http import JIRA_INGESTION_HANDLERS
 
 
 def test_all_catalog_units_have_handlers():

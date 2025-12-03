@@ -8,10 +8,9 @@ Modular ingestion pipeline that runs on Apache Spark and supports both JDBC sour
 ingestion.py                    # Entry point for spark-submit / pyspark
 run_recon.py                    # Reconciliation CLI shim
 packages/
-  runtime-common/               # Shared connectors, logging, events, state helpers
+  runtime-common/               # Shared connectors, logging, events, state helpers (aliased as endpoint_service)
   ingestion-runtime/            # Ingestion-specific orchestration, planning, strategies
-  recon-runtime/                # Reconciliation CLI, checks, context helpers
-  metadata-service/             # Metadata collectors + SDK wiring
+  metadata-service/             # Metadata collectors + runtime helpers
 conf/                           # Example configuration files
 db/                             # DDL definitions and migrations for state stores
 docs/                           # Reference documentation (orchestration, metadata, features)
@@ -103,8 +102,8 @@ The flattened file preserves module separators as comments. It is intended for q
 
 ## Development Notes
 
-- Endpoints encapsulate source/sink semantics, while execution tools only know how to talk to the underlying system (Spark today, others later). Both live under `runtime-common`.
-- All monitoring flows through the shared event emitter (`runtime_common/events`), making it easy to add new subscribers (state store, structured logs, adaptive planners, etc.).
+- Endpoints encapsulate source/sink semantics, while execution tools only know how to talk to the underlying system (Spark today, others later). Both live under `runtime-common` (importable as `endpoint_service`).
+- All monitoring flows through the shared event emitter (`endpoint_service.events`), making it easy to add new subscribers (state store, structured logs, adaptive planners, etc.).
 - Metadata related to profiling or catalogues will be emitted separately and persisted via a lightweight SQLite repository (coming soon).
 - Orchestration guidance lives in `docs/orchestration/README.md`. Use `python ingestion.py --dump-orchestration-plan --config <cfg>` to preview cron, external scheduler, or Temporal deployment templates.
 - Iceberg incremental runs now target a single Hive-backed catalog (`runtime.intermediate.catalog_type: "hive"`), so Hive/Impala see schema updates automatically.

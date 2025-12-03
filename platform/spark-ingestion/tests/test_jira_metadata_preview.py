@@ -10,15 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
 sys.path.insert(0, str(PACKAGES / "metadata-service" / "src"))
 sys.path.insert(0, str(PACKAGES / "runtime-common" / "src"))
-sys.path.insert(0, str(PACKAGES / "metadata-gateway" / "src"))
 
 # Ensure local metadata_service module is used in tests.
 for module_name in list(sys.modules):
     if module_name.startswith("metadata_service"):
         sys.modules.pop(module_name)
 
-import metadata_service.adapters.jira as jira_adapter
-from metadata_service.adapters.jira import JiraMetadataSubsystem
+import endpoint_service.endpoints.jira.metadata as jira_adapter
+from endpoint_service.endpoints.jira.metadata import JiraMetadataSubsystem
 
 
 class StubJiraRuntime:

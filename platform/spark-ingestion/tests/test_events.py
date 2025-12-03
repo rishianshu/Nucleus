@@ -2,7 +2,7 @@
 
 import unittest
 
-from runtime_common.events import Emitter, Event, EventCategory, EventType, StateEventSubscriber
+from endpoint_service.events import Emitter, Event, EventCategory, EventType, StateEventSubscriber
 
 
 class DummyState:

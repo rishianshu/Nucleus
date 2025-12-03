@@ -9,8 +9,8 @@ import textwrap
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PACKAGE_ROOT = PROJECT_ROOT / "ingestion_runtime"
-DEFAULT_OUTPUT = PROJECT_ROOT / "dist" / "ingestion_runtime_flattened.py"
+PACKAGE_ROOT = PROJECT_ROOT / "metadata_service.ingestion"
+DEFAULT_OUTPUT = PROJECT_ROOT / "dist" / "metadata_service.ingestion_flattened.py"
 
 
 def _module_name(path: Path) -> str:
@@ -29,7 +29,7 @@ def _iter_python_files() -> list[Path]:
         pkg_files.append(path)
     # Load packages before modules to satisfy dependencies
     pkg_files.sort(key=lambda p: (_module_name(p).count("."), _module_name(p)))
-    pkg_files.append(PROJECT_ROOT / "ingestion.py")
+    pkg_files.append(PROJECT_ROOT / "packages" / "metadata-service" / "src" / "metadata_service")
     return pkg_files
 
 

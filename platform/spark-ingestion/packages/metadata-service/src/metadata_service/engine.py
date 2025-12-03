@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Mapping, Optional, TYPE_CHECKING
 
 from metadata_service.cache import MetadataCacheManager
-from runtime_core import (
+from ingestion_models.metadata import (
     MetadataContext,
     MetadataProducer,
     MetadataRecord,
@@ -15,10 +15,7 @@ from runtime_core import (
 from metadata_service.utils import to_serializable
 
 if TYPE_CHECKING:  # pragma: no cover
-    from metadata_gateway import MetadataGateway
-
-if TYPE_CHECKING:  # pragma: no cover
-    from runtime_common.endpoints.base import MetadataCapableEndpoint
+    from ingestion_models.endpoints import MetadataCapableEndpoint
 
 
 @dataclass
@@ -117,7 +114,7 @@ class MetadataProducerRunner:
         subsystem = endpoint.metadata_subsystem()
         if isinstance(subsystem, MetadataProducer):
             return subsystem
-        return _EndpointProducerAdapter(endpoint, subsystem)
+        return None
 
     def _safe_capabilities(self, producer: MetadataProducer) -> Optional[Mapping[str, Any]]:
         try:
@@ -230,122 +227,3 @@ class MetadataProducerRunner:
         else:
             self.cache.persist(record.target, payload_dict)
         return True
-
-
-class _EndpointProducerAdapter(MetadataProducer):
-    """Adapter that exposes legacy metadata subsystems as MetadataProducer instances."""
-
-    def __init__(self, endpoint: "MetadataCapableEndpoint", subsystem: Any) -> None:
-        self.endpoint = endpoint
-        self.subsystem = subsystem
-        desc = self.endpoint.describe()
-        dialect = desc.get("dialect") or getattr(self.endpoint, "DIALECT", None) or "unknown"
-        schema = desc.get("schema") or getattr(self.endpoint, "schema", None) or "default"
-        table = desc.get("table") or getattr(self.endpoint, "table", None) or "unknown"
-        self._producer_id = f"{dialect}:{schema}.{table}"
-
-    @property
-    def producer_id(self) -> str:
-        return self._producer_id
-
-    def capabilities(self) -> Mapping[str, Any]:
-        try:
-            caps = self.subsystem.capabilities()
-            if isinstance(caps, Mapping):
-                return caps
-        except Exception:  # pragma: no cover - defensive
-            pass
-        return {}
-
-    def supports(self, request: MetadataRequest) -> bool:
-        def _normalize_namespace(value: Any) -> str:
-            return str(value or "").strip().lower()
-
-        def _normalize_entity(value: Any) -> str:
-            normalized = str(value or "").strip().lower().replace(".", "_")
-            return normalized
-
-        desc = self.endpoint.describe() if hasattr(self.endpoint, "describe") else {}
-        table_cfg = getattr(self.endpoint, "table_cfg", {}) or {}
-        artifact_cfg = getattr(request, "artifact", {}) or {}
-
-        schema_candidates = [
-            desc.get("schema"),
-            getattr(self.endpoint, "schema", None),
-            table_cfg.get("schema"),
-            artifact_cfg.get("schema"),
-            artifact_cfg.get("namespace"),
-        ]
-        normalized_schemas: set[str] = set()
-        for candidate in schema_candidates:
-            normalized = _normalize_namespace(candidate)
-            if normalized:
-                normalized_schemas.add(normalized)
-
-        table_candidates = [
-            desc.get("table"),
-            getattr(self.endpoint, "table", None),
-            table_cfg.get("table"),
-            table_cfg.get("dataset"),
-            artifact_cfg.get("table"),
-            artifact_cfg.get("dataset"),
-            artifact_cfg.get("entity"),
-        ]
-        normalized_tables: set[str] = set()
-        for candidate in table_candidates:
-            normalized = _normalize_entity(candidate)
-            if normalized:
-                normalized_tables.add(normalized)
-
-        target_schema = _normalize_namespace(request.target.namespace)
-        target_entity = _normalize_entity(request.target.entity)
-
-        schema_matches = True
-        if normalized_schemas:
-            schema_matches = target_schema in normalized_schemas
-
-        return schema_matches and target_entity in normalized_tables
-
-    def produce(self, request: MetadataRequest) -> Iterable[MetadataRecord]:
-        config = dict(request.config or {})
-        artifact = dict(request.artifact)
-        probe_error: Optional[str] = None
-        try:
-            environment = self.subsystem.probe_environment(config=config)
-        except Exception as exc:
-            probe_error = str(exc)
-            environment = {}
-        snapshot = self.subsystem.collect_snapshot(config=config, environment=dict(environment or {}))
-        snapshot_dict = to_serializable(snapshot)
-        endpoint_desc = self.endpoint.describe()
-        snapshot_dict.setdefault("environment", environment)
-        snapshot_dict.update(
-            {
-                "schema": snapshot_dict.get("schema", request.target.namespace),
-                "name": snapshot_dict.get("name", request.target.entity),
-                "namespace": request.target.namespace,
-                "entity": request.target.entity,
-                "endpoint": endpoint_desc,
-                "quality_flags": artifact.get("quality_flags", {}),
-                "artifact_config": artifact,
-                "metadata_config": config,
-            }
-        )
-        produced_at = datetime.now(timezone.utc)
-        extras: Dict[str, Any] = {
-            "environment": environment,
-            "refresh_requested": request.refresh,
-        }
-        if probe_error:
-            extras["environment_probe_error"] = probe_error
-        record = MetadataRecord(
-            target=request.target,
-            kind="catalog_snapshot",
-            payload=snapshot_dict,
-            produced_at=produced_at,
-            producer_id=self.producer_id,
-            version=None,
-            quality={},
-            extras=extras,
-        )
-        return [record]

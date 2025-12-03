@@ -1,5 +1,5 @@
 [project]
-name = "runtime-core"
+name = "ingestion-models"
 version = "0.0.1"
 description = "Shared primitives for the ingestion runtimes"
 requires-python = ">=3.9"

@@ -14,7 +14,7 @@ def reload_package(pkg_name: str):
         importlib.reload(sys.modules[name])
 
 reload_package("ingestion")
-reload_package("ingestion_runtime")
+reload_package("metadata_service.ingestion")
 ingestion.run_cli(["--config", "/home/informaticaadmin/rishikesh/sparkingestion/conf/brm.json"])
 
 import ingestion

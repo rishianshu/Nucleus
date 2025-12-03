@@ -7,9 +7,9 @@ from typing import Any, Dict, Optional
 
 from pyspark.sql import SparkSession
 
-from runtime_core import MetadataTarget
+from ingestion_models.metadata import MetadataTarget
 from metadata_service.utils import to_serializable
-from runtime_common.storage.filesystem import Filesystem
+from endpoint_service.storage.filesystem import Filesystem
 
 
 @dataclass

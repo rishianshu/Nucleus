@@ -39,9 +39,10 @@ Interaction Interfaces
 - `MetadataQuery` provides a structured way for consumers to look up metadata without relying on repository internals; it supports filtering by target, kind, history depth, and arbitrary filters.
 - Ingestion and reconciliation adopt the same producer/repository interfaces, emitting `ingestion_volume`, `ingestion_runtime`, and `recon_result` records into the shared store outlined in `docs/metadata-platform.md`.
 - The metadata collection service now routes producer output through the shared
-  metadata gateway before persisting, keeping caches and downstream consumers in
-  sync. External producers can depend on the lightweight `metadata-sdk` package
-  to publish additional records using the same CDM-style models.
+  metadata-service using the common `ingestion_models` + `endpoint_service`
+  interfaces before persisting, keeping caches and downstream consumers in
+  sync. External producers can reuse the same shared models/helpers without a
+  separate SDK.
 
 Consumer Access Patterns
 - Metadata consumer SDK exposes `MetadataRepository` implementations (JSON cache today, pluggable DB later) along with scenario-specific helpers.

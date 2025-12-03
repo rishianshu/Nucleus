@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_COMMON_SRC = ROOT / "packages" / "runtime-common" / "src"
 sys.path.insert(0, str(RUNTIME_COMMON_SRC))
 
-from runtime_common.endpoints.confluence_http import ConfluenceEndpoint
+from endpoint_service.endpoints.confluence_http import ConfluenceEndpoint
 
 
 def test_confluence_descriptor_fields():

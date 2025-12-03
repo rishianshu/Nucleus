@@ -45,7 +45,12 @@ type PythonMetadataActivities = {
     table: string;
     limit?: number;
     connectionUrl: string;
-  }): Promise<{ rows: unknown[]; sampledAt: string }>;
+    templateId: string;
+    parameters: Record<string, unknown>;
+    endpointId: string;
+    unitId: string;
+  }): Promise<{ rows: unknown[]; sampledAt: string; recordsPath?: string | null; stagingProviderId?: string | null }>;
+  planIngestionUnit(input: PythonIngestionRequest): Promise<{ slices?: Array<Record<string, unknown>>; plan_metadata?: Record<string, unknown> }>;
   runIngestionUnit(input: PythonIngestionRequest): Promise<PythonIngestionResult>;
 };
 
@@ -70,6 +75,8 @@ type PythonIngestionRequest = {
   filter?: Record<string, unknown> | null;
   transientState?: Record<string, unknown> | null;
   transientStateVersion?: string | null;
+  slice?: Record<string, unknown> | null;
+  slice_index?: number | null;
 };
 
 type PythonIngestionResult = {
@@ -185,6 +192,8 @@ export async function testEndpointConnectionWorkflow(input: { templateId: string
 
 export async function previewDatasetWorkflow(input: {
   datasetId: string;
+  endpointId: string;
+  unitId: string;
   schema: string;
   table: string;
   limit?: number;
@@ -196,7 +205,7 @@ export async function previewDatasetWorkflow(input: {
     ...input,
     connectionUrl: input.connectionUrl ?? "",
   };
-  return pythonActivities.previewDataset.executeWithOptions(
+  const preview = await pythonActivities.previewDataset.executeWithOptions(
     {
       taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
       scheduleToCloseTimeout: "5 minutes",
@@ -207,6 +216,14 @@ export async function previewDatasetWorkflow(input: {
     },
     [normalizedInput],
   );
+  if (preview.recordsPath) {
+    const rows = await loadStagedRecordsActivity({
+      path: preview.recordsPath,
+      stagingProviderId: preview.stagingProviderId ?? null,
+    });
+    return { rows, sampledAt: preview.sampledAt };
+  }
+  return preview;
 }
 
 type IngestionWorkflowInput = {
@@ -231,13 +248,13 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       policyKeys: context.policy ? Object.keys(context.policy) : [],
       hasParameters: Boolean(context.policy && (context.policy as Record<string, unknown>).parameters),
     });
-    const ingestionResult = await pythonActivities.runIngestionUnit({
-      endpointId: input.endpointId,
-      unitId: input.unitId,
-      sinkId: context.sinkId ?? null,
-      checkpoint: context.checkpoint,
-      stagingProviderId: context.stagingProviderId ?? null,
-      policy: context.policy ?? null,
+  const baseRequest: PythonIngestionRequest = {
+    endpointId: input.endpointId,
+    unitId: input.unitId,
+    sinkId: context.sinkId ?? null,
+    checkpoint: context.policy?.reset || context.policy?.resetCheckpoint ? null : context.checkpoint,
+    stagingProviderId: context.stagingProviderId ?? null,
+    policy: context.policy ?? null,
       mode: context.mode ?? null,
       dataMode: context.dataMode ?? null,
       sinkEndpointId: context.sinkEndpointId ?? null,
@@ -245,7 +262,56 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       filter: context.filter ?? null,
       transientState: context.transientState ?? null,
       transientStateVersion: context.transientStateVersion ?? null,
-    });
+    };
+
+  const plan = await pythonActivities.planIngestionUnit(baseRequest);
+  const slices = Array.isArray(plan.slices) ? plan.slices : [];
+  const sliceResults: PythonIngestionResult[] = [];
+
+  if (slices.length > 0) {
+    const maxParallel = Math.max(
+      1,
+      Number(
+        (baseRequest.policy as Record<string, unknown> | null | undefined)?.maxParallelSlices ??
+          (baseRequest.policy as Record<string, unknown> | null | undefined)?.max_parallel_slices ??
+          1,
+      ),
+    );
+    const requests = slices.map((slice, idx) => ({
+      ...baseRequest,
+      policy: { ...(baseRequest.policy ?? {}), slice, slice_index: idx },
+    }));
+    // Run slices in bounded parallel batches
+    for (let i = 0; i < requests.length; i += maxParallel) {
+      const batch = requests.slice(i, i + maxParallel);
+      const results = await Promise.all(
+        batch.map((req) =>
+          pythonActivities.runIngestionUnit(req).catch((err) => {
+            throw ApplicationFailure.fromError(err as Error);
+          }),
+        ),
+      );
+      sliceResults.push(...results);
+    }
+  }
+
+  const ingestionResult: PythonIngestionResult =
+    sliceResults.length > 0
+      ? {
+          newCheckpoint: sliceResults.find((r) => r?.newCheckpoint !== undefined)?.newCheckpoint ?? null,
+          stats: {
+            planMetadata: plan.plan_metadata ?? {},
+            slices: sliceResults.map((r, idx) => ({
+              ...(r.stats ?? {}),
+              sliceIndex: idx,
+            })),
+          },
+          records: sliceResults.flatMap((r) => r.records || []),
+          transientState: sliceResults.find((r) => r?.transientState)?.transientState ?? null,
+          stagingPath: sliceResults.find((r) => r?.stagingPath)?.stagingPath ?? null,
+          stagingProviderId: sliceResults.find((r) => r?.stagingProviderId)?.stagingProviderId ?? null,
+        }
+      : await pythonActivities.runIngestionUnit(baseRequest);
     let stagedRecords: any[] = [];
     if (ingestionResult.stagingPath) {
       stagedRecords = await loadStagedRecordsActivity({

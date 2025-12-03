@@ -57,18 +57,18 @@ sys.modules.setdefault("pyspark.sql.functions", functions)
 sys.modules.setdefault("pyspark.sql.types", types_module)
 sys.modules.setdefault("pyspark.sql.window", window_module)
 
-from runtime_common.common import PrintLogger
-from runtime_common.endpoints.base import (
+from endpoint_service.common import PrintLogger
+from endpoint_service.endpoints.base import (
     EndpointCapabilities,
     SinkEndpoint,
     SinkFinalizeResult,
     SinkWriteResult,
     SourceEndpoint,
 )
-from runtime_common.planning.adaptive import AdaptivePlanner
-from runtime_common.planning.base import PlannerRequest
-from ingestion_runtime.strategies import ExecutionContext, FullRefreshStrategy
-from runtime_common.tools.base import ExecutionTool
+from endpoint_service.planning.adaptive import AdaptivePlanner
+from endpoint_service.planning.base import PlannerRequest
+from metadata_service.ingestion.strategies import ExecutionContext, FullRefreshStrategy
+from endpoint_service.tools.base import ExecutionTool
 
 
 class MockDataFrame:
@@ -183,7 +183,7 @@ class FullStrategyTest(unittest.TestCase):
         cfg = {"runtime": {"raw_root": "/tmp/raw", "final_root": "/tmp/final"}}
         request = PlannerRequest(schema="demo", table="orders", load_date="2024-01-01", mode="full")
 
-        with patch("ingestion_runtime.strategies.with_ingest_cols", lambda df: df):
+        with patch("metadata_service.ingestion.strategies.with_ingest_cols", lambda df: df):
             result = FullRefreshStrategy().run(context, cfg, state, logger, source, sink, planner, request)
 
         self.assertTrue(sink.finalized)
@@ -207,7 +207,7 @@ class FullStrategyTest(unittest.TestCase):
         cfg = {"runtime": {"raw_root": "/tmp/raw", "final_root": "/tmp/final"}}
         request = PlannerRequest(schema="demo", table="orders", load_date="2024-01-01", mode="full")
 
-        with patch("ingestion_runtime.strategies.with_ingest_cols", lambda df: df):
+        with patch("metadata_service.ingestion.strategies.with_ingest_cols", lambda df: df):
             result = FullRefreshStrategy().run(context, cfg, state, logger, source, sink, planner, request)
 
         self.assertEqual(sink.writes, [])

@@ -6,6 +6,8 @@ Author: Ingestion Platform Team
 License: MIT
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: psycopg2-binary>=2.9.0
 
 # runtime-common
 

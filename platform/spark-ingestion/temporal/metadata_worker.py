@@ -23,7 +23,6 @@ PACKAGE_ROOTS = [
     PACKAGES_DIR / "runtime-common" / "src",
     PACKAGES_DIR / "core" / "src",
     PACKAGES_DIR / "metadata-service" / "src",
-    PACKAGES_DIR / "metadata-gateway" / "src",
     TEMPORAL_DIR,
 ]
 
@@ -41,7 +40,7 @@ for root in PACKAGE_ROOTS:
     _prepend_path(root)
 
 # ensure modules are reloaded from repo
-for module_name in ["runtime_common", "runtime_core", "metadata_service", "metadata_gateway"]:
+for module_name in ["endpoint_service", "ingestion_models", "metadata_service"]:
     if module_name in sys.modules:
         del sys.modules[module_name]
 
@@ -52,8 +51,9 @@ from metadata_service.cache.manager import MetadataCacheConfig, MetadataCacheMan
 from metadata_service.collector import MetadataCollectionService, MetadataServiceConfig
 from metadata_service.planning import plan_metadata_jobs
 from metadata_service.repository import CacheMetadataRepository
+from metadata_service.ingestion.planner import plan_ingestion
+from metadata_service.endpoints.registry import get_endpoint_class
 from ingestion import run_ingestion_unit as _run_ingestion_unit
-from preview import preview_dataset as _preview_via_endpoint
 from staging import stage_records
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
@@ -61,71 +61,14 @@ if ROOT not in Path(_metadata_service_file).resolve().parents:
         f"metadata_service resolved to {_metadata_service_file}, expected under {ROOT}."
     )
 
-@dataclass
-class CollectionJobRequest:
-    runId: str
-    endpointId: str
-    sourceId: str
-    endpointName: str
-    connectionUrl: str
-    schemas: List[str]
-    projectId: Optional[str] = None
-    labels: Optional[List[str]] = None
-    config: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class CatalogRecordOutput:
-    id: str
-    projectId: Optional[str]
-    domain: str
-    labels: List[str]
-    payload: Dict[str, Any]
-
-
-@dataclass
-class CollectionJobResult:
-    recordsPath: Optional[str]
-    recordCount: int
-    logs: List[Dict[str, Any]]
-
-
-@dataclass
-class PreviewRequest:
-    datasetId: str
-    schema: str
-    table: str
-    templateId: str
-    parameters: Dict[str, Any]
-    connectionUrl: Optional[str] = None
-    limit: Optional[int] = 50
-
-
-@dataclass
-class IngestionUnitRequest:
-    endpointId: str
-    unitId: str
-    sinkId: Optional[str] = None
-    checkpoint: Optional[Dict[str, Any]] = None
-    stagingProviderId: Optional[str] = None
-    policy: Optional[Dict[str, Any]] = None
-    mode: Optional[str] = None
-    dataMode: Optional[str] = None
-    sinkEndpointId: Optional[str] = None
-    cdmModelId: Optional[str] = None
-    filter: Optional[Dict[str, Any]] = None
-    transientState: Optional[Dict[str, Any]] = None
-    transientStateVersion: Optional[str] = None
-
-
-@dataclass
-class IngestionUnitResult:
-    newCheckpoint: Optional[Dict[str, Any]]
-    stats: Dict[str, Any]
-    records: Optional[List[Dict[str, Any]]] = None
-    transientState: Optional[Dict[str, Any]] = None
-    stagingPath: Optional[str] = None
-    stagingProviderId: Optional[str] = None
+from ingestion_models.requests import (
+    CollectionJobRequest,
+    CatalogRecordOutput,
+    CollectionJobResult,
+    PreviewRequest,
+    IngestionUnitRequest,
+    IngestionUnitResult,
+)
 
 
 class ActivityLogger:
@@ -162,8 +105,20 @@ def _write_records_manifest(records: List[CatalogRecordOutput], run_id: str) -> 
         try:
             os.close(fd)
         except OSError:
-            pass
+            # Best-effort close; ignore if already closed.
+            ...
     return path
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively convert objects to JSON-serializable forms."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 def _finalize_collection_result(
@@ -220,6 +175,33 @@ def _collect_catalog_records(jobs, repository: CacheMetadataRepository, request:
     return records
 
 
+def _decode_preview_payload(payload: str) -> Dict[str, Any]:
+    try:
+        data = json.loads(payload)
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return data
+
+
+def _preview_endpoint_dataset(request: PreviewRequest, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Legacy preview helper used by tests; constructs the endpoint from templateId/parameters
+    and calls its metadata subsystem preview hook.
+    """
+    template_id = payload.get("templateId") or payload.get("template_id")
+    if not template_id:
+        raise ApplicationError("templateId is required for preview", type="PreviewTemplateMissing", non_retryable=True)
+    endpoint_cls = get_endpoint_class(template_id)
+    parameters = payload.get("parameters") or {}
+    table_cfg = {"schema": request.schema, "table": request.table}
+    endpoint = endpoint_cls(tool=None, endpoint_cfg=parameters, table_cfg=table_cfg)  # type: ignore[call-arg]
+    subsystem = endpoint.metadata_subsystem()
+    rows = subsystem.preview_dataset(dataset_id=request.datasetId, limit=request.limit or 50, config=parameters)  # type: ignore[attr-defined]
+    return {"rows": rows, "sampledAt": datetime.now(timezone.utc).isoformat()}
+
+
 def _collect_catalog_snapshots_sync(request: CollectionJobRequest) -> Dict[str, Any]:
     logger = ActivityLogger()
     logger.info(event="metadata_collect_start", run_id=request.runId, endpoint=request.endpointName)
@@ -266,6 +248,60 @@ def _resolve_template_id_from_policy(policy: Optional[Dict[str, Any]]) -> Option
     return None
 
 
+def _plan_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
+    """
+    Plan ingestion for a unit and return slice information for fan-out orchestration.
+    """
+    template_id = _resolve_template_id_from_policy(request.policy)
+    if not template_id:
+        raise ApplicationError(
+            "templateId is required for ingestion planning",
+            type="TemplateMissing",
+            non_retryable=True,
+        )
+    endpoint_cfg = request.policy.get("parameters") if isinstance(request.policy, dict) else {}
+    endpoint_cfg = endpoint_cfg if isinstance(endpoint_cfg, dict) else {}
+    table_cfg = {"schema": "ingestion", "table": request.unitId, "endpoint_id": request.endpointId}
+    tool = None
+    try:
+        from metadata_service.endpoints.registry import build_endpoint
+        from endpoint_service.tools.sqlalchemy import SQLAlchemyTool
+
+        url = endpoint_cfg.get("connection_url") or endpoint_cfg.get("url")
+        if url:
+            tool = SQLAlchemyTool.from_config({"runtime": {"sqlalchemy": {"url": url}}})
+        endpoint = build_endpoint(template_id, tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
+        unit_descriptor = None
+        if hasattr(endpoint, "list_units"):
+            try:
+                descriptors = endpoint.list_units()
+                unit_descriptor = next((d for d in descriptors if d.unit_id == request.unitId), None)
+            except Exception:
+                unit_descriptor = None
+        last_wm = None
+        if isinstance(request.checkpoint, dict):
+            last_wm = request.checkpoint.get("watermark") or request.checkpoint.get("last_watermark")
+        if isinstance(request.policy, dict) and not last_wm:
+            last_wm = request.policy.get("last_watermark")
+        plan = plan_ingestion(
+            cfg={"endpoint": endpoint, "runtime": (request.policy or {}).get("runtime", {}) if isinstance(request.policy, dict) else {}},
+            table_cfg=table_cfg,
+            mode=(request.mode or "full").lower(),
+            load_date=request.policy.get("load_date") if isinstance(request.policy, dict) else datetime.now(timezone.utc).isoformat(),
+            last_watermark=str(last_wm) if last_wm is not None else None,
+            ingestion_strategy=getattr(unit_descriptor, "ingestion_strategy", None) if unit_descriptor else None,
+            incremental_column=getattr(unit_descriptor, "incremental_column", None) if unit_descriptor else None,
+            incremental_literal=getattr(unit_descriptor, "incremental_literal", None) if unit_descriptor else None,
+        )
+        return {"slices": getattr(plan, "slices", []), "plan_metadata": getattr(plan, "metadata", {})}
+    finally:
+        if tool and hasattr(tool, "stop"):
+            try:
+                tool.stop()
+            except Exception:
+                pass
+
+
 def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
     logger = ActivityLogger()
     logger.info(
@@ -276,7 +312,10 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         staging_provider=request.stagingProviderId or "in_memory",
     )
     normalized_mode = (request.mode or "").upper()
-    checkpoint = None if normalized_mode == "FULL" else request.checkpoint
+    reset_flag = False
+    if isinstance(request.policy, dict):
+        reset_flag = bool(request.policy.get("reset")) or bool(request.policy.get("resetCheckpoint"))
+    checkpoint = None if normalized_mode == "FULL" or reset_flag else request.checkpoint
     template_id = _resolve_template_id_from_policy(request.policy)
     if not template_id:
         raise ApplicationError(
@@ -303,10 +342,10 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
     except Exception as exc:
         raise ApplicationError(str(exc), type="IngestionExecutionFailed", non_retryable=True) from exc
 
-    result = resp.get("result")
+    result = resp.get("records")
     stats = resp.get("stats")
     if result is None:
-        stats = stats or {"note": "ingestion_noop", "unitId": request.unitId}
+        stats = _json_safe(stats or {"note": "ingestion_noop", "unitId": request.unitId})
         return IngestionUnitResult(newCheckpoint=checkpoint, stats=stats).__dict__
 
     records = resp.get("records") or []
@@ -314,18 +353,21 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
     records_payload: Optional[List[Dict[str, Any]]] = None
     if staging_path is None and str(request.dataMode or "").lower() != "cdm":
         records_payload = records
+    safe_stats = _json_safe(stats)
+    safe_records = _json_safe(records_payload)
+    safe_transient = _json_safe(getattr(resp, "transient_state", None) or getattr(result, "transient_state", None))
     logger.info(
         event="ingestion_complete",
         endpoint_id=request.endpointId,
         unit_id=request.unitId,
         template_id=template_id,
-        stats=result.stats,
+        stats=stats,
     )
     return IngestionUnitResult(
-        newCheckpoint=result.cursor,
-        stats=result.stats,
-        records=records_payload,
-        transientState=getattr(result, "transient_state", None),
+        newCheckpoint=None,  # result.cursor,
+        stats=safe_stats,
+        records=safe_records,
+        transientState=safe_transient,
         stagingPath=staging_path,
         stagingProviderId=staging_provider,
     ).__dict__
@@ -334,34 +376,6 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
 @activity.defn(name="collectCatalogSnapshots")
 async def collect_catalog_snapshots(request: CollectionJobRequest) -> Dict[str, Any]:
     return await asyncio.to_thread(_collect_catalog_snapshots_sync, request)
-
-
-def _preview_dataset_sync(request: PreviewRequest) -> Dict[str, Any]:
-    if _is_seed_preview_request(request):
-        raise ApplicationError(
-            "Seeded catalog datasets only support cached preview rows.",
-            type="SampleDatasetPreview",
-            non_retryable=True,
-        )
-    template_id = (request.templateId or "").strip()
-    parameters = request.parameters if isinstance(request.parameters, dict) else {}
-    if not template_id:
-        raise ApplicationError("templateId is required for preview", type="PreviewTemplateMissing", non_retryable=True)
-
-    dataset_id = request.datasetId
-    schema = request.schema or "default"
-    table = request.table or dataset_id
-    limit = max(1, min(int(request.limit or 50), 200))
-    result = _preview_via_endpoint(
-        template_id=template_id,
-        parameters=parameters,
-        dataset_id=dataset_id,
-        schema=schema,
-        table=table,
-        limit=limit,
-        connection_url=request.connectionUrl,
-    )
-    return result
 
 
 def _is_seed_preview_request(request: PreviewRequest) -> bool:
@@ -381,12 +395,51 @@ def _looks_like_sample_connection(connection_url: Optional[str]) -> bool:
 
 @activity.defn(name="previewDataset")
 async def preview_dataset(request: PreviewRequest) -> Dict[str, Any]:
-    return await asyncio.to_thread(_preview_dataset_sync, request)
+    # Reuse ingestion runner with preview semantics
+    unit_id = request.unitId #or request.datasetId
+    # if request.schema and request.table:
+    #     unit_id = f"{request.schema}.{request.table}"
+    endpoint_id = request.endpointId or request.datasetId
+    ingestion_request = IngestionUnitRequest(
+        endpointId=endpoint_id,
+        unitId=unit_id,
+        policy={
+            "templateId": request.templateId,
+            "parameters": request.parameters,
+            "limit": request.limit or 50,
+            "mode": "PREVIEW",
+            # Hint the runner with schema/table derived from the dataset metadata.
+            "schema": request.schema,
+            "table": request.table,
+            "unitId": unit_id,
+        },
+        mode="PREVIEW",
+        dataMode=None,
+        sinkId=None,
+        checkpoint=None,
+        filter=None,
+        transientState=None,
+        transientStateVersion=None,
+        stagingProviderId=None,
+    )
+    result = await asyncio.to_thread(_run_ingestion_unit_sync, ingestion_request)
+    rows = result.get("records") or []
+    return {
+        "rows": rows,
+        "sampledAt": datetime.now(timezone.utc).isoformat(),
+        "recordsPath": result.get("stagingPath"),
+        "stagingProviderId": result.get("stagingProviderId"),
+    }
 
 
 @activity.defn(name="runIngestionUnit")
 async def run_ingestion_unit(request: IngestionUnitRequest) -> Dict[str, Any]:
     return await asyncio.to_thread(_run_ingestion_unit_sync, request)
+
+
+@activity.defn(name="planIngestionUnit")
+async def plan_ingestion_unit(request: IngestionUnitRequest) -> Dict[str, Any]:
+    return await asyncio.to_thread(_plan_ingestion_unit_sync, request)
 
 
 async def main() -> None:
@@ -397,7 +450,7 @@ async def main() -> None:
     worker_instance = worker.Worker(
         temporal_client,
         task_queue=task_queue,
-        activities=[collect_catalog_snapshots, preview_dataset, run_ingestion_unit],
+        activities=[collect_catalog_snapshots, preview_dataset, plan_ingestion_unit, run_ingestion_unit],
     )
     await worker_instance.run()
 

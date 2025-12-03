@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: ingestion-models
+Version: 0.0.1
+Summary: Shared primitives for the ingestion runtimes
+Author: Ingestion Platform Team
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# Core
+
+Shared primitives (events, metadata models, endpoint contracts) extracted from
+the ingestion runtimes for reuse across ingestion, reconciliation, and metadata
+components.

@@ -15,7 +15,7 @@ if "pyspark" not in sys.modules:  # minimal stubs for pyspark imports used in st
     sys.modules["pyspark.sql"] = sql
     sys.modules["pyspark.sql.functions"] = functions
 
-from metadata_service.schema import (
+from ingestion_models.schema import (
     SchemaDriftPolicy,
     SchemaDriftResult,
     SchemaDriftValidator,
@@ -23,7 +23,7 @@ from metadata_service.schema import (
     SchemaSnapshotColumn,
     SchemaValidationError,
 )
-from ingestion_runtime.strategies import ExecutionContext
+from metadata_service.ingestion.strategies import ExecutionContext
 
 
 class _FakeType:

@@ -7,53 +7,14 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 from metadata_service.cache import MetadataCacheConfig, MetadataCacheManager
 from metadata_service.guardrails import PrecisionGuardrailEvaluator
 from metadata_service.repository import CacheMetadataRepository
-from metadata_service.schema import (
-    SchemaDriftPolicy,
-    SchemaDriftValidator,
-    SchemaSnapshot,
-    SchemaSnapshotColumn,
-)
+from ingestion_models.schema import SchemaDriftPolicy, SchemaDriftValidator, SchemaSnapshot, SchemaSnapshotColumn
 from metadata_service.utils import safe_upper, to_serializable
-from runtime_core import MetadataRepository, MetadataTarget
+from ingestion_models.metadata import MetadataRepository, MetadataTarget
 from pyspark.sql import SparkSession
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from metadata_service.collector import MetadataCollectionService, MetadataJob, MetadataServiceConfig
-
-try:
-    from metadata_gateway import MetadataGateway
-except ModuleNotFoundError:  # pragma: no cover - local development fallback
-    import sys
-    from pathlib import Path
-
-    _root = next((p for p in Path(__file__).resolve().parents if (p / "packages").exists()), None)
-    if _root is not None:
-        gateway_src = _root / "packages" / "metadata-gateway" / "src"
-        if gateway_src.exists():
-            sys.path.append(str(gateway_src))
-        else:  # pragma: no cover - defensive
-            raise
-        from metadata_gateway import MetadataGateway  # type: ignore  # noqa: E402
-    else:  # pragma: no cover - defensive
-        raise
-
-try:
-    from metadata_sdk import GraphQLMetadataEmitter, MetadataSDK
-except ModuleNotFoundError:  # pragma: no cover - local development fallback
-    import sys
-    from pathlib import Path
-
-    _root = next((p for p in Path(__file__).resolve().parents if (p / "packages").exists()), None)
-    if _root is not None:
-        for pkg in ["metadata-sdk"]:
-            _fallback = _root / "packages" / pkg / "src"
-            if _fallback.exists():
-                sys.path.append(str(_fallback))
-        from metadata_sdk import GraphQLMetadataEmitter, MetadataSDK  # type: ignore  # noqa: E402
-    else:  # pragma: no cover - defensive
-        GraphQLMetadataEmitter = None  # type: ignore
-        raise
 
 
 def _log(logger, level: str, msg: str, **payload: Any) -> None:
@@ -75,7 +36,7 @@ def _build_default_tool(cfg: Dict[str, Any], logger):
     if not sqlalchemy_cfg.get("url"):
         return None
     try:
-        from runtime_common.tools.sqlalchemy import SQLAlchemyTool
+        from endpoint_service.tools.sqlalchemy import SQLAlchemyTool
     except Exception as exc:  # pragma: no cover - optional dependency
         _log(logger, "WARN", "metadata_tool_init_failed", error=str(exc), driver="sqlalchemy")
         return None
@@ -208,8 +169,8 @@ def collect_metadata(
     """Collect metadata snapshots for the provided tables using their endpoints."""
 
     # Imported lazily to avoid circular dependency during module import
-    from runtime_common.endpoints.factory import EndpointFactory
-    from runtime_common.endpoints.base import MetadataCapableEndpoint
+    from endpoint_service.endpoints.factory import EndpointFactory
+    from ingestion_models.endpoints import MetadataCapableEndpoint
     from metadata_service.collector import MetadataCollectionService, MetadataJob
 
     spark = getattr(tool, "spark", None) if tool is not None else SparkSession.getActiveSession()

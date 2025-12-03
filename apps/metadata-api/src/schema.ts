@@ -2626,6 +2626,10 @@ export function createResolvers(
         }
         const parameters = normalizePayload(endpointConfig?.parameters) ?? {};
         const connectionTarget = endpoint.url ?? null;
+        const inferredUnitId = extractIngestionUnitId(payload, schema, table);
+        if (!inferredUnitId) {
+          throw new Error("Dataset is missing ingestion unitId linkage");
+        }
         const { client, taskQueue } = await resolveTemporalClient();
         return client.workflow.execute(WORKFLOW_NAMES.previewDataset, {
           taskQueue,
@@ -2633,6 +2637,8 @@ export function createResolvers(
           args: [
             {
               datasetId: args.id,
+              endpointId: sourceEndpointId,
+              unitId: inferredUnitId,
               schema,
               table,
               limit: args.limit ?? 50,
@@ -5170,13 +5176,55 @@ function extractDatasetSchema(payload: Record<string, any>, record: MetadataReco
     payload.endpoint?.schema ??
     record.projectId ??
     null;
-  return schema ? String(schema) : null;
+  return schema ? String(schema).toLowerCase() : null;
 }
 
 function extractDatasetEntity(payload: Record<string, any>, record: MetadataRecord<unknown>): string | null {
   const entity =
     payload.endpoint?.table ?? payload.name ?? payload.entity ?? payload.dataset?.name ?? record.id ?? null;
   return entity ? String(entity) : null;
+}
+
+function extractIngestionUnitId(payload: Record<string, any>, schema: string | null, table: string | null): string | null {
+  const tryGet = (...paths: Array<Array<string>>) => {
+    for (const path of paths) {
+      let cursor: any = payload;
+      for (const key of path) {
+        if (cursor && typeof cursor === "object" && key in cursor) {
+          cursor = cursor[key];
+        } else {
+          cursor = undefined;
+          break;
+        }
+      }
+      if (cursor) {
+        return String(cursor);
+      }
+    }
+    return null;
+  };
+
+  const unitId =
+    tryGet(
+      ["ingestion", "unitId"],
+      ["ingestion", "unit_id"],
+      ["artifact_config", "dataset", "ingestion", "unitId"],
+      ["artifact_config", "dataset", "ingestion", "unit_id"],
+      ["dataset", "ingestion", "unitId"],
+      ["dataset", "ingestion", "unit_id"],
+      ["raw_vendor", "dataset", "ingestion", "unitId"],
+      ["raw_vendor", "dataset", "ingestion", "unit_id"],
+    ) ||
+    null;
+
+  if (unitId) {
+    return unitId;
+  }
+
+  if (schema && table) {
+    return `${schema.toLowerCase()}.${table}`;
+  }
+  return null;
 }
 
 function extractCollectedAt(payload: Record<string, any>, record: MetadataRecord<unknown>): string | null {

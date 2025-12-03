@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-src/metadata_gateway/__init__.py
-src/metadata_gateway/gateway.py
-src/metadata_gateway.egg-info/PKG-INFO
-src/metadata_gateway.egg-info/SOURCES.txt
-src/metadata_gateway.egg-info/dependency_links.txt
-src/metadata_gateway.egg-info/top_level.txt

@@ -14,7 +14,7 @@ SPARK_ROOT = SCRIPT_DIR.parent
 RUNTIME_COMMON_SRC = SPARK_ROOT / "packages" / "runtime-common" / "src"
 sys.path.insert(0, str(RUNTIME_COMMON_SRC))
 
-from runtime_common.endpoints.registry import collect_endpoint_descriptors, get_endpoint_class  # type: ignore  # noqa: E402
+from metadata_service.endpoints.registry import collect_endpoint_descriptors, get_endpoint_class  # type: ignore  # noqa: E402
 
 
 def main() -> None:

@@ -25,50 +25,37 @@ phases in order and ship guardrails (tests, parity checks) at every step.
   - Reconciliation currently reads ingestion history from JSON outputs rather than a shared gateway.
   - Orchestrator helpers construct state stores and emitters tightly bound to ingestion assumptions (e.g., SCD1-specific logic).
 
-## Phase 1 – Shared core & metadata gateway
+## Phase 1 – Shared core & endpoint service
 
 - Define an in-process gateway that fronts all metadata operations (`emit`,
   `emit_many`, `latest`, `history`, `query`).
 - Extract reusable schemas, event models, metadata builders, endpoint contracts,
-  and config utilities into a `core` module consumed by ingestion, recon, and
+  and config utilities into shared packages consumed by ingestion, recon, and
   metadata.
-- Refactor existing code to call the gateway rather than touching repositories/
-  caches directly.
+- Refactor existing code to call the shared interfaces rather than touching
+  repositories/caches directly.
 - Add contract tests ensuring ingestion, reconciliation, and collectors behave
   the same with the embedded repository.
-- Proposed workspace layout:
-  - `packages/runtime-core` – logging primitives, event bus, endpoint interfaces,
-    metadata models, shared config helpers.
-  - `packages/metadata-gateway` – gateway façade + repository adapters
-    (embedded + remote) depending only on `runtime-core`.
-  - `packages/metadata-sdk` – thin SDK that wraps the gateway with CDM-style
-    models and helpers for external systems.
+- Current workspace layout:
+  - `packages/core` (imported as `ingestion_models`) – metadata models, schema
+    drift helpers, CDM types.
+  - `packages/runtime-common` (imported as `endpoint_service`) – endpoint
+    contracts, metadata subsystems, tools, and shared IO/helpers.
   - `packages/ingestion-runtime` – orchestration, planners, strategies; depends
-    on `runtime-core` and `metadata-gateway`.
-  - `packages/recon-runtime` – reconciliation engine; depends on `runtime-core`
-    and `metadata-gateway`.
-  - `packages/metadata-collector` – catalog harvesting jobs; depends on
-    `runtime-core`, `metadata-gateway`.
-  - `services/metadata-api` (Phase 6) – optional HTTP/gRPC service backed by the
-    gateway.
+    on the shared models/endpoints.
+  - `packages/metadata-service` – embedded metadata runtime helpers and
+    collectors; consumes the shared packages.
 
 ## Phase 2 – Metadata alignment
 
-- Run catalog harvesting as a gateway producer so schema snapshots, statistics,
-  and diffs flow through the shared API.
-- Update schema drift validators and guardrails to consume gateway lookups
+- Run catalog harvesting through the shared endpoint interfaces so schema
+  snapshots, statistics, and diffs flow through the common API.
+- Update schema drift validators and guardrails to consume shared lookups
   instead of reading cache files directly.
-- Backfill historical metadata through the gateway and validate parity with the
-  current cache.
-- Status: metadata collector now emits via the shared `MetadataGateway` and
-  `MetadataAccess` consumes gateway-backed repositories for schema validation.
-- Backfill approach and operational steps are captured in
-  `docs/metadata-backfill-plan.md`; execute it once ingestion metrics finish
-  emitting through the gateway.
-- Exposed the `metadata-sdk` package so external services can participate using
-  the same gateway contracts. Created a `metadata-service` package that hosts
-  the runtime helpers under the standalone package so the ingestion runtime no
-  extracting the implementation.
+- Backfill historical metadata through the shared repository path and validate
+  parity with the current cache.
+- Status: metadata collectors emit via `metadata-service` using shared models;
+  legacy gateway/SDK packages have been removed in favor of the shared modules.
 
 ## Phase 3 – Ingestion integration
 
@@ -104,8 +91,8 @@ phases in order and ship guardrails (tests, parity checks) at every step.
   gateway contract.
 - Swap the repository client from embedded to remote in each subsystem; keep the
   embedded path for local development and fallbacks.
-- Finalise package boundaries (`core`, `ingestion-runtime`, `recon-runtime`,
-  `metadata-gateway`, optional service impl) and align dependency direction.
+- Finalise package boundaries (`ingestion_models`, `endpoint_service`,
+  `ingestion-runtime`, optional service impl) and align dependency direction.
 - Clean up feature flags and remove deprecated code paths once production runs
   rely solely on the new architecture.
 - Add operational runbooks (deployment, scaling, alerting, replay procedures)
@@ -114,16 +101,15 @@ phases in order and ship guardrails (tests, parity checks) at every step.
 ## Near-term execution checklist
 
 1. ✅ Create `packages/` scaffolding with placeholder `pyproject.toml` files for
-   `runtime-core` and `metadata-gateway`; wire them into the existing virtualenv
-   via editable installs.
+   `ingestion-models` and `runtime-common` (`endpoint_service`);
+   wire them into the existing virtualenv via editable installs.
 2. ✅ Introduce smoke tests verifying the gateway API against the embedded
    repository before moving any producers.
 3. ✅ Move purely declarative artifacts (data classes, enums) from
    `ingestion_runtime/metadata/core/interfaces.py` into `runtime-core`, leaving
    re-export shims to avoid breakage.
-4. ✅ Update runtime imports to reference the shared `runtime_core` module and
-   ensure unit tests still pass. `MetadataAccess` now provisions
-   `MetadataGateway` + `MetadataSDK` instances.
+4. ✅ Update runtime imports to reference the shared `ingestion_models` module
+   and ensure unit tests still pass.
 5. ✅ Move metadata runtime/collector/cache logic into the standalone
    `metadata-service` package and delete the legacy shims.
 6. ✅ Relocate schema drift validators and precision guardrails into

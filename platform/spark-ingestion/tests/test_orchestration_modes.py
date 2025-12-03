@@ -1,6 +1,6 @@
 import json
 
-from ingestion_runtime.orchestration import build_orchestration_plan
+from metadata_service.ingestion.orchestration import build_orchestration_plan
 
 
 def test_plain_cron_plan_defaults():
@@ -31,7 +31,7 @@ def test_external_scheduler_plan_with_overrides():
                     "provider": "airflow",
                     "dag_id": "ingest_demo",
                     "expression": "0 3 * * *",
-                    "command": ["python", "ingestion.py", "--config", "conf/demo.json"],
+                    "command": ["python", "-m", "metadata_service.ingestion"],  # placeholder; ingestion now via metadata_service
                     "retries": {"count": 2},
                 },
             }
@@ -42,7 +42,7 @@ def test_external_scheduler_plan_with_overrides():
 
     assert plan.mode == "external_scheduler"
     assert plan.schedule["expression"] == "0 3 * * *"
-    assert plan.execution_command == ["python", "ingestion.py", "--config", "conf/demo.json"]
+    assert plan.execution_command == ["python", "-m", "metadata_service.ingestion"]
     assert plan.retries["count"] == 2
 
 

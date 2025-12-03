@@ -9,13 +9,9 @@ import site
 ROOT = Path(__file__).resolve().parent
 for pkg in (
     "core",
-    "metadata-gateway",
-    "metadata-sdk",
     "metadata-service",
     "runtime-common",
-    "ingestion-runtime",
-    "recon-runtime",
-    "runtime-orchestration",
+    "metadata-service",
 ):
     src = ROOT / "packages" / pkg / "src"
     if src.exists():

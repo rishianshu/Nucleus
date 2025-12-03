@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from runtime_core.cdm import (
+from ingestion_models.cdm import (
     CDM_DOC_ITEM,
     CDM_DOC_LINK,
     CDM_DOC_REVISION,

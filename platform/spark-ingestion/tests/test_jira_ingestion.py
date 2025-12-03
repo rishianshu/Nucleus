@@ -6,15 +6,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_COMMON_SRC = ROOT / "packages" / "runtime-common" / "src"
-RUNTIME_CORE_SRC = ROOT / "packages" / "core" / "src"
+PACKAGES = ROOT / "packages"
+for rel in ("runtime-common/src", "core/src", "metadata-service/src"):
+    sys.path.insert(0, str(PACKAGES / rel))
 TEMPORAL_SRC = ROOT / "temporal"
-sys.path.insert(0, str(RUNTIME_COMMON_SRC))
-sys.path.insert(0, str(RUNTIME_CORE_SRC))
 sys.path.insert(0, str(TEMPORAL_SRC))
 
-from runtime_common.endpoints import jira_http
-from metadata_worker import _apply_jira_cdm_mapping
+from endpoint_service.endpoints import jira_http
+from metadata_service.cdm_registry import apply_cdm
 
 
 class DummySession:
@@ -224,7 +223,14 @@ def test_apply_jira_cdm_mapping_for_issues():
             },
         },
     }
-    mapped = _apply_jira_cdm_mapping("jira.issues", [record], "cdm.work.item", endpoint_id="endpoint-123")
+    mapped = apply_cdm(
+        "jira",
+        "jira.issues",
+        "cdm.work.item",
+        [record],
+        dataset_id="jira.issues",
+        endpoint_id="endpoint-123",
+    )
     assert mapped[0]["entityType"] == "cdm.work.item"
     assert mapped[0]["payload"]["cdm_id"].startswith("cdm:work:item:jira:ENG-1")
     assert mapped[0]["payload"]["project_cdm_id"].endswith("ENG")

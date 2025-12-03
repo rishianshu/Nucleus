@@ -19,8 +19,8 @@ for package in ("runtime-common", "metadata-service"):
         sys.path.append(str(package_src))
 
 from metadata_service.runtime import collect_metadata  # type: ignore  # noqa: E402
-from runtime_common.common import PrintLogger  # type: ignore  # noqa: E402
-from runtime_common.tools.sqlalchemy import SQLAlchemyTool  # type: ignore  # noqa: E402
+from endpoint_service.common import PrintLogger  # type: ignore  # noqa: E402
+from endpoint_service.tools.sqlalchemy import SQLAlchemyTool  # type: ignore  # noqa: E402
 
 
 def main() -> None:

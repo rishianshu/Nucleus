@@ -7,17 +7,17 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
-for rel in ("runtime-common/src", "core/src", "metadata-service/src", "metadata-gateway/src"):
+for rel in ("runtime-common/src", "core/src", "metadata-service/src"):
     sys.path.insert(0, str(PACKAGES / rel))
 
-from metadata_service.adapters.postgres import PostgresMetadataSubsystem
+from endpoint_service.endpoints.postgres.metadata import PostgresMetadataSubsystem
 from metadata_service.planning import (
     MetadataConfigValidationResult,
     MetadataPlanningResult,
     plan_metadata_jobs,
 )
-from metadata_service.adapters.confluence import ConfluenceMetadataSubsystem
-from runtime_common.endpoints.confluence_http import ConfluenceEndpoint
+from endpoint_service.endpoints.confluence.metadata import ConfluenceMetadataSubsystem
+from endpoint_service.endpoints.confluence_http import ConfluenceEndpoint
 
 
 class StubLogger:
@@ -122,8 +122,8 @@ def test_postgres_subsystem_delegates_to_jdbc_helper(monkeypatch):
     def fake_plan(parameters, request, logger):
         return sentinel
 
-    adapters_postgres = importlib.import_module("metadata_service.adapters.postgres")
-    monkeypatch.setattr(adapters_postgres, "plan_jdbc_metadata_jobs", fake_plan)
+    import endpoint_service.endpoints.jdbc.jdbc_planner as jdbc_planner
+    monkeypatch.setattr(jdbc_planner, "plan_jdbc_metadata_jobs", fake_plan)
 
     class DummyEndpoint:
         schema = "public"

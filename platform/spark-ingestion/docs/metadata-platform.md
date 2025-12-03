@@ -20,9 +20,8 @@ peeled out into a standalone metadata service later.
 
 ## Domain model
 
-The core abstractions now live under the `runtime_core` package (with legacy
-shims removed) and should remain the single
-source of truth:
+The core abstractions now live under the `ingestion_models` package (a thin
+shim over the shared runtime core) and should remain the single source of truth:
 
 - **MetadataTarget** – captures the physical artifact (`source_id`, `schema`,
   `table`, optional `extras`) that the record describes.
@@ -193,11 +192,9 @@ When metadata graduates to an independent service:
   use; provide a central catalog of schemas with versioning.
 - Implement authentication/authorization (service tokens) to control read/write
   scopes once multiple teams interact with the metadata platform.
-- Offer a lightweight SDK (`packages/metadata-sdk`) that wraps the gateway with
-  CDM-style models so external services can emit or query metadata without
-  depending on runtime internals. See `docs/metadata-sdk.md` for usage patterns.
-- Runtime helpers now live in `packages/metadata-service` so ingestion/recon
-  depend on a standalone metadata package rather than internal modules.
+- Runtime helpers now live in `packages/metadata-service` and shared endpoint
+  primitives live in `packages/runtime-common` (aliased as `endpoint_service`),
+  so ingestion/recon depend on stable interfaces rather than internal modules.
 
 Throughout the migration, the existing in-process path remains functional by
 configuring the emitter with the embedded repository. Switching to the remote

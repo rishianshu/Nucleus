@@ -9,7 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ROOT / "packages"
-for rel in ("runtime-common/src", "core/src", "metadata-service/src", "metadata-gateway/src"):
+for rel in ("runtime-common/src", "core/src", "metadata-service/src"):
     sys.path.insert(0, str(PACKAGES / rel))
 
 _WORKER_PATH = ROOT / "temporal" / "metadata_worker.py"
@@ -54,6 +54,8 @@ def test_decode_preview_payload_round_trip():
 def test_preview_endpoint_dataset_invokes_subsystem(monkeypatch: pytest.MonkeyPatch):
     request = metadata_worker.PreviewRequest(
         datasetId="jira.issues",
+        endpointId="endpoint-1",
+        unitId="jira.issues",
         schema="jira",
         table="issues",
         connectionUrl="",

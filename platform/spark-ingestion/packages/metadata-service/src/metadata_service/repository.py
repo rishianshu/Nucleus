@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from typing import Iterable, Mapping, Optional, Sequence
 
-from runtime_core import MetadataQuery, MetadataRecord, MetadataRepository, MetadataTarget
+from ingestion_models.metadata import MetadataQuery, MetadataRecord, MetadataRepository, MetadataTarget
 from metadata_service.utils import to_serializable
 
 

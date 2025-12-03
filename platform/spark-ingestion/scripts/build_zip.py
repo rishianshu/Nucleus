@@ -9,8 +9,8 @@ from pathlib import Path
 import zipfile
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT = PROJECT_ROOT / "dist" / "ingestion_runtime_bundle.zip"
-DEFAULT_INCLUDES = ["ingestion.py", "ingestion_runtime"]
+DEFAULT_OUTPUT = PROJECT_ROOT / "dist" / "metadata_service.ingestion_bundle.zip"
+DEFAULT_INCLUDES = ["metadata_service", "endpoint_service"]
 EXCLUDE_PATTERNS = {"__pycache__", ".DS_Store", ".git", "dist"}
 
 
@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help="Target zip path (default: dist/ingestion_runtime_bundle.zip)",
+        help="Target zip path (default: dist/metadata_service.ingestion_bundle.zip)",
     )
     parser.add_argument(
         "--include",

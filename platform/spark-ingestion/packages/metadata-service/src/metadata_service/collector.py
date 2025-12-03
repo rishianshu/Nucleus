@@ -6,36 +6,12 @@ from typing import Any, Dict, List
 from metadata_service.cache import MetadataCacheManager
 from metadata_service.engine import MetadataProducerRunner
 from metadata_service.repository import CacheMetadataRepository
-from runtime_core import MetadataEmitter, MetadataTarget
-
-try:
-    from metadata_gateway import MetadataGateway
-except ModuleNotFoundError:  # pragma: no cover - local development fallback
-    import sys
-    from pathlib import Path
-
-    _root = next((p for p in Path(__file__).resolve().parents if (p / "packages").exists()), None)
-    if _root is not None:
-        _fallback = _root / "packages" / "metadata-gateway" / "src"
-        if _fallback.exists():
-            sys.path.append(str(_fallback))
-            from metadata_gateway import MetadataGateway  # type: ignore  # noqa: E402
-        else:  # pragma: no cover - defensive
-            raise
-    else:  # pragma: no cover - defensive
-        raise
-
+from ingestion_models.metadata import MetadataEmitter, MetadataTarget
+from endpoint_service.metadata.models import MetadataJob
 
 @dataclass
 class MetadataServiceConfig:
     endpoint_defaults: Dict[str, Any]
-
-
-@dataclass
-class MetadataJob:
-    target: MetadataTarget
-    artifact: Dict[str, Any]
-    endpoint: Any
 
 
 class MetadataCollectionService:
@@ -53,11 +29,10 @@ class MetadataCollectionService:
         self.cache = cache
         self.logger = logger
         repository = CacheMetadataRepository(cache)
-        gateway = MetadataGateway(repository, emitter=emitter)
-        self.runner = MetadataProducerRunner(cache, config.endpoint_defaults, gateway=gateway)
+        self.runner = MetadataProducerRunner(cache, config.endpoint_defaults, gateway=None)
 
     def run(self, jobs: List[MetadataJob]) -> None:
-        from runtime_common.endpoints.base import MetadataCapableEndpoint  # pragma: no cover
+        from ingestion_models.endpoints import MetadataCapableEndpoint  # pragma: no cover
 
         if not self.cache.cfg.enabled:
             self.logger.info("metadata_collection_disabled")
