@@ -124,7 +124,7 @@ class Utils:
     def sample_spark(spark: SparkSession) -> Dict[str, Any]:
         sc = spark.sparkContext
         try:
-            stage_ids = [s.stageId() for s in sc.statusTracker().getActiveStageIds()]
+            stage_ids = list(sc.statusTracker().getActiveStageIds())
         except Exception:
             stage_ids = []
         return {"active_stages": stage_ids, "default_parallelism": sc.defaultParallelism}

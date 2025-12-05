@@ -10,7 +10,7 @@
   "scripts": {
     "bootstrap": "pnpm install && pnpm -r build",
     "build": "pnpm -r build",
-    "ci-check": "bash scripts/ci-check.sh",
+    "ci-check": "bash scripts/ci-check.sh && pnpm mypy",
     "check:metadata-lifecycle": "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-lifecycle.spec.ts --project=chromium",
     "check:metadata-auth": "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-auth.spec.ts --project=chromium",
     "dev:metadata-api": "pnpm --filter @apps/metadata-api dev",
@@ -29,7 +29,8 @@
     "metadata:workers:start": "bash scripts/metadata/start-workers.sh",
     "metadata:workers:stop": "bash scripts/metadata/stop-workers.sh",
     "metadata:workers:status": "bash scripts/metadata/status-workers.sh",
-    "metadata:confluence:collect": "node scripts/metadata/confluence-collection-harness.mjs"
+    "metadata:confluence:collect": "node scripts/metadata/confluence-collection-harness.mjs",
+    "mypy": "python3 -m mypy platform"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

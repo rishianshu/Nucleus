@@ -6,6 +6,8 @@ from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING
 
 from endpoint_service.endpoints.oracle.normalizer import OracleMetadataNormalizer
 from endpoint_service.metadata import collect_rows, escape_literal, safe_upper
+from ingestion_models.endpoints import MetadataSubsystem
+from endpoint_service.tools.base import QueryRequest
 from ingestion_models.metadata import (
     CatalogSnapshot,
     MetadataConfigValidationResult,
@@ -14,13 +16,6 @@ from ingestion_models.metadata import (
     MetadataRecord,
     MetadataRequest,
 )
-
-try:
-    from ingestion_models.endpoints import MetadataSubsystem  # type: ignore
-    from endpoint_service.tools.base import QueryRequest  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - standalone usage
-    MetadataSubsystem = object  # type: ignore[misc,assignment]
-    QueryRequest = object  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:  # pragma: no cover
     from endpoint_service.endpoints.oracle.jdbc_oracle import OracleEndpoint
@@ -155,6 +150,22 @@ class OracleMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         self._ENVIRONMENT_CACHE[key] = info
         return info
 
+    def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+        return {"status": "noop", "checkpoint": checkpoint}
+
+    def preview_dataset(self, dataset_id: str, limit: int, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        target = dataset_id or f"{self.endpoint.schema}.{self.endpoint.table}"
+        schema, table = (target.split(".", 1) + [None])[:2]
+        if table is None:
+            table = schema
+            schema = self.endpoint.schema
+        schema = schema or self.endpoint.schema
+        table = table or self.endpoint.table
+        if not schema or not table:
+            return []
+        sql = f'SELECT * FROM "{escape_literal(schema)}"."{escape_literal(table)}" WHERE ROWNUM <= {max(1, limit)}'
+        return self._run_metadata_query(sql)
+
     def collect_snapshot(
         self,
         *,
@@ -213,7 +224,11 @@ class OracleMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             config=config,
             endpoint_descriptor=self.endpoint.describe(),
         )
-        snapshot.debug.setdefault("metadata_capabilities", self.capabilities())
+        debug_attr = getattr(snapshot, "debug", None)
+        if isinstance(debug_attr, dict):
+            debug_attr.setdefault("metadata_capabilities", self.capabilities())
+        else:
+            snapshot.extras.setdefault("metadata_capabilities", self.capabilities())
         return snapshot
 
     def validate_metadata_config(self, *, parameters: Dict[str, Any]) -> MetadataConfigValidationResult:

@@ -74,9 +74,9 @@ class ExecutionContext:
         snapshot = access.snapshot_for(schema, table) if hasattr(access, "snapshot_for") else None
         if snapshot is None:
             if policy.require_snapshot:
-                result = SchemaDriftResult(snapshot=None)
-                self._log_schema_validation(logger, schema, table, result, "ERROR")
-                raise SchemaValidationError("Metadata snapshot required but not found", result)
+                missing_snapshot = SchemaDriftResult(snapshot=None)
+                self._log_schema_validation(logger, schema, table, missing_snapshot, "ERROR")
+                raise SchemaValidationError("Metadata snapshot required but not found", missing_snapshot)
             emit_log(
                 self.emitter,
                 level="INFO",
@@ -88,7 +88,7 @@ class ExecutionContext:
             return dataframe, None
         working_df = dataframe
         try:
-            result = access.schema_validator.validate(
+            result: Optional[SchemaDriftResult] = access.schema_validator.validate(
                 snapshot=snapshot,
                 dataframe_schema=getattr(working_df, "schema", None),
                 policy=policy,
@@ -123,7 +123,7 @@ class ExecutionContext:
         self._log_schema_validation(logger, schema, table, result, level)
         return working_df, result
 
-    def _log_schema_validation(self, logger, schema: str, table: str, result: SchemaDriftResult, level: str) -> None:
+    def _log_schema_validation(self, logger, schema: str, table: str, result: Optional[SchemaDriftResult], level: str) -> None:
         if result is None:
             return
         payload: Dict[str, Any] = {
@@ -173,9 +173,10 @@ class ExecutionContext:
             except Exception:
                 return dataframe
         # Fallback for very small stubs that expose .columns only
-        if hasattr(dataframe, "columns") and isinstance(getattr(dataframe, "columns"), list):
+        cols = getattr(dataframe, "columns", None)
+        if isinstance(cols, list):
             try:
-                dataframe.columns.append(column)  # type: ignore[attr-defined]
+                cols.append(column)
             except Exception:
                 pass
         return dataframe
@@ -468,7 +469,7 @@ class Scd1Strategy:
         request.last_watermark = eff_wm
         plan = planner.build_plan(source_endpoint, request)
         plan_slices = plan.slices or [
-            {"lower": eff_wm, "upper": plan.metadata.get("now_literal")}
+            {"lower": str(eff_wm), "upper": str(plan.metadata.get("now_literal") or "")}
         ]
         ingestion_slices = [IngestionSlice(lower=s["lower"], upper=s.get("upper")) for s in plan_slices]
         emit_log(

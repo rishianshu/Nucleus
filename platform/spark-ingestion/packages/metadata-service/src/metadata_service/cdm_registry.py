@@ -159,7 +159,8 @@ def _map_confluence_page_to_item(payload: Dict[str, Any]):
         space_cdm_id = f"cdm:doc:space:confluence:{space.get('key')}"
     elif isinstance(space, str):
         space_cdm_id = f"cdm:doc:space:confluence:{space}"
-    return confluence_docs_mapper.map_confluence_page_to_cdm(payload, space_cdm_id=space_cdm_id, parent_item_cdm_id=None)
+    resolved_space_id = space_cdm_id or ""
+    return confluence_docs_mapper.map_confluence_page_to_cdm(payload, space_cdm_id=resolved_space_id, parent_item_cdm_id=None)
 
 
 def _map_confluence_page_to_revision(payload: Dict[str, Any]):
@@ -167,9 +168,10 @@ def _map_confluence_page_to_revision(payload: Dict[str, Any]):
     if not isinstance(version, dict) or not version:
         return None
     doc_item_id = payload.get("id")
-    if doc_item_id:
-        doc_item_id = f"cdm:doc:item:confluence:{doc_item_id}"
-    return confluence_docs_mapper.map_confluence_page_version_to_cdm(payload, version, item_cdm_id=doc_item_id)
+    if not doc_item_id:
+        return None
+    item_cdm_id = f"cdm:doc:item:confluence:{doc_item_id}"
+    return confluence_docs_mapper.map_confluence_page_version_to_cdm(payload, version, item_cdm_id=item_cdm_id)
 
 
 def _map_attachment_to_link(payload: Dict[str, Any]):

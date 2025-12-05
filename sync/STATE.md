@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ingestion-strategy-unification-v1 (in-progress @ 2025-12-01T13:20Z)
+ingestion-strategy-unification-v1 (success @ 2025-12-04T09:45Z)
 
 ## Last Run
 - slug: ingestion-strategy-unification-v1
-- status: in-progress
-- duration: started 2025-12-01T13:20Z
-- tests: not yet run
+- status: success
+- duration: ~3h wall (resumed 2025-12-03T13:29Z to 2025-12-04T09:45Z)
+- tests: pnpm ci-check green (metadata-auth, metadata-lifecycle, TS build)
 - commits: pending
 - decisions: 0
-- next_step: follow RUNCARD RESUME protocol, review PLAN/TODO, then resume implementation loop
+- next_step: prepare commit/PR with ingestion unification changes; handoff
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-04T09:45Z run success (ingestion-strategy-unification-v1, staging handles + adaptive planners + metadata-first invariants; pnpm ci-check green)
 - 2025-12-01T13:20Z run started (ingestion-strategy-unification-v1, boot + artifact sync)
 - 2025-12-01T04:21Z run started (cdm-docs-explorer-v1, boot + artifact sync)
 - 2025-11-30T19:05Z run success (cdm-work-multi-entity-v1, multi-entity Work Explorer + Playwright green; ci-check deferred)
@@ -76,4 +77,5 @@ LATER:
 - 2025-11-18T14:38Z run success (catalog-view-and-ux-v1, metadata-auth Playwright green)
 - 2025-11-16T17:45Z run blocked (metadata-identity-hardening, metadata-auth needs reporting `/api/graphql`)
 - 2025-11-16T17:25Z run success (collection-lifecycle, canonical dataset identity + collection UI/tests complete)
-2025-12-01T13:05Z run success (cdm-docs-explorer-v1, docs sink provision + JSON/tag handling stabilized; ingestion verified)
+- 2025-12-01T13:05Z run success (cdm-docs-explorer-v1, docs sink provision + JSON/tag handling stabilized; ingestion verified)
+- 2025-12-03T13:29Z run resumed (ingestion-strategy-unification-v1, boot heartbeat + context sync)

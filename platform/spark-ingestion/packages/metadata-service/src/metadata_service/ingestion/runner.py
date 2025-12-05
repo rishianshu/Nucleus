@@ -2,16 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, cast
 
-from temporalio.exceptions import ApplicationError  # type: ignore
+from temporalio.exceptions import ApplicationError
 
 from endpoint_service.common import PrintLogger
 from endpoint_service.events.bus import Emitter
 from endpoint_service.events.helpers import emit_log
 from endpoint_service.events.subscribers import FileQueueSubscriber, StructuredLogSubscriber
 from endpoint_service.events.types import Event, EventCategory, EventType
-from ingestion_models.endpoints import IngestionCapableEndpoint, SupportsIncrementalPlanning, SupportsIngestionUnits
+from ingestion_models.endpoints import (
+    EndpointUnitDescriptor,
+    IngestionCapableEndpoint,
+    IngestionPlan,
+    IngestionSlice,
+    SupportsIncrementalPlanning,
+    SupportsIngestionUnits,
+)
 from metadata_service.cdm_registry import apply_cdm
 from metadata_service.endpoints.registry import build_endpoint
 from metadata_service.ingestion.planner import plan_ingestion
@@ -82,7 +89,7 @@ def run_ingestion_unit(
         ingestion_logger = _LoggerAdapter(ingestion_logger)
     emitter = Emitter()
     job_name = f"ingestion:{endpoint_id}"
-    emitter.subscribe(StructuredLogSubscriber(ingestion_logger, job_name=job_name))
+    emitter.subscribe(StructuredLogSubscriber(cast(PrintLogger, ingestion_logger), job_name=job_name))
     event_path = None
     if isinstance(policy, dict):
         event_path = policy.get("event_outbox_path") or policy.get("event_log_path")
@@ -117,14 +124,18 @@ def run_ingestion_unit(
             non_retryable=True,
         )
 
+    unit_descriptor = None
     if isinstance(endpoint, SupportsIngestionUnits):
-        units = endpoint.list_units()
-        valid_units = {u.unit_id for u in units}
-        if unit_id not in valid_units:
+        try:
+            descriptors = endpoint.list_units()
+            unit_descriptor = next((d for d in descriptors if d.unit_id == unit_id), None)
+        except Exception:
+            unit_descriptor = None
+        if unit_descriptor is None:
             _safe_stop_tool(tool)
             emit_log(emitter, level="WARN", msg="unit_not_found", logger=ingestion_logger, unitId=unit_id)
-            stats = {"note": "unit_not_found", "unitId": unit_id, "completedAt": completed_at}
-            return {"result": None, "stats": stats}
+            unit_not_found_stats = {"note": "unit_not_found", "unitId": unit_id, "completedAt": completed_at}
+            return {"result": None, "stats": unit_not_found_stats}
 
     if not isinstance(endpoint, IngestionCapableEndpoint):
         _safe_stop_tool(tool)
@@ -134,15 +145,29 @@ def run_ingestion_unit(
             non_retryable=True,
         )
 
-    planned_slices = None
+    planned_slices: List[IngestionSlice] | None = None
+    plan_metadata: Dict[str, Any] = {}
+    plan_strategy: Optional[str] = None
     if isinstance(endpoint, SupportsIncrementalPlanning):
         try:
-            planned_slices = endpoint.plan_incremental_slices(unit_id=unit_id, checkpoint=checkpoint, limit=None)
+            plan_unit = unit_descriptor or EndpointUnitDescriptor(unit_id=unit_id)
+            plan_result = endpoint.plan_incremental_slices(
+                unit=plan_unit,
+                checkpoint=checkpoint,
+                policy=policy if isinstance(policy, dict) else {},
+                target_slice_size=_resolve_target_slice_size(policy),
+            )
+            if isinstance(plan_result, IngestionPlan):
+                planned_slices = _normalize_plan_slices(plan_result.slices, unit_id)
+                plan_strategy = plan_result.strategy or plan_strategy
+                plan_metadata.update(plan_result.statistics or {})
+            else:
+                planned_slices = _normalize_plan_slices(plan_result, unit_id)
             emitter.emit(
                 Event(
                     category=EventCategory.PLAN,
                     type=EventType.PLAN_ADAPT,
-                    payload={"unitId": unit_id, "slices": len(planned_slices or [])},
+                    payload={"unitId": unit_id, "slices": len(planned_slices or []), "strategy": plan_strategy},
                 )
             )
         except Exception as exc:
@@ -157,13 +182,6 @@ def run_ingestion_unit(
 
     # Optional planner-driven slicing (independent of endpoint hook)
     plan = None
-    unit_descriptor = None
-    if isinstance(endpoint, SupportsIngestionUnits):
-        try:
-            descriptors = endpoint.list_units()
-            unit_descriptor = next((d for d in descriptors if d.unit_id == unit_id), None)
-        except Exception:
-            unit_descriptor = None
 
     try:
         ingestion_cfg = dict(policy or {}) if isinstance(policy, dict) else {}
@@ -199,7 +217,11 @@ def run_ingestion_unit(
             incremental_literal=incr_lit_hint,
         )
         if plan and getattr(plan, "slices", None):
-            planned_slices = plan.slices
+            normalized_plan_slices = _normalize_plan_slices(plan.slices, unit_id)
+            if normalized_plan_slices:
+                planned_slices = planned_slices or normalized_plan_slices
+            plan_metadata.update(getattr(plan, "metadata", {}) or {})
+            plan_strategy = plan_strategy or strategy or (plan_metadata.get("strategy") if isinstance(plan_metadata, dict) else None)
             emitter.emit(
                 Event(
                     category=EventCategory.PLAN,
@@ -207,8 +229,9 @@ def run_ingestion_unit(
                     payload={
                         "unitId": unit_id,
                         "endpointId": endpoint_id,
-                        "slices": len(plan.slices),
-                        "plan_metadata": getattr(plan, "metadata", {}),
+                        "slices": len(planned_slices or []),
+                        "plan_metadata": getattr(plan, "metadata", {}) or plan_metadata,
+                        "strategy": plan_strategy,
                     },
                 )
             )
@@ -233,15 +256,20 @@ def run_ingestion_unit(
     try:
         effective_policy = dict(policy or {})
         if planned_slices:
-            effective_policy.setdefault("planned_slices", planned_slices)
+            effective_policy.setdefault(
+                "planned_slices",
+                [_slice_to_payload(slice_obj, idx) for idx, slice_obj in enumerate(planned_slices)],
+            )
 
         if planned_slices:
-            all_records = []
-            slice_stats = []
+            all_records: List[Any] = []
+            slice_stats: List[Dict[str, Any]] = []
             last_result = None
             for idx, slice_bounds in enumerate(planned_slices):
+                slice_payload = _slice_to_payload(slice_bounds, idx)
                 slice_policy = dict(effective_policy)
-                slice_policy["slice"] = slice_bounds
+                slice_policy["slice"] = slice_payload
+                slice_policy["sliceKey"] = slice_payload.get("slice_key")
                 slice_policy["slice_index"] = idx
                 result = endpoint.run_ingestion_unit(
                     unit_id,
@@ -256,15 +284,17 @@ def run_ingestion_unit(
                 slice_records = getattr(result, "records", None) or []
                 all_records.extend(slice_records)
                 st = getattr(result, "stats", {}) or {}
-                st.setdefault("slice", slice_bounds)
+                st.setdefault("slice", slice_payload)
+                st.setdefault("sliceKey", slice_payload.get("slice_key"))
                 st.setdefault("sliceIndex", idx)
                 slice_stats.append(st)
             if last_result is None:
                 raise RuntimeError("planned_slices provided but no results returned")
             records = all_records
-            stats = getattr(last_result, "stats", {}) or {}
-            stats.setdefault("plannedSlices", len(planned_slices))
-            stats["slices"] = slice_stats
+            stats_obj = getattr(last_result, "stats", {}) or {}
+            stats_payload: Dict[str, Any] = dict(stats_obj) if isinstance(stats_obj, dict) else {"stats": stats_obj}
+            stats_payload.setdefault("plannedSlices", len(planned_slices))
+            stats_payload["slices"] = slice_stats
             payload = getattr(last_result, "__dict__", last_result)
         else:
             result = endpoint.run_ingestion_unit(
@@ -277,44 +307,58 @@ def run_ingestion_unit(
                 transient_state=transient_state,
             )
             records = getattr(result, "records", None) or []
-            stats = getattr(result, "stats", {}) or {}
+            stats_obj = getattr(result, "stats", {}) or {}
+            stats_payload = dict(stats_obj) if isinstance(stats_obj, dict) else {"stats": stats_obj}
             payload = getattr(result, "__dict__", result)
 
         if cdm_model_id:
             family = template_id.split(".", 1)[0]
             records = apply_cdm(family, unit_id, cdm_model_id, records, dataset_id=unit_id, endpoint_id=endpoint_id)
-        stats.setdefault("completedAt", completed_at)
-        stats.setdefault("unitId", unit_id)
-        stats.setdefault("endpointId", endpoint_id)
+        stats_payload.setdefault("completedAt", completed_at)
+        stats_payload.setdefault("unitId", unit_id)
+        stats_payload.setdefault("endpointId", endpoint_id)
+        if plan_strategy:
+            stats_payload.setdefault("strategy", plan_strategy)
+        if plan_metadata:
+            stats_payload.setdefault("planMetadata", plan_metadata)
+        if planned_slices is not None:
+            stats_payload.setdefault("plannedSlices", len(planned_slices))
         payload = dict(payload)
         payload["records"] = records
-        payload["stats"] = stats
+        payload["stats"] = stats_payload
         emitter.emit(
             Event(
                 category=EventCategory.INGEST,
                 type=EventType.INGEST_TABLE_SUCCESS,
-                payload={"unitId": unit_id, "endpointId": endpoint_id, "rows": stats.get("rows")},
+                payload={"unitId": unit_id, "endpointId": endpoint_id, "rows": stats_payload.get("rows")},
             )
         )
         # Emit lightweight metrics
+        load_date_val = policy.get("load_date") if isinstance(policy, dict) else None
+        load_date = str(load_date_val or completed_at)
+        duration_raw = stats_payload.get("durationSeconds") if isinstance(stats_payload, dict) else None
+        duration_val = float(duration_raw) if duration_raw is not None else None
+        rows_raw = stats_payload.get("rows") if isinstance(stats_payload, dict) else None
+        rows_val = int(rows_raw) if rows_raw is not None else None
+
         _maybe_emit_ingestion_runtime(
             context,
             schema=table_cfg.get("schema") or "ingestion",
             table=unit_id,
             mode=mode or "full",
-            load_date=policy.get("load_date") if isinstance(policy, dict) else None or completed_at,
-            duration=stats.get("durationSeconds") if isinstance(stats, dict) else None,
+            load_date=load_date,
+            duration=duration_val,
             status="success",
-            rows=stats.get("rows") if isinstance(stats, dict) else None,
+            rows=rows_val,
         )
         _maybe_emit_ingestion_metrics(
             context,
             schema=table_cfg.get("schema") or "ingestion",
             table=unit_id,
             mode=mode or "full",
-            load_date=policy.get("load_date") if isinstance(policy, dict) else None or completed_at,
-            rows=stats.get("rows") if isinstance(stats, dict) else None,
-            result=stats,
+            load_date=load_date,
+            rows=rows_val,
+            result=stats_payload,
         )
         return payload
     except Exception as exc:
@@ -330,12 +374,14 @@ def run_ingestion_unit(
                 },
             )
         )
+        load_date_val = policy.get("load_date") if isinstance(policy, dict) else None
+        load_date = str(load_date_val or completed_at)
         _maybe_emit_ingestion_runtime(
             context,
             schema=table_cfg.get("schema") or "ingestion",
             table=unit_id,
             mode=mode or "full",
-            load_date=policy.get("load_date") if isinstance(policy, dict) else None or completed_at,
+            load_date=load_date,
             duration=None,
             status="failed",
             error=str(exc),
@@ -343,6 +389,69 @@ def run_ingestion_unit(
         raise
     finally:
         _safe_stop_tool(tool)
+
+
+def _resolve_target_slice_size(policy: Optional[Dict[str, Any]]) -> Optional[int]:
+    if not isinstance(policy, dict):
+        return None
+    for key in ("target_slice_size", "targetSliceSize", "target_rows_per_slice", "targetRowsPerSlice"):
+        value = policy.get(key)
+        if isinstance(value, (int, float)):
+            try:
+                return int(value)
+            except Exception:
+                continue
+    return None
+
+
+def _normalize_plan_slices(raw_slices: Any, unit_id: str) -> List[IngestionSlice]:
+    slices: List[IngestionSlice] = []
+    if raw_slices is None:
+        return slices
+    for idx, entry in enumerate(raw_slices):
+        if isinstance(entry, IngestionSlice):
+            key = entry.key or f"{unit_id}-slice-{idx}"
+            slices.append(
+                IngestionSlice(
+                    key=key,
+                    sequence=entry.sequence or idx,
+                    params=dict(entry.params or {}),
+                    lower=getattr(entry, "lower", None),
+                    upper=getattr(entry, "upper", None),
+                )
+            )
+            continue
+        if isinstance(entry, dict):
+            params = dict(entry.get("params") or entry)
+            lower = entry.get("lower")
+            upper = entry.get("upper")
+            key = str(entry.get("key") or params.get("slice_key") or f"{unit_id}-slice-{idx}")
+            seq_val = entry.get("sequence") or entry.get("slice_index") or idx
+            try:
+                sequence = int(seq_val)
+            except Exception:
+                sequence = idx
+            slices.append(IngestionSlice(key=key, sequence=sequence, params=params, lower=lower, upper=upper))
+    return slices
+
+
+def _slice_to_payload(slice_obj: Any, idx: int) -> Dict[str, Any]:
+    if isinstance(slice_obj, IngestionSlice):
+        return slice_obj.to_params()
+    payload = dict(slice_obj) if isinstance(slice_obj, dict) else {}
+    payload.setdefault("slice_key", getattr(slice_obj, "key", None) or payload.get("key") or f"slice-{idx}")
+    if "sequence" not in payload:
+        seq_val = getattr(slice_obj, "sequence", None) if slice_obj is not None else None
+        seq_val = seq_val if seq_val is not None else payload.get("slice_index", idx)
+        try:
+            payload["sequence"] = int(seq_val)
+        except Exception:
+            payload["sequence"] = idx
+    if "lower" not in payload and hasattr(slice_obj, "lower"):
+        payload["lower"] = getattr(slice_obj, "lower")
+    if "upper" not in payload and hasattr(slice_obj, "upper"):
+        payload["upper"] = getattr(slice_obj, "upper")
+    return payload
 
 
 def _resolve_parameters_from_policy(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:

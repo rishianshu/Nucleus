@@ -176,7 +176,8 @@ type PersistIngestionBatchesInput = {
   unitId: string;
   sinkId: string;
   runId: string;
-  records: NormalizedRecordInput[];
+  records?: NormalizedRecordInput[] | null;
+  staging?: Array<{ path: string; providerId?: string | null }>;
   stats?: Record<string, unknown> | null;
   sinkEndpointId?: string | null;
   dataMode?: string | null;
@@ -559,12 +560,22 @@ export const activities: MetadataActivities = {
     sinkId,
     runId,
     records,
+    staging,
     stats,
     sinkEndpointId,
     dataMode,
     cdmModelId,
   }: PersistIngestionBatchesInput): Promise<void> {
-    if (!records || records.length === 0) {
+    const workingRecords: NormalizedRecordInput[] = Array.isArray(records) ? [...records] : [];
+    if (workingRecords.length === 0 && Array.isArray(staging) && staging.length > 0) {
+      for (const handle of staging) {
+        const loaded = await loadRecordsFromHandle(handle);
+        if (loaded.length > 0) {
+          workingRecords.push(...loaded);
+        }
+      }
+    }
+    if (workingRecords.length === 0) {
       return;
     }
     const sink = getIngestionSink(sinkId);
@@ -581,7 +592,7 @@ export const activities: MetadataActivities = {
       cdmModelId: cdmModelId ?? null,
     };
     await sink.begin(context);
-    const grouped = groupRecordsByCdmModel(records, context.cdmModelId ?? null);
+    const grouped = groupRecordsByCdmModel(workingRecords, context.cdmModelId ?? null);
     for (const group of grouped) {
       const groupContext: IngestionSinkContext = {
         ...context,
@@ -662,6 +673,23 @@ const STAGING_LOADERS: Record<string, (path: string) => Promise<unknown>> = {
 async function readJsonFile(filePath: string): Promise<unknown> {
   const content = await fs.readFile(filePath, "utf-8");
   return JSON.parse(content);
+}
+
+async function loadRecordsFromHandle(handle: { path: string; providerId?: string | null }): Promise<NormalizedRecordInput[]> {
+  if (!handle?.path) {
+    return [];
+  }
+  const provider = handle.providerId ?? DEFAULT_STAGING_PROVIDER;
+  const loader = STAGING_LOADERS[provider];
+  if (!loader) {
+    throw new Error(`Unsupported staging provider '${provider}'`);
+  }
+  try {
+    const content = await loader(handle.path);
+    return Array.isArray(content) ? (content as NormalizedRecordInput[]) : [];
+  } finally {
+    await deleteTempFile(handle.path).catch(() => {});
+  }
 }
 
 function groupRecordsByCdmModel(

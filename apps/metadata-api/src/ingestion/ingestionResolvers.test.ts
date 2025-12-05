@@ -236,6 +236,112 @@ test("startIngestion bypass path succeeds for Jira units", async (t) => {
   assert.equal(markUnitStateStub.mock.callCount(), 1);
 });
 
+test("startIngestion fails when dataset is missing", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-start-missing-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext({ bypassWrites: false, roles: ["viewer", "editor", "admin"] });
+  const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
+  assert.ok(jiraTemplate);
+  await store.saveEndpointTemplates([jiraTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "jira-endpoint-start-missing",
+    name: "Jira Dev",
+    verb: "GET",
+    url: "https://example.atlassian.net",
+    projectId: ctx.auth.projectId,
+    domain: "work.jira",
+    config: {
+      templateId: "jira.http",
+      parameters: {
+        base_url: "https://example.atlassian.net",
+        auth_type: "basic",
+        username: "bot@example.com",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  await assert.rejects(
+    () =>
+      resolvers.Mutation.startIngestion(null, { endpointId: endpoint.id!, unitId: "jira.projects" }, ctx as any),
+    (error: any) => {
+      assert.equal(error.extensions?.code, "E_INGESTION_DATASET_UNKNOWN");
+      assert.equal(ensureUnitStateStub.mock.callCount(), 0);
+      return true;
+    },
+  );
+});
+
+test("startIngestion fails when dataset is disabled", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-start-disabled-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  resetStateStoreMocks();
+  resetConfigStore();
+  const resolvers = createResolvers(store, {
+    graphStore,
+    ingestionStateStore: stateStoreOverrides(),
+    ingestionConfigStore: configStoreOverrides(),
+  });
+  const ctx = buildIngestionContext({ bypassWrites: false, roles: ["viewer", "editor", "admin"] });
+  const jiraTemplate = DEFAULT_ENDPOINT_TEMPLATES.find((template) => template.id === "jira.http");
+  assert.ok(jiraTemplate);
+  await store.saveEndpointTemplates([jiraTemplate as unknown as MetadataEndpointTemplateDescriptor]);
+  const endpoint = await store.registerEndpoint({
+    id: "jira-endpoint-start-disabled",
+    name: "Jira Dev",
+    verb: "GET",
+    url: "https://example.atlassian.net",
+    projectId: ctx.auth.projectId,
+    domain: "work.jira",
+    config: {
+      templateId: "jira.http",
+      parameters: {
+        base_url: "https://example.atlassian.net",
+        auth_type: "basic",
+        username: "bot@example.com",
+        api_token: "token",
+      },
+    },
+    capabilities: ["metadata"],
+  });
+  await seedCatalogDataset(store, endpoint.id!, "jira.projects");
+  await configStoreOverrides().saveIngestionUnitConfig({
+    endpointId: endpoint.id!,
+    datasetId: "jira.projects",
+    unitId: "jira.projects",
+    enabled: false,
+    runMode: "INCREMENTAL",
+    mode: "raw",
+    sinkId: "kb",
+    policy: null,
+    filter: null,
+  });
+  await assert.rejects(
+    () =>
+      resolvers.Mutation.startIngestion(null, { endpointId: endpoint.id!, unitId: "jira.projects" }, ctx as any),
+    (error: any) => {
+      assert.equal(error.extensions?.code, "E_INGESTION_DATASET_DISABLED");
+      assert.equal(ensureUnitStateStub.mock.callCount(), 0);
+      return true;
+    },
+  );
+});
+
 test("configureIngestionUnit persists Jira filters for Jira units", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-ingestion-config-filters-"));
   t.after(async () => {

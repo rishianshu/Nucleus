@@ -13,6 +13,10 @@ async function createClient() {
   const address = process.env.TEMPORAL_ADDRESS ?? "127.0.0.1:7233";
   const namespace = process.env.TEMPORAL_NAMESPACE ?? "default";
   const taskQueue = process.env.METADATA_TEMPORAL_TASK_QUEUE ?? "metadata";
+  // Helpful for debugging when multiple Temporal frontends exist (e.g., Docker vs local dev server).
+  // Logs once on first client creation.
+  // eslint-disable-next-line no-console
+  console.info("[metadata-temporal] connecting", { address, namespace, taskQueue });
   const connection = await Connection.connect({ address });
   const client = new Client({ connection, namespace });
   return { client, taskQueue };

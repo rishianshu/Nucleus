@@ -5,12 +5,12 @@ import random
 import time
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-import requests
-from requests.auth import HTTPBasicAuth
+import requests  # type: ignore[import-untyped]
+from requests.auth import HTTPBasicAuth  # type: ignore[import-untyped]
 
 from ingestion_models.endpoints import (
     EndpointCapabilities,
@@ -24,8 +24,11 @@ from ingestion_models.endpoints import (
     EndpointProbingPlan,
     EndpointTestResult,
     EndpointUnitDescriptor,
+    IngestionPlan,
+    IngestionSlice,
     IngestionCapableEndpoint,
     SupportsIngestionExecution,
+    SupportsIncrementalPlanning,
     SupportsPreview,
     MetadataSubsystem,
 )
@@ -38,7 +41,7 @@ JIRA_RATE_LIMIT_FALLBACK_DELAY = max(1.0, float(os.environ.get("JIRA_RATE_LIMIT_
 
 logger = logging.getLogger(__name__)
 
-class JiraEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, SupportsPreview):
+class JiraEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, SupportsIngestionExecution, SupportsPreview):
     """Jira REST endpoint descriptor + placeholder source implementation."""
 
     TEMPLATE_ID = "jira.http"
@@ -272,7 +275,7 @@ class JiraEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, Support
             self.metadata_access = metadata_access
         else:
             from endpoint_service.endpoints.jira.metadata import JiraMetadataSubsystem
-            self.metadata_access = JiraMetadataSubsystem(self)  # type: ignore[call-arg]
+            self.metadata_access = JiraMetadataSubsystem(self)
         self.emitter = emitter
         self._caps = EndpointCapabilities(
             supports_full=True,
@@ -299,7 +302,7 @@ class JiraEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, Support
     def read_full(self) -> Any:  # pragma: no cover - not implemented yet
         raise NotImplementedError("JiraEndpoint runtime export has not been implemented. Use ingestion workflows.")
 
-    def read_slice(self, *, lower: str, upper: str | None) -> Any:  # pragma: no cover - not implemented yet
+    def read_slice(self, *, lower: Optional[str], upper: Optional[str]) -> Any:  # pragma: no cover - not implemented yet
         raise NotImplementedError("JiraEndpoint runtime export has not been implemented. Use ingestion workflows.")
 
     def count_between(self, *, lower: str, upper: str | None) -> int:  # pragma: no cover - not implemented yet
@@ -344,6 +347,50 @@ class JiraEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, Support
                 )
             )
         return units
+
+    def plan_incremental_slices(
+        self,
+        *,
+        unit: EndpointUnitDescriptor,
+        checkpoint: Optional[Dict[str, Any]],
+        policy: Optional[Dict[str, Any]] = None,
+        target_slice_size: Optional[int] = None,
+    ) -> IngestionPlan:
+        params = _normalize_jira_parameters(policy or {})
+        cursor = _extract_jira_cursor(checkpoint)
+        project_keys = _normalize_project_keys(params.get("project_keys") or params.get("projectKeys"))
+        projects = project_keys or ["ALL"]
+        now_lit = datetime.now(timezone.utc).isoformat()
+        default_lower = cursor.get("lastUpdated") or (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        slices: List[IngestionSlice] = []
+        for idx, project in enumerate(projects):
+            project_cursor = None
+            if isinstance(cursor.get("projects"), dict):
+                project_cursor = cursor["projects"].get(str(project).upper(), {}).get("lastUpdated")
+            lower = project_cursor or default_lower
+            upper = now_lit
+            slice_params = {
+                "project": project if project != "ALL" else None,
+                "lower": lower,
+                "upper": upper,
+            }
+            slices.append(
+                IngestionSlice(
+                    key=f"{unit.unit_id}:{project}:{idx}",
+                    sequence=idx,
+                    params={k: v for k, v in slice_params.items() if v is not None},
+                    lower=lower,
+                    upper=upper,
+                )
+            )
+        statistics = {"projects": projects, "cursor": cursor, "target_slice_size": target_slice_size}
+        return IngestionPlan(
+            endpoint_id=self.table_cfg.get("endpoint_id") or "",
+            unit_id=unit.unit_id,
+            slices=slices,
+            statistics=statistics,
+            strategy="jira-project-window",
+        )
 
     def run_ingestion_unit(
         self,
@@ -449,7 +496,7 @@ def run_jira_ingestion_unit(
     handler = JIRA_INGESTION_HANDLERS.get(handler_key)
     if not handler:
         raise ValueError(f"No ingestion handler registered for Jira unit '{unit_id}'")
-    slice_bounds = {}
+    slice_bounds: Dict[str, Any] = {}
     if isinstance(policy, dict):
         slice_bounds = policy.get("slice") or {}
     params = _normalize_jira_parameters(policy)
@@ -1132,7 +1179,7 @@ def _build_issue_record(
     return _build_normalized_record(
         entity_type="work.item",
         logical_id=f"jira::{host}::issue::{key}",
-        display_name=fields.get("summary") or key,
+        display_name=str(fields.get("summary") or key or ""),
         scope_org=org_id,
         scope_project=scope_value,
         endpoint_id=endpoint_id,
@@ -1304,7 +1351,7 @@ def _run_issues_unit(
     elif params.get("project_keys"):
         project_keys = params.get("project_keys") or []
     project_keys = [key for key in project_keys if key]
-    projects = project_keys or [None]
+    projects = project_keys or ["ALL"]
     for project_key in projects:
         scoped_params = dict(params)
         if project_key:

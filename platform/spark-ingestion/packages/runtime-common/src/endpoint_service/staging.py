@@ -3,7 +3,7 @@ import json
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, cast
 
 from pyspark.sql import SparkSession
 
@@ -27,8 +27,11 @@ class Staging:
 
     @staticmethod
     def exists(spark: SparkSession, path: str) -> bool:
-        jsc = spark._jsc
-        jvm = spark.sparkContext._jvm
+        sc = spark.sparkContext
+        if sc is None:
+            raise RuntimeError("Spark context required for staging operations")
+        jsc = cast(Any, spark)._jsc
+        jvm = cast(Any, sc)._jvm
         conf = jsc.hadoopConfiguration()
         p = jvm.org.apache.hadoop.fs.Path(path)
         return p.getFileSystem(conf).exists(p)
@@ -62,8 +65,11 @@ class Staging:
     ) -> None:
         """Remove slice dirs older than ttl that have both _SUCCESS and _LANDED."""
         try:
-            jvm = spark.sparkContext._jvm
-            jsc = spark._jsc
+            sc = spark.sparkContext
+            if sc is None:
+                raise RuntimeError("Spark context required for staging cleanup")
+            jvm = cast(Any, sc)._jvm
+            jsc = cast(Any, spark)._jsc
             conf = jsc.hadoopConfiguration()
             fs = jvm.org.apache.hadoop.fs.FileSystem.get(conf)
             Path = jvm.org.apache.hadoop.fs.Path
@@ -160,7 +166,7 @@ class TimeAwareBufferedSink:
             if self.outbox:
                 path = self.outbox.mirror_batch("events", batch)
             self.base_state._write_events(batch)
-            if path:
+            if path and self.outbox:
                 self.outbox.delete(path)
             self._last_events_flush_ts = time.time()
             emit_log(None, level="INFO", msg="sink_flush_events_ok", reason=reason, rows=len(batch), logger=self.logger)
@@ -178,7 +184,7 @@ class TimeAwareBufferedSink:
             if self.outbox:
                 path = self.outbox.mirror_batch("progress", batch)
             self.base_state._write_progress(batch)
-            if path:
+            if path and self.outbox:
                 self.outbox.delete(path)
             self._last_progress_flush_ts = time.time()
             emit_log(None, level="INFO", msg="sink_flush_progress_ok", reason=reason, rows=len(batch), logger=self.logger)

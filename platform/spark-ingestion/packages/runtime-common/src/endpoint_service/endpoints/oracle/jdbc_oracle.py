@@ -61,7 +61,7 @@ class OracleEndpoint(JdbcEndpoint, IngestionCapableEndpoint):
     ) -> None:
         super().__init__(tool, jdbc_cfg, table_cfg, metadata_access=metadata_access, emitter=emitter)
         self._caps.supports_metadata = True
-        self._metadata = OracleMetadataSubsystem(self)  # type: ignore[call-arg]
+        self._metadata = OracleMetadataSubsystem(self)
 
     def _literal(self, value: str) -> str:
         incr_type = (self.table_cfg.get("incr_col_type") or "").lower()

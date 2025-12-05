@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 try:
     from pyspark.sql import DataFrame, SparkSession
@@ -21,7 +21,7 @@ from ...common import RUN_ID
 from ...io.filesystem import HDFSUtil
 from ...io.paths import Paths
 from ...staging import Staging
-from endpoint_service.query.plan import OrderItem, QueryPlan, QueryResult, SelectItem
+from endpoint_service.query.plan import OrderItem, QueryPlan as QueryPlanModel, QueryResult as QueryResultModel, SelectItem
 from ingestion_models.endpoints import (
     EndpointCapabilities,
     EndpointCapabilityDescriptor,
@@ -38,6 +38,8 @@ from ingestion_models.endpoints import (
     SinkWriteResult,
     SliceStageResult,
     SupportsQueryExecution,
+    QueryPlan as QueryPlanContract,
+    QueryResult as QueryResultContract,
 )
 from .warehouse import HiveHelper, IcebergHelper
 
@@ -186,6 +188,7 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
         schema: str,
         table: str,
         rows: Optional[int] = None,
+        **kwargs: Any,
     ) -> SinkWriteResult:
         self.load_date = load_date
         raw_dir, _, _ = self._paths_for(load_date)
@@ -251,8 +254,11 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
                 raw_dir,
             )
         else:
-            jsc = self.spark._jsc
-            jvm = self.spark.sparkContext._jvm
+            sc = self.spark.sparkContext
+            if sc is None:
+                raise RuntimeError("Spark context required for finalize_copy")
+            jsc = cast(Any, self.spark)._jsc
+            jvm = cast(Any, sc)._jvm
             conf = jsc.hadoopConfiguration()
             fs = jvm.org.apache.hadoop.fs.FileSystem.get(conf)
             Path = jvm.org.apache.hadoop.fs.Path
@@ -295,9 +301,9 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
             self.cfg,
             context.schema,
             context.table,
-            incr_col,
-            slice_info.lower,
-            hi_value,
+            incr_col or "",
+            slice_info.lower or "",
+            hi_value or "",
         )
         if Staging.is_success(self.spark, slice_path) and Staging.is_landed(self.spark, slice_path):
             return SliceStageResult(
@@ -568,8 +574,11 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
             return []
         base = f"{Staging.root(self.cfg)}/{self.schema}/{self.table}/inc={incr_col}/slices"
         try:
-            jsc = self.spark._jsc
-            jvm = self.spark.sparkContext._jvm
+            sc = self.spark.sparkContext
+            if sc is None:
+                return []
+            jsc = cast(Any, self.spark)._jsc
+            jvm = cast(Any, sc)._jvm
             conf = jsc.hadoopConfiguration()
             fs = jvm.org.apache.hadoop.fs.FileSystem.get(conf)
             Path = jvm.org.apache.hadoop.fs.Path
@@ -729,9 +738,10 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
                 IcebergHelper.qualified_name({"runtime": self.runtime_cfg}, self.schema, self.table, quoted=True)
             )
         except AnalysisException as exc:  # pragma: no cover - defensive logging
+            desc = getattr(exc, "desc", str(exc))
             return {
                 "status": "error",
-                "error": f"iceberg_table_missing: {exc.desc}",
+                "error": f"iceberg_table_missing: {desc}",
                 "merged_rows": 0,
                 "partition_updated": False,
             }
@@ -812,7 +822,7 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
     def _paths_for(self, load_date: str) -> Tuple[str, str, str]:
         return Paths.build(self.runtime_cfg, self.schema, self.table, load_date)
 
-    def execute_query_plan(self, plan: QueryPlan) -> QueryResult:
+    def execute_query_plan(self, plan: QueryPlanContract, *, fetchsize_override: Optional[int] = None) -> QueryResultContract:
         selects = plan.selects or (SelectItem(expression="*"),)
         runtime_wrapper = {"runtime": self.runtime_cfg}
         IcebergHelper.setup_catalog(self.spark, runtime_wrapper)
@@ -842,7 +852,7 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
         sql = f"SELECT {select_clause} FROM {table_name}{where_clause}{group_clause}{having_clause}{order_clause}{limit_clause}"
         df = self.spark.sql(sql)
         rows = [row.asDict(recursive=True) for row in df.collect()]
-        return QueryResult.from_records(rows)
+        return QueryResultModel.from_records(rows)
 
     def rebuild_from_raw(self, *, logger, keep_backup: bool = False) -> Dict[str, Any]:
         inter_cfg = self.runtime_cfg.get("intermediate", {"enabled": False})
@@ -863,8 +873,11 @@ class HdfsParquetEndpoint(SinkEndpoint, SupportsQueryExecution):
         )
 
         read_format = self.runtime_cfg.get("write_format", "parquet")
-        jsc = self.spark._jsc
-        jvm = self.spark.sparkContext._jvm
+        sc = self.spark.sparkContext
+        if sc is None:
+            raise RuntimeError("Spark context required for merge/publish")
+        jsc = cast(Any, self.spark)._jsc
+        jvm = cast(Any, sc)._jvm
         conf = jsc.hadoopConfiguration()
         base_path = jvm.org.apache.hadoop.fs.Path(self.base_raw)
         fs = base_path.getFileSystem(conf)

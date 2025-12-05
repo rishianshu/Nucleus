@@ -328,6 +328,7 @@ test("metadata viewer role cannot mutate endpoints", async ({ page, request }) =
     .textContent()
     .catch(() => null);
   console.info("[metadata-auth] viewer runtime role:", runtimeRole);
+  await ensureWorkspaceReady(page);
   await page.getByRole("button", { name: "Endpoints" }).click();
   await ensureWorkspaceReady(page);
   await expect(page.getByTestId("metadata-register-open").first()).toBeDisabled();
@@ -603,6 +604,11 @@ test("knowledge base overview surfaces metrics and explorer links", async ({ pag
   await openKnowledgeBase(page);
   await expect(page.getByText("Admin Console")).toBeVisible();
   await expect(page.getByText("Total nodes")).toBeVisible({ timeout: 20_000 });
+  const payloadPreview = page.locator("[data-testid='kb-payload-preview']");
+  if (await payloadPreview.count()) {
+    await expect(payloadPreview).not.toContainText(/\"payload\"/i);
+    await expect(payloadPreview).toContainText(/Schema|Fields|Columns/i);
+  }
   await page.getByRole("button", { name: /View explorer/i }).first().click();
   await expect(page).toHaveURL(/\/kb\/explorer\/nodes/);
 });
@@ -658,6 +664,10 @@ test("knowledge base explorers support node and edge actions", async ({ page }) 
   await page.getByTestId("kb-tab-nodes").click();
   const nodeRows = page.locator("table tbody tr");
   await expect(nodeRows.first()).toBeVisible({ timeout: 20_000 });
+  const nodeCountBefore = await nodeRows.count();
+  await nodeTypeFilter.selectOption({ index: 1 });
+  const nodeCountAfter = await nodeRows.count();
+  expect(nodeCountAfter).toBeLessThanOrEqual(nodeCountBefore);
   await nodeRows.first().click();
   const nodeDetail = page.getByTestId("kb-node-detail-panel");
   await expect(nodeDetail).toBeVisible();

@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import time
-from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING, Mapping
 from urllib.parse import urlparse
 
 from endpoint_service.endpoints.jira.normalizer import JiraMetadataNormalizer
@@ -20,12 +20,8 @@ from ingestion_models.metadata import (
 )
 
 from endpoint_service.endpoints.jira.jira_catalog import JIRA_API_LIBRARY, JIRA_DATASET_DEFINITIONS
-from endpoint_service.endpoints.jira import jira_http as jira_runtime  # type: ignore
-
-try:  # pragma: no cover - imported dynamically inside the Temporal worker
-    from ingestion_models.endpoints import MetadataSubsystem  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - fallback when runtime packages absent
-    MetadataSubsystem = object  # type: ignore[misc,assignment]
+from endpoint_service.endpoints.jira import jira_http as jira_runtime
+from ingestion_models.endpoints import MetadataSubsystem
 
 if TYPE_CHECKING:  # pragma: no cover
     from endpoint_service.endpoints.jira.jira_http import JiraEndpoint
@@ -79,12 +75,14 @@ class JiraMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         target_ns = (request.target.namespace or "").lower()
         if target_ns and target_ns != "jira":
             return False
-        artifact = request.artifact or {}
-        dataset_cfg = artifact.get("dataset") if isinstance(artifact, dict) else {}
+        artifact: Dict[str, Any] = dict(request.artifact or {})
+        dataset_cfg_raw = artifact.get("dataset") if isinstance(artifact, dict) else {}
+        dataset_cfg: Dict[str, Any] = dataset_cfg_raw if isinstance(dataset_cfg_raw, dict) else {}
         dataset_id = None
         if isinstance(dataset_cfg, dict):
             dataset_id = dataset_cfg.get("entity") or dataset_cfg.get("datasetId")
-            ingestion_cfg = dataset_cfg.get("ingestion") if isinstance(dataset_cfg.get("ingestion"), dict) else {}
+            raw_ingestion_cfg = dataset_cfg.get("ingestion")
+            ingestion_cfg: Dict[str, Any] = raw_ingestion_cfg if isinstance(raw_ingestion_cfg, dict) else {}
             dataset_id = ingestion_cfg.get("unitId") or dataset_id
         if not dataset_id:
             dataset_id = request.target.entity
@@ -135,10 +133,15 @@ class JiraMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         if jira_runtime is None:
             raise RuntimeError("endpoint_service endpoints package is required for Jira metadata probing")
 
-        session = jira_runtime._build_jira_session(params)  # type: ignore[attr-defined]
+        build_session = getattr(jira_runtime, "_build_jira_session", None)
+        fetch = getattr(jira_runtime, "_jira_get", None)
+        if not callable(build_session) or not callable(fetch):
+            raise RuntimeError("Jira runtime helpers are unavailable")
+
+        session = build_session(params)
         try:
-            server_info = jira_runtime._jira_get(session, base_url, "/rest/api/3/serverInfo")  # type: ignore[attr-defined]
-            user_info = jira_runtime._jira_get(session, base_url, "/rest/api/3/myself")  # type: ignore[attr-defined]
+            server_info = fetch(session, base_url, "/rest/api/3/serverInfo")
+            user_info = fetch(session, base_url, "/rest/api/3/myself")
             fields_raw = _safe_fetch(session, base_url, "/rest/api/3/field")
             statuses_raw = _safe_fetch(session, base_url, "/rest/api/3/status")
             priorities_raw = _safe_fetch(session, base_url, "/rest/api/3/priority")
@@ -192,10 +195,11 @@ class JiraMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             "base_url": params.get("base_url"),
             "project_keys": params.get("project_keys"),
         }
+        config_payload: Dict[str, Any] = dict(request.config or {})
         snapshot = self._normalizer.normalize(
             raw={"dataset": dataset_cfg, "datasource": datasource_cfg},
             environment=environment,
-            config=request.config,
+            config=config_payload,
             endpoint_descriptor={
                 "base_url": params.get("base_url"),
                 "source_id": self.endpoint.table_cfg.get("endpoint_id"),
@@ -239,14 +243,20 @@ class JiraMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         )
 
         jobs: list[MetadataJob] = []
-        source_id = getattr(request, "sourceId", None) or getattr(request, "endpointId", None)
+        source_id = getattr(request, "sourceId", None) or getattr(request, "endpointId", None) or "jira_endpoint"
         for dataset_id in dataset_ids:
             definition = DATASET_DEFINITIONS.get(dataset_id) or DATASET_DEFINITIONS.get("jira.issues")
+            if not definition:
+                logger.warn(event="metadata_dataset_unknown", dataset=dataset_id, endpoint=getattr(request, "endpointId", None))
+                continue
             dataset_cfg = _build_dataset_config(definition, params)
             target = MetadataTarget(source_id=source_id, namespace="JIRA", entity=safe_upper(dataset_cfg.get("name") or dataset_id))
             jobs.append(MetadataJob(target=target, artifact={"dataset": dataset_cfg}, endpoint=self.endpoint))
 
         return MetadataPlanningResult(jobs=jobs)
+
+    def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+        return {"status": "noop", "checkpoint": checkpoint}
 
     # ------------------------------------------------------------------ preview helpers --
     def preview_dataset(self, dataset_id: str, limit: int, config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -279,8 +289,8 @@ class JiraMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             return _normalize_dataset_name(request.target.entity)
         return _normalize_dataset_name(self.endpoint.table_cfg.get("table"))
 
-    def _resolved_parameters(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        params = deepcopy(config or {})
+    def _resolved_parameters(self, config: Mapping[str, Any] | None) -> Dict[str, Any]:
+        params = deepcopy(dict(config or {}))
         parameters = params.get("parameters") if isinstance(params.get("parameters"), dict) else params
         if not isinstance(parameters, dict):
             parameters = {}
@@ -306,8 +316,13 @@ def _split_list(value: Optional[str]) -> List[str]:
 
 
 def _safe_fetch(session, base_url: str, path: str) -> Any:
+    if jira_runtime is None:
+        return None
+    fetch = getattr(jira_runtime, "_jira_get", None)
+    if not callable(fetch):
+        return None
     try:
-        return jira_runtime._jira_get(session, base_url, path)  # type: ignore[attr-defined]
+        return fetch(session, base_url, path)
     except Exception:
         return None
 
@@ -365,7 +380,7 @@ def _build_api_catalog(params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_dataset_config(definition: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
-    cfg = {
+    cfg: Dict[str, Any] = {
         "schema": "jira",
         "entity": definition.get("datasetId"),
         "name": definition.get("name"),

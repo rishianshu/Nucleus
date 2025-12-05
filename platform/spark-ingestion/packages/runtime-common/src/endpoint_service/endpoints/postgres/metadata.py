@@ -5,6 +5,8 @@ from typing import Any, Dict, Iterable, List, TYPE_CHECKING
 
 from endpoint_service.endpoints.postgres.normalizer import PostgresMetadataNormalizer
 from endpoint_service.metadata import collect_rows, escape_literal
+from ingestion_models.endpoints import MetadataSubsystem
+from endpoint_service.tools.base import QueryRequest
 from ingestion_models.metadata import (
     CatalogSnapshot,
     MetadataConfigValidationResult,
@@ -13,13 +15,6 @@ from ingestion_models.metadata import (
     MetadataRecord,
     MetadataRequest,
 )
-
-try:
-    from ingestion_models.endpoints import MetadataSubsystem  # type: ignore
-    from endpoint_service.tools.base import QueryRequest  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - standalone usage fallback
-    MetadataSubsystem = object  # type: ignore[misc,assignment]
-    QueryRequest = object  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:  # pragma: no cover
     from endpoint_service.endpoints.postgres.jdbc_postgres import PostgresEndpoint
@@ -151,6 +146,23 @@ class PostgresMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         from endpoint_service.endpoints.jdbc.jdbc_planner import plan_jdbc_metadata_jobs
 
         return plan_jdbc_metadata_jobs(parameters, request, logger)
+
+    def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+        # Metadata subsystem does not perform data ingestion; return noop status.
+        return {"status": "noop", "checkpoint": checkpoint}
+
+    def preview_dataset(self, dataset_id: str, limit: int, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        target = dataset_id or f"{self.endpoint.schema}.{self.endpoint.table}"
+        schema, table = (target.split(".", 1) + [None])[:2]
+        if table is None:
+            table = schema
+            schema = self.endpoint.schema
+        schema = schema or self.endpoint.schema
+        table = table or self.endpoint.table
+        if not schema or not table:
+            return []
+        sql = f'SELECT * FROM "{escape_literal(schema)}"."{escape_literal(table)}" LIMIT {max(1, limit)}'
+        return self._run_metadata_query(sql)
 
     # ------------------------------------------------------------------ helpers --
     def _load_columns(self, schema: str, table: str) -> List[Dict[str, Any]]:

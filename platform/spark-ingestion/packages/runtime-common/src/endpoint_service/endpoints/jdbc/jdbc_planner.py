@@ -27,7 +27,7 @@ def plan_jdbc_metadata_jobs(parameters: Dict[str, Any], request: Any, logger) ->
 
     jdbc_cfg = _build_jdbc_config(connection_url)
     cfg = {"jdbc": jdbc_cfg}
-    source_id = getattr(request, "sourceId", None) or getattr(request, "endpointId", None)
+    source_id = getattr(request, "sourceId", None) or getattr(request, "endpointId", None) or ""
     jobs: List[MetadataJob] = []
     for table in tables:
         table_cfg = {

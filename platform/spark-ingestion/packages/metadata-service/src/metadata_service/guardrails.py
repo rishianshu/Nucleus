@@ -9,6 +9,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from ingestion_models.metadata import MetadataRepository, MetadataTarget
 
 
+def _asdict_safe(obj: Any) -> Any:
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    return obj
+
+
 @dataclass
 class PrecisionSpec:
     column: str
@@ -39,8 +45,8 @@ class PrecisionGuardrailResult:
         return {
             "target": {"namespace": self.target.namespace, "entity": self.target.entity},
             "status": self.status,
-            "issues": [asdict(issue) for issue in self.issues],
-            "cast_specs": {name: asdict(spec) for name, spec in self.cast_specs.items()},
+            "issues": [_asdict_safe(issue) for issue in self.issues],
+            "cast_specs": {name: _asdict_safe(spec) for name, spec in self.cast_specs.items()},
             "snapshot": self.snapshot,
         }
 
@@ -104,9 +110,8 @@ class PrecisionGuardrailEvaluator:
             key = name.upper()
             stats_obj = field.get("statistics")
             if stats_obj and not isinstance(stats_obj, dict):
-                if is_dataclass(stats_obj):
-                    stats_obj = asdict(stats_obj)
-                else:
+                stats_obj = _asdict_safe(stats_obj)
+                if not isinstance(stats_obj, dict):
                     stats_obj = {
                         attr: getattr(stats_obj, attr)
                         for attr in dir(stats_obj)
@@ -254,7 +259,7 @@ class PrecisionGuardrailEvaluator:
     def _snapshot_dict(self, payload: Any) -> Optional[Dict[str, Any]]:
         if isinstance(payload, dict):
             return payload
-        if is_dataclass(payload):
+        if is_dataclass(payload) and not isinstance(payload, type):
             return asdict(payload)
         return None
 
@@ -264,7 +269,7 @@ class PrecisionGuardrailEvaluator:
         for field in fields:
             if isinstance(field, dict):
                 normalized.append(field)
-            elif is_dataclass(field):
+            elif is_dataclass(field) and not isinstance(field, type):
                 normalized.append(asdict(field))
             else:
                 attrs = {k: getattr(field, k) for k in dir(field) if not k.startswith("_")}

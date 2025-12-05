@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 from endpoint_service.endpoints.jdbc import JdbcEndpoint
 from endpoint_service.tools.sqlalchemy import SQLAlchemyTool
-from ingestion_models.endpoints import MetadataCapableEndpoint  # type: ignore[unused-import]
 from metadata_service.endpoints.registry import build_endpoint, get_endpoint_class
 from metadata_service.models import MetadataConfigValidationResult, MetadataPlanningResult
 
@@ -17,6 +16,14 @@ def plan_metadata_jobs(request: Any, logger) -> MetadataPlanningResult:
 
     config = getattr(request, "config", None) or {}
     template_id = _resolve_template_id(config)
+    if not template_id:
+        logger.warn(
+            event="metadata_planning_template_unresolved",
+            template=template_id,
+            endpoint=getattr(request, "endpointId", None),
+        )
+        return MetadataPlanningResult(jobs=[])
+
     parameters = _normalize_parameters(config)
     connection_url = getattr(request, "connectionUrl", None)
     if connection_url and "connection_url" not in parameters:
@@ -30,7 +37,7 @@ def plan_metadata_jobs(request: Any, logger) -> MetadataPlanningResult:
             # If request is frozen, fall back to parameters for planners that consume it
             parameters.setdefault("schemas", schemas)
 
-    endpoint_cls = get_endpoint_class(template_id) if template_id else None
+    endpoint_cls = get_endpoint_class(template_id)
     if not endpoint_cls:
         logger.warn(
             event="metadata_planning_template_unresolved",
@@ -245,7 +252,7 @@ def _validate_parameters(
     return validation.normalized_parameters or parameters
 
 
-def _merge_jdbc_parameters(parameters: Dict[str, Any], connection_url: str) -> Dict[str, Any]:
+def _merge_jdbc_parameters(parameters: Dict[str, Any], connection_url: Optional[str]) -> Dict[str, Any]:
     cfg = dict(parameters or {})
     if not connection_url:
         return cfg

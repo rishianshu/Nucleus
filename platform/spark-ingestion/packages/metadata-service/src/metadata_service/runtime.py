@@ -17,6 +17,40 @@ if TYPE_CHECKING:  # pragma: no cover
     from metadata_service.collector import MetadataCollectionService, MetadataJob, MetadataServiceConfig
 
 
+# Minimal stubs for optional remote emitters/gateways used by runtime.
+class GraphQLMetadataEmitter:
+    def __init__(self, endpoint: str, api_key: Optional[str] = None, default_project: Optional[str] = None, headers: Optional[Dict[str, Any]] = None) -> None:
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self.default_project = default_project
+        self.headers = headers or {}
+
+    def emit(self, payload: Mapping[str, Any]) -> None:  # pragma: no cover - stub
+        ...
+
+
+class MetadataGateway:
+    def __init__(self, repository: MetadataRepository, emitter: Optional[GraphQLMetadataEmitter] = None) -> None:
+        self.repository = repository
+        self.emitter = emitter
+
+    def emit(self, context: Any, record: Any) -> None:  # pragma: no cover - stub
+        if self.emitter:
+            payload = {"context": context, "record": record}
+            self.emitter.emit(payload)
+
+
+class MetadataSDK:
+    def __init__(self, repository: MetadataRepository, gateway: Optional[MetadataGateway] = None, source_id: Optional[str] = None) -> None:
+        self.repository = repository
+        self.gateway = gateway
+        self.source_id = source_id
+
+    @classmethod
+    def with_embedded(cls, repository: MetadataRepository, *, gateway: Optional[MetadataGateway], source_id: Optional[str]) -> "MetadataSDK":
+        return cls(repository, gateway=gateway, source_id=source_id)
+
+
 def _log(logger, level: str, msg: str, **payload: Any) -> None:
     """Helper to log structured messages without depending on runtime emitters."""
     if logger is None:
@@ -53,13 +87,18 @@ def _build_metadata_configs(
     spark: Optional[SparkSession] = None,
 ) -> tuple["MetadataServiceConfig", MetadataCacheManager, str]:
     from metadata_service.collector import MetadataServiceConfig
-    meta_cfg = cfg.get("metadata", cfg.get("catalog", {})) or {}
-    runtime_cfg = cfg.get("runtime", {})
-    jdbc_cfg = cfg.get("jdbc", {})
+    meta_cfg_raw = cfg.get("metadata", cfg.get("catalog", {})) or {}
+    meta_cfg = meta_cfg_raw if isinstance(meta_cfg_raw, dict) else {}
+    runtime_cfg = cfg.get("runtime", {}) if isinstance(cfg.get("runtime", {}), dict) else {}
+    jdbc_cfg = cfg.get("jdbc", {}) if isinstance(cfg.get("jdbc", {}), dict) else {}
     dialect = (jdbc_cfg.get("dialect") or "default").lower()
 
     cache_root = meta_cfg.get("cache_path") or meta_cfg.get("root") or "cache/catalog"
-    ttl_hours = int(meta_cfg.get("ttl_hours", meta_cfg.get("ttlHours", 24)))
+    ttl_raw = meta_cfg.get("ttl_hours", meta_cfg.get("ttlHours", 24))
+    try:
+        ttl_hours = int(ttl_raw) if ttl_raw is not None else 24
+    except (TypeError, ValueError):
+        ttl_hours = 24
     enabled = bool(meta_cfg.get("enabled", True))
     source_id = (
         meta_cfg.get("source_id")
@@ -75,15 +114,15 @@ def _build_metadata_configs(
     )
     cache_manager = MetadataCacheManager(cache_cfg, logger, spark)
 
-    endpoint_defaults = meta_cfg.get("endpoint") if isinstance(meta_cfg.get("endpoint"), dict) else {}
+    endpoint_defaults_raw = meta_cfg.get("endpoint") if isinstance(meta_cfg.get("endpoint"), dict) else {}
+    endpoint_defaults: Dict[str, Any] = dict(endpoint_defaults_raw) if endpoint_defaults_raw else {}
     service_cfg = MetadataServiceConfig(endpoint_defaults=endpoint_defaults)
     return service_cfg, cache_manager, str(source_id)
 
 
 def _build_remote_emitter(meta_cfg: Dict[str, Any], cache: MetadataCacheManager):
-    if GraphQLMetadataEmitter is None:
-        return None
-    remote_cfg = meta_cfg.get("remote") if isinstance(meta_cfg.get("remote"), dict) else {}
+    meta_cfg = dict(meta_cfg or {})
+    remote_cfg = dict(meta_cfg.get("remote") or {}) if isinstance(meta_cfg.get("remote"), dict) or isinstance(meta_cfg.get("remote"), Mapping) else {}
     endpoint = (
         meta_cfg.get("graphql_endpoint")
         or remote_cfg.get("endpoint")
@@ -212,7 +251,7 @@ def collect_metadata(
             continue
         namespace = safe_upper(str(tbl.get("schema") or tbl.get("namespace") or default_namespace))
         entity = safe_upper(str(tbl.get("table") or tbl.get("dataset") or tbl.get("name") or tbl.get("entity") or "unknown"))
-        target = MetadataTarget(namespace=namespace, entity=entity)
+        target = MetadataTarget(source_id=cache_manager.cfg.source_id, namespace=namespace, entity=entity)
         jobs.append(MetadataJob(target=target, artifact=tbl, endpoint=endpoint))
 
     if not jobs:
@@ -236,7 +275,7 @@ class MetadataAccess:
     schema_validator: Any = None
 
     def snapshot_for(self, schema: str, table: str) -> Optional[SchemaSnapshot]:
-        target = MetadataTarget(namespace=safe_upper(schema), entity=safe_upper(table))
+        target = MetadataTarget(source_id=self.cache_manager.cfg.source_id, namespace=safe_upper(schema), entity=safe_upper(table))
         record = self.repository.latest(target)
         return build_schema_snapshot(record)
 

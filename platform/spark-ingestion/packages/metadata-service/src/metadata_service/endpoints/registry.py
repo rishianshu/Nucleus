@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Type
+from typing import Any, Dict, List, Type, cast
 
 from ingestion_models.endpoints import ConfigurableEndpoint, EndpointDescriptor
 from endpoint_service.endpoints.jdbc.jdbc import JdbcEndpoint
@@ -13,7 +13,7 @@ from endpoint_service.endpoints.kafka.stream_kafka import KafkaStreamEndpoint
 from endpoint_service.endpoints.confluence.confluence_http import ConfluenceEndpoint
 
 
-REGISTERED_ENDPOINTS: List[Type[ConfigurableEndpoint]] = [
+REGISTERED_ENDPOINTS: List[type] = [
     PostgresEndpoint,
     OracleEndpoint,
     MSSQLEndpoint,
@@ -24,7 +24,7 @@ REGISTERED_ENDPOINTS: List[Type[ConfigurableEndpoint]] = [
     KafkaStreamEndpoint,
 ]
 
-_CLASS_MAP: Dict[str, Type[ConfigurableEndpoint]] = {}
+_CLASS_MAP: Dict[str, type] = {}
 
 
 def collect_endpoint_descriptors() -> List[EndpointDescriptor]:
@@ -38,7 +38,7 @@ def collect_endpoint_descriptors() -> List[EndpointDescriptor]:
     return descriptors
 
 
-def get_endpoint_class(template_id: str) -> Type[ConfigurableEndpoint] | None:
+def get_endpoint_class(template_id: str) -> type | None:
     if not _CLASS_MAP:
         collect_endpoint_descriptors()
     return _CLASS_MAP.get(template_id)
@@ -59,9 +59,10 @@ def build_endpoint(
     endpoint_cls = get_endpoint_class(template_id)
     if endpoint_cls is None:
         raise ValueError(f"Unknown endpoint template '{template_id}'")
+    endpoint_ctor = cast(Type[ConfigurableEndpoint], endpoint_cls)
     try:
-        if issubclass(endpoint_cls, JdbcEndpoint):
-            return endpoint_cls(tool, endpoint_cfg, table_cfg)
-        return endpoint_cls(tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
+        if issubclass(endpoint_ctor, JdbcEndpoint):
+            return endpoint_ctor(tool, endpoint_cfg, table_cfg)
+        return endpoint_ctor(tool, endpoint_cfg, table_cfg)
     except Exception as exc:
         raise RuntimeError(f"Failed to build endpoint '{template_id}': {exc}") from exc

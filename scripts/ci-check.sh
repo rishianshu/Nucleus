@@ -65,8 +65,27 @@ run_step() {
 }
 
 start_temporal_dev_server() {
+  if python3 - <<'PY'
+import socket, os
+host = "127.0.0.1"
+port = int(os.environ.get("TEMPORAL_PORT", "7233"))
+with socket.socket() as sock:
+    sock.settimeout(1)
+    try:
+        sock.connect((host, port))
+        print("reuse-existing")
+        raise SystemExit(0)
+    except Exception:
+        raise SystemExit(1)
+PY
+  then
+    echo "[ci-check] detected existing Temporal at ${TEMPORAL_ADDRESS}, not starting local dev server"
+    return
+  fi
   local db_path="$PROJECT_ROOT/.nucleus/temporal-dev.db"
   local log_path="$LOG_DIR/temporal-dev.log"
+  # Ensure we are not reusing an out-of-date SQLite schema from older Temporal versions.
+  rm -f "$db_path"
   echo "[ci-check] starting temporal dev server (log ${log_path})"
   (cd "$PROJECT_ROOT" && temporal server start-dev --ip 127.0.0.1 --port "$TEMPORAL_DEV_PORT" --headless --db-filename "$db_path" >"$log_path" 2>&1) &
   TEMPORAL_PID=$!

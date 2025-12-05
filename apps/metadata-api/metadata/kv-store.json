@@ -2117,5 +2117,251 @@
     },
     "version": "a904b2287e264d7aad85bfec3bd6538f",
     "updatedAt": "2025-12-01T05:35:52.661Z"
+  },
+  "ingest::work.jira::endpoint::a25d2c56995b43ea96e0313ab9988c62::unit::jira.worklogs::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastStarted": "2025-12-04T11:05:21.807+0530"
+      },
+      "lastRunId": "aaafff4d-be35-47cc-a413-0ef181efeac6",
+      "stats": {
+        "planMetadata": {
+          "cursor": {},
+          "projects": [
+            "ALL"
+          ],
+          "target_slice_size": null
+        },
+        "slices": [
+          {
+            "completedAt": "2025-12-05T10:52:15.981272+00:00",
+            "endpointId": "a25d2c56995b43ea96e0313ab9988c62",
+            "lastStarted": "2025-12-04T11:05:21.807+0530",
+            "planMetadata": {
+              "cursor": {},
+              "projects": [
+                "ALL"
+              ],
+              "target_slice_size": null
+            },
+            "plannedSlices": 1,
+            "recordCount": 500,
+            "slice": {
+              "lower": "2025-11-05T10:52:15.981509+00:00",
+              "sequence": 0,
+              "slice_key": "jira.worklogs:ALL:0",
+              "upper": "2025-12-05T10:52:15.981506+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "lastStarted": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "unitId": "<cycle>",
+                "worklogsSynced": "<cycle>"
+              }
+            ],
+            "strategy": "jira-project-window",
+            "unitId": "jira.worklogs",
+            "worklogsSynced": 500
+          }
+        ],
+        "strategy": "jira-project-window"
+      },
+      "lastUpdatedAt": "2025-12-05T10:53:49.786Z"
+    },
+    "version": "b229994b7f2d43d1ba7650bc042cd184",
+    "updatedAt": "2025-12-05T10:53:49.788Z"
+  },
+  "ingest_state::endpoint::a25d2c56995b43ea96e0313ab9988c62::unit::jira.worklogs::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-05T10:53:49.790Z"
+    },
+    "version": "801d11b7dee94e3082a0667da6115dc1",
+    "updatedAt": "2025-12-05T10:53:49.790Z"
+  },
+  "ingest::docs.confluence::endpoint::f038624232644ded815b343703ade7d4::unit::confluence.page::sink::kb": {
+    "value": {
+      "cursor": {
+        "attachments": {},
+        "spaces": {
+          "AS": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "BSP": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "CE": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "CLAIMS": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "CM": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "CRMCKYC": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "DC": {
+            "lastUpdatedAt": "2025-11-13T11:02:14.459Z"
+          },
+          "DE": {
+            "lastUpdatedAt": "2025-12-03T05:46:26.431Z"
+          },
+          "DIGITAL": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "DL": {
+            "lastUpdatedAt": "2025-12-05T09:43:45.655Z"
+          },
+          "DNA": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "DSIP": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "DSO": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "EAPI": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "FBC": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "FEE": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "FINANCE": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "GLXY": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "INFRA": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "INNOVATION": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "IS": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "KG": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "LP": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "NGHP": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "NJ": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "NW": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "PLATFORM": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "SAS": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "SC": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "SE": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "SP": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "SP1": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "STARHEALTH": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "TBC": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "TC": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "TEST": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "TEST1": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          },
+          "ZOHOCRM": {
+            "lastUpdatedAt": "2025-11-05T10:55:34.952646+00:00"
+          }
+        }
+      },
+      "lastRunId": "34adbe26-16da-4681-9576-9fa12db1ad9e",
+      "stats": {
+        "planMetadata": {
+          "cursor": {},
+          "spaces": [
+            "*"
+          ],
+          "target_slice_size": null,
+          "updated_from": null
+        },
+        "slices": [
+          {
+            "completedAt": "2025-12-05T10:55:34.952421+00:00",
+            "endpointId": "f038624232644ded815b343703ade7d4",
+            "pagesSynced": 14,
+            "planMetadata": {
+              "cursor": {},
+              "spaces": [
+                "*"
+              ],
+              "target_slice_size": "<cycle>",
+              "updated_from": null
+            },
+            "plannedSlices": 1,
+            "recordCount": "<cycle>",
+            "slice": {
+              "lower": "2025-11-05T10:55:34.952646+00:00",
+              "sequence": 0,
+              "slice_key": "confluence.page:*:0",
+              "upper": "2025-12-05T10:55:34.952643+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "pagesSynced": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "spacesProcessed": "<cycle>",
+                "unitId": "<cycle>"
+              }
+            ],
+            "spacesProcessed": 38,
+            "strategy": "confluence-space-window",
+            "unitId": "confluence.page"
+          }
+        ],
+        "strategy": "confluence-space-window"
+      },
+      "lastUpdatedAt": "2025-12-05T10:55:56.839Z"
+    },
+    "version": "ae8be340d107449a8093a83dad4cd6fe",
+    "updatedAt": "2025-12-05T10:55:56.840Z"
   }
 }

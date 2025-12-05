@@ -18,9 +18,9 @@ for package in ("runtime-common", "metadata-service"):
     if str(package_src) not in sys.path:
         sys.path.append(str(package_src))
 
-from metadata_service.runtime import collect_metadata  # type: ignore  # noqa: E402
-from endpoint_service.common import PrintLogger  # type: ignore  # noqa: E402
-from endpoint_service.tools.sqlalchemy import SQLAlchemyTool  # type: ignore  # noqa: E402
+from metadata_service.runtime import collect_metadata  # noqa: E402
+from endpoint_service.common import PrintLogger  # noqa: E402
+from endpoint_service.tools.sqlalchemy import SQLAlchemyTool  # noqa: E402
 
 
 def main() -> None:

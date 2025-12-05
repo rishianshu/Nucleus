@@ -4,9 +4,10 @@ import io
 import os
 import posixpath
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple
 
 from pyspark.sql import SparkSession
+from typing import cast
 
 
 class Filesystem:
@@ -21,6 +22,7 @@ class Filesystem:
 
     @classmethod
     def for_root(cls, root: str, spark: Optional[SparkSession] = None) -> "Filesystem":
+        impl: Any
         if root.startswith("hdfs://"):
             if spark is None:
                 spark = SparkSession.getActiveSession()
@@ -91,10 +93,10 @@ class _LocalStorage:
         return os.path.join(self.root, path)
 
     def join(self, *parts: str) -> str:
-        parts = [p for p in parts if p]
-        if not parts:
+        parts_list = [p for p in parts if p]
+        if not parts_list:
             return self.root
-        return os.path.join(*parts)
+        return os.path.join(*parts_list)
 
     def relpath(self, path: str, start: str) -> str:
         return os.path.relpath(path, start)
@@ -166,8 +168,11 @@ class _HdfsStorage:
     def __init__(self, root: str, spark: SparkSession) -> None:
         self.root = root.rstrip("/")
         self.spark = spark
-        self._conf = spark._jsc.hadoopConfiguration()
-        self._jvm = spark.sparkContext._jvm
+        sc = spark.sparkContext
+        if sc is None:
+            raise RuntimeError("Spark context required for HDFS filesystem access")
+        self._conf = cast(Any, spark)._jsc.hadoopConfiguration()
+        self._jvm: Any = cast(Any, sc)._jvm
         self.Path = self._jvm.org.apache.hadoop.fs.Path
         self.fs = self._jvm.org.apache.hadoop.fs.FileSystem.get(self._conf)
         self.IOUtils = self._jvm.org.apache.hadoop.io.IOUtils

@@ -92,7 +92,7 @@ class SparkTool(ExecutionTool):
 
     def clear_job_context(self) -> None:
         sc = self.spark.sparkContext
-        sc.setLocalProperty("spark.scheduler.pool", None)
+        sc.setLocalProperty("spark.scheduler.pool", "")
         sc.setJobGroup("", "")
         self._current_pool = None
         self._current_group = None
