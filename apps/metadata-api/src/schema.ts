@@ -115,6 +115,8 @@ function previewCachePath(datasetId: string): string {
 const ENABLE_SAMPLE_FALLBACK = process.env.METADATA_SAMPLE_FALLBACK !== "0";
 const TEMPLATE_REFRESH_TIMEOUT_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_TIMEOUT_MS ?? "5000");
 const TEMPLATE_REFRESH_BACKOFF_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_BACKOFF_MS ?? "30000");
+const WORKFLOW_EXEC_TIMEOUT_MS = Number(process.env.METADATA_WORKFLOW_TIMEOUT_MS ?? "5000");
+const FAKE_COLLECTIONS_ENABLED = process.env.METADATA_FAKE_COLLECTIONS === "1";
 const PLAYWRIGHT_INVALID_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const COLLECTION_SCHEDULE_PREFIX = "collection";
 const COLLECTION_SCHEDULE_PAUSE_REASON = "collection disabled";
@@ -1129,7 +1131,7 @@ type ProvisionCdmSinkResult {
     deleteCollection(id: ID!): Boolean!
     triggerCollection(collectionId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
     triggerEndpointCollection(endpointId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
-    startIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+    startIngestion(endpointId: ID!, unitId: ID!, sinkId: String, sinkEndpointId: ID): IngestionActionResult!
     pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
@@ -1245,11 +1247,15 @@ export function createResolvers(
         }
         try {
           const { client, taskQueue } = await resolveTemporalClient();
-          built = await client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
-            taskQueue,
-            workflowId: `metadata-endpoint-build-${randomUUID()}`,
-            args: [{ templateId, parameters: templateParameters, extras: { labels: input.labels ?? undefined } }],
-          });
+          built = await withTimeout(
+            client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
+              taskQueue,
+              workflowId: `metadata-endpoint-build-${randomUUID()}`,
+              args: [{ templateId, parameters: templateParameters, extras: { labels: input.labels ?? undefined } }],
+            }),
+            WORKFLOW_EXEC_TIMEOUT_MS,
+            "metadata.endpoint.build",
+          );
           testResult = await tryTestEndpointTemplate(client, taskQueue, templateId, templateParameters);
           if (!testResult || !testResult.success) {
             throw new GraphQLError("Connection test failed. Re-run test before saving.", {
@@ -1410,7 +1416,7 @@ export function createResolvers(
     if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
       return filterTemplatesByFamily(cached, family);
     }
-    if (process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
+    if (FAKE_COLLECTIONS_ENABLED || process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
       return useCachedOrFallback();
     }
     try {
@@ -2345,7 +2351,11 @@ export function createResolvers(
         }, resolveTemporalClient);
       },
       triggerEndpointCollection: triggerEndpointCollectionMutation,
-      startIngestion: async (_parent: unknown, args: { endpointId: string; unitId: string; sinkId?: string | null }, ctx: ResolverContext) => {
+      startIngestion: async (
+        _parent: unknown,
+        args: { endpointId: string; unitId: string; sinkId?: string | null; sinkEndpointId?: string | null },
+        ctx: ResolverContext,
+      ) => {
         enforceIngestionAdmin(ctx);
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
@@ -2392,7 +2402,7 @@ export function createResolvers(
         let config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
         const datasetId = config?.datasetId ?? unit.datasetId ?? args.unitId;
         let datasetRecord = await store.getRecord(CATALOG_DATASET_DOMAIN, datasetId);
-        if ((!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) && !allowFakeRun) {
+        if (!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) {
           const related = await listCatalogRecordsForEndpoint(store, endpoint);
           datasetRecord =
             related.find((entry) => {
@@ -2407,6 +2417,25 @@ export function createResolvers(
               return ingestionUnitId === args.unitId || ingestionUnitId === unit?.datasetId;
             }) ?? null;
         }
+        if (!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) {
+          datasetRecord = await ensureCatalogDatasetForUnit(store, endpoint, datasetId).catch(() => datasetRecord);
+        }
+        if (!config) {
+          const autoSinkId = resolveIngestionSinkId(args.sinkId ?? unit.defaultSinkId);
+          config = await configStore.saveIngestionUnitConfig({
+            endpointId: endpointRowId,
+            datasetId,
+            unitId: unit.unitId,
+            enabled: true,
+            runMode: inferDefaultMode(unit),
+            mode: "raw",
+            sinkId: autoSinkId,
+            sinkEndpointId: args.sinkEndpointId ?? null,
+            scheduleKind: unit.defaultScheduleKind ?? undefined,
+            scheduleIntervalMinutes: unit.defaultScheduleIntervalMinutes ?? undefined,
+            policy: normalizePolicyRecord(unit.defaultPolicy),
+          });
+        }
         if (!allowFakeRun) {
           if (!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) {
             throw new GraphQLError("Dataset not found for this endpoint.", {
@@ -2418,22 +2447,6 @@ export function createResolvers(
               extensions: { code: "E_INGESTION_DATASET_DISABLED", unitId: args.unitId },
             });
           }
-        }
-        if (!config && allowFakeRun) {
-          const autoSinkId = resolveIngestionSinkId(args.sinkId ?? unit.defaultSinkId);
-          await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
-          config = await configStore.saveIngestionUnitConfig({
-            endpointId: endpointRowId,
-            datasetId,
-            unitId: unit.unitId,
-            enabled: true,
-            runMode: inferDefaultMode(unit),
-            mode: "raw",
-            sinkId: autoSinkId,
-            scheduleKind: unit.defaultScheduleKind ?? undefined,
-            scheduleIntervalMinutes: unit.defaultScheduleIntervalMinutes ?? undefined,
-            policy: normalizePolicyRecord(unit.defaultPolicy),
-          });
         }
         if (!config) {
           throw new GraphQLError("Ingestion dataset is not enabled.", {
@@ -2666,12 +2679,25 @@ export function createResolvers(
           return { success: false, message: "templateId required in config for testing." };
         }
         const parameters = parseTemplateParameters(args.input.config);
+        const skipTest = ctx.bypassWrites || FAKE_COLLECTIONS_ENABLED || process.env.METADATA_SKIP_ENDPOINT_TESTS === "1";
+        if (skipTest) {
+          return {
+            success: true,
+            message: "Connection test skipped in fake/skip mode.",
+            capabilities: ["metadata", "preview", "ingestion"],
+            detectedVersion: "stub",
+          };
+        }
         const { client, taskQueue } = await resolveTemporalClient();
-        return client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
-          taskQueue,
-          workflowId: `metadata-endpoint-test-${randomUUID()}`,
-          args: [{ templateId, parameters }],
-        });
+        return withTimeout(
+          client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
+            taskQueue,
+            workflowId: `metadata-endpoint-test-${randomUUID()}`,
+            args: [{ templateId, parameters }],
+          }),
+          WORKFLOW_EXEC_TIMEOUT_MS,
+          "metadata.endpoint.test",
+        );
       },
       previewMetadataDataset: async (_parent: unknown, args: { id: string; limit?: number | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -3342,11 +3368,15 @@ async function tryTestEndpointTemplate(
   parameters: Record<string, string>,
 ): Promise<EndpointTestResult | null> {
   try {
-    return await client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
-      taskQueue,
-      workflowId: `metadata-endpoint-test-${randomUUID()}`,
-      args: [{ templateId, parameters }],
-    });
+    return await withTimeout(
+      client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
+        taskQueue,
+        workflowId: `metadata-endpoint-test-${randomUUID()}`,
+        args: [{ templateId, parameters }],
+      }),
+      WORKFLOW_EXEC_TIMEOUT_MS,
+      "metadata.endpoint.test",
+    );
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("Endpoint test failed during registration; continuing without detected version.", error);

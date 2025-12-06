@@ -11,6 +11,7 @@ from endpoint_service.endpoints.http.http_rest import HttpApiEndpoint
 from endpoint_service.endpoints.jira.jira_http import JiraEndpoint
 from endpoint_service.endpoints.kafka.stream_kafka import KafkaStreamEndpoint
 from endpoint_service.endpoints.confluence.confluence_http import ConfluenceEndpoint
+from endpoint_service.endpoints.onedrive.onedrive_http import OneDriveEndpoint
 
 
 REGISTERED_ENDPOINTS: List[type] = [
@@ -22,6 +23,7 @@ REGISTERED_ENDPOINTS: List[type] = [
     JiraEndpoint,
     ConfluenceEndpoint,
     KafkaStreamEndpoint,
+    OneDriveEndpoint,
 ]
 
 _CLASS_MAP: Dict[str, type] = {}

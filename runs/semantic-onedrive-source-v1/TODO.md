@@ -1,0 +1,4 @@
+- (Done) Run `pnpm ci-check` (with `METADATA_FAKE_COLLECTIONS=1` to keep OneDrive stub/temporal lightweight) to catch any remaining integration regressions.
+- Verify GraphQL/Temporal ingestion flow end-to-end against the stub harness (start ingestion → staging → cdm sink).
+- Confirm catalog metadata output shows OneDrive datasets/labels in UI + docs explorer (manual/Playwright as feasible).
+- Update STATE/STORY once verification is complete.

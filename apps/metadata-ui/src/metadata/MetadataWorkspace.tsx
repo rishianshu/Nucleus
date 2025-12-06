@@ -1003,7 +1003,11 @@ export function MetadataWorkspace({
       if (override) {
         const overrideTime = new Date(override.requestedAt).getTime();
         const candidateTime = candidate?.requestedAt ? new Date(candidate.requestedAt).getTime() : 0;
-        if (!candidate || overrideTime >= candidateTime) {
+        const overrideIsRunning = override.status === "RUNNING" || override.status === "QUEUED";
+        const candidateIsTerminal = candidate && candidate.status !== "RUNNING" && candidate.status !== "QUEUED";
+        if (overrideIsRunning && candidateIsTerminal) {
+          // Prefer a completed run over a stale running override.
+        } else if (!candidate || overrideTime >= candidateTime) {
           candidate = override;
         }
       }
@@ -1767,8 +1771,23 @@ export function MetadataWorkspace({
         undefined,
         { token: authToken ?? undefined },
       );
+      const triggeredRun = payload.triggerEndpointCollection ?? null;
+      if (triggeredRun) {
+        setMetadataRunStatusOverrides((prev) => ({
+          ...prev,
+          [endpointId]: {
+            ...prev[endpointId],
+            ...triggeredRun,
+            requestedAt: prev[endpointId]?.requestedAt ?? new Date().toISOString(),
+            endpoint: { id: endpointId, name: targetEndpoint.name },
+          },
+        }));
+      }
       refreshMetadataWorkspace();
-      const runId = payload.triggerEndpointCollection?.id ?? null;
+      const runId = triggeredRun?.id ?? null;
+      if (triggeredRun?.status && triggeredRun.status !== "QUEUED" && triggeredRun.status !== "RUNNING") {
+        return;
+      }
       if (runId) {
         void pollCollectionRunCompletion(endpointId, runId);
       }
@@ -2769,7 +2788,7 @@ export function MetadataWorkspace({
               <p className="whitespace-pre-wrap">{selectedTemplate.agentPrompt ?? "Collect credentials and scope for this endpoint."}</p>
               {selectedTemplate.capabilities?.length ? (
                 <ul className="list-disc space-y-1 pl-4">
-                  {selectedTemplate.capabilities?.map((capability) => (
+                  {Array.from(new Map(selectedTemplate.capabilities.map((capability) => [capability.key, capability])).values()).map((capability) => (
                     <li key={capability.key}>{capability.label}</li>
                   ))}
                 </ul>
@@ -3181,7 +3200,7 @@ export function MetadataWorkspace({
               ) : null}
               {endpoint.capabilities?.length ? (
                 <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">
-                  {endpoint.capabilities.map((capability) => (
+                  {Array.from(new Set(endpoint.capabilities)).map((capability) => (
                     <span key={capability} className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-600">
                       {capability}
                     </span>
@@ -3691,7 +3710,7 @@ export function MetadataWorkspace({
   const detailHasRunningRun = detailRuns.some((run) => run.status === "RUNNING");
   const showDetailMutationError = metadataView === "overview" && Boolean(metadataMutationError);
   const toastPortal = toastQueue.toasts.length ? (
-    <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-end px-4 sm:px-6">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex justify-end px-4 sm:px-6">
       <div className="flex w-full max-w-sm flex-col gap-2">
         {toastQueue.toasts.map((toast) => {
           const tone = toastToneStyles[toast.intent];
@@ -4086,7 +4105,7 @@ export function MetadataWorkspace({
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Capabilities</p>
                   <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">
-                    {metadataEndpointDetail.capabilities.map((capability) => (
+                    {Array.from(new Set(metadataEndpointDetail.capabilities)).map((capability) => (
                       <span key={capability} className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
                         {capability}
                       </span>

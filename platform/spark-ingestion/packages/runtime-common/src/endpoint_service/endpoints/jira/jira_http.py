@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
+
 import os
 import random
 import time
@@ -9,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-import requests  # type: ignore[import-untyped]
-from requests.auth import HTTPBasicAuth  # type: ignore[import-untyped]
+import requests
+from requests.auth import HTTPBasicAuth
 
 from ingestion_models.endpoints import (
     EndpointCapabilities,

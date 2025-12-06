@@ -86,6 +86,14 @@ async function insertSeedRows(pool: Pool, schema: string, prefix: string) {
   const commentId = "cdm:work:comment:seed:ENG-1:1";
   const worklogId = "cdm:work:worklog:seed:ENG-1:1";
 
+  // Keep the seed deterministic by clearing any previous CDM work rows that may have been
+  // created by earlier test runs or manual ingestion checks.
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_worklog"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_comment"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_item"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_project"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_user"`);
+
   await pool.query(
     `INSERT INTO "${schema}"."${prefix}work_project" (cdm_id, source_system, source_project_key, name, description, url, properties)
      VALUES ($1, 'jira', 'ENG', 'Seed Engineering', 'Seeded project for CDM explorer', NULL, $2::jsonb)

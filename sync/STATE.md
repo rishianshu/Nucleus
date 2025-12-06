@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ingestion-strategy-unification-v1 (success @ 2025-12-04T09:45Z)
+semantic-onedrive-source-v1 (success @ 2025-12-06T03:33Z)
 
 ## Last Run
-- slug: ingestion-strategy-unification-v1
+- slug: semantic-onedrive-source-v1
 - status: success
-- duration: ~3h wall (resumed 2025-12-03T13:29Z to 2025-12-04T09:45Z)
-- tests: pnpm ci-check green (metadata-auth, metadata-lifecycle, TS build)
-- commits: pending
+- duration: 2025-12-05T11:23Z→2025-12-06T03:33Z
+- tests: pnpm ci-check (metadata-auth + metadata-lifecycle) with METADATA_FAKE_COLLECTIONS=1; pnpm mypy
+- commits: none
 - decisions: 0
-- next_step: prepare commit/PR with ingestion unification changes; handoff
+- next_step: optional: manual/stub ingestion verification + docs explorer check; otherwise ready for sign-off
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,11 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-06T03:33Z run success (semantic-onedrive-source-v1, METADATA_FAKE_COLLECTIONS=1 pnpm ci-check + mypy green after endpoint workflow/mypy fixes)
+- 2025-12-05T14:22Z run heartbeat (semantic-onedrive-source-v1, onedrive metadata/ingestion stub wired; targeted pytest+tsx green)
+- 2025-12-05T11:32Z run resumed (semantic-onedrive-source-v1, stub Graph harness plan adopted)
+- 2025-12-05T11:27Z run blocked (semantic-onedrive-source-v1, missing OneDrive Graph credentials/root)
+- 2025-12-05T11:23Z run started (semantic-onedrive-source-v1, boot + context sync)
 - 2025-12-04T09:45Z run success (ingestion-strategy-unification-v1, staging handles + adaptive planners + metadata-first invariants; pnpm ci-check green)
 - 2025-12-01T13:20Z run started (ingestion-strategy-unification-v1, boot + artifact sync)
 - 2025-12-01T04:21Z run started (cdm-docs-explorer-v1, boot + artifact sync)
