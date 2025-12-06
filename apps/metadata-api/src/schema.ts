@@ -1080,6 +1080,8 @@ type ProvisionCdmSinkResult {
     domain: CdmDomain!
     sourceSystems: [String!]
     search: String
+    secured: Boolean
+    principalIds: [String!]
     workProjectIds: [ID!]
     docSpaceIds: [ID!]
     docDatasetIds: [ID!]
@@ -1985,9 +1987,30 @@ export function createResolvers(
         ctx: ResolverContext,
       ) => {
         enforceReadAccess(ctx);
+        const isAdmin = ctx.auth.roles.includes("admin");
+        const secured = args.filter.secured !== false;
+        if (!secured && !isAdmin) {
+          throw new GraphQLError("RLS bypass requires admin role.", { extensions: { code: "E_RLS_FORBIDDEN" } });
+        }
+        let accessPrincipalIds: string[] | null = null;
+        if (args.filter.domain === "DOC_ITEM" && secured) {
+          const candidateIds = args.filter.principalIds ?? [];
+          const authSubject = ctx.auth.subject?.trim();
+          if (authSubject && !candidateIds.includes(authSubject)) {
+            candidateIds.push(authSubject);
+          }
+          const authEmail = ctx.auth.email?.trim();
+          if (authEmail && !candidateIds.includes(authEmail)) {
+            candidateIds.push(authEmail);
+          }
+          accessPrincipalIds = candidateIds.length > 0 ? candidateIds : null;
+        }
         const { rows, cursorOffset, hasNextPage } = await cdmEntityStore.listEntities({
           projectId: ctx.auth.projectId,
-          filter: args.filter,
+          filter: {
+            ...args.filter,
+            accessPrincipalIds,
+          },
           first: args.first,
           after: args.after ?? null,
         });
@@ -3727,6 +3750,8 @@ type CdmEntityFilterArgs = {
   domain: CdmEntityDomain;
   sourceSystems?: string[] | null;
   search?: string | null;
+  secured?: boolean | null;
+  principalIds?: string[] | null;
   workProjectIds?: string[] | null;
   docSpaceIds?: string[] | null;
   docDatasetIds?: string[] | null;

@@ -30,6 +30,23 @@ ONEDRIVE_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             {"name": DEFAULT_CURSOR_FIELD, "data_type": "TIMESTAMP", "nullable": True},
         ],
     },
+    "onedrive.acl": {
+        "name": "OneDrive ACL",
+        "description": "Access control mappings from principals to OneDrive docs.",
+        "ingestion": {
+            "unit_id": "onedrive.acl",
+            "display_name": "ACL",
+            "supports_incremental": True,
+            "default_policy": {"acl_principals": ["onedrive:public"]},
+            "cdm_model_id": "cdm.doc.access",
+        },
+        "fields": [
+            {"name": "principalId", "data_type": "STRING", "nullable": False},
+            {"name": "principalType", "data_type": "STRING", "nullable": False},
+            {"name": "docCdmId", "data_type": "STRING", "nullable": False},
+            {"name": "grantedAt", "data_type": "TIMESTAMP", "nullable": True},
+        ],
+    },
 }
 
 ONEDRIVE_API_LIBRARY: Dict[str, Dict[str, str]] = {

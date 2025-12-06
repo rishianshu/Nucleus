@@ -971,11 +971,85 @@ def _parse_iso_timestamp(value: str) -> Optional[datetime]:
         return None
 
 
+def _ingest_confluence_acl(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    filter_config: ConfluenceIngestionFilter,
+    checkpoint: Dict[str, Any],
+    endpoint_id: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    principal_ids: List[str] = []
+    raw_principals = params.get("acl_principals") or []
+    if isinstance(raw_principals, str):
+        principal_ids = [raw_principals]
+    elif isinstance(raw_principals, list):
+        principal_ids = [str(entry) for entry in raw_principals if entry]
+    if not principal_ids:
+        principal_ids = ["confluence:public"]
+    # Always include the current Confluence user if available
+    try:
+        current_user = _confluence_get(session, base_url, "/wiki/rest/api/user/current")
+        username = current_user.get("username") or current_user.get("accountId") or current_user.get("displayName")
+        if username:
+            principal_ids.append(f"confluence:user:{username}")
+    except Exception:
+        pass
+    space_cursor = dict((checkpoint or {}).get("spaces") or {})
+    records: List[Dict[str, Any]] = []
+    stats = {"spacesProcessed": 0, "aclEdges": 0}
+    space_keys = _resolve_space_keys(session, base_url, params, filter_config)
+    for space_key in space_keys:
+        stats["spacesProcessed"] += 1
+        since = space_cursor.get(space_key, {}).get("lastUpdatedAt") or filter_config.updated_from
+        pages, last_updated = _fetch_pages_for_space(session, base_url, params, space_key, since)
+        for page in pages:
+            page_id = str(page.get("id") or "")
+            if not page_id:
+                continue
+            doc_cdm_id = f"cdm:doc:item:confluence:{page_id}"
+            for principal in principal_ids:
+                logical_id = f"confluence::{host}::acl::{page_id}::{principal}"
+                records.append(
+                    {
+                        "entityType": "cdm.doc.access",
+                        "logicalId": logical_id,
+                        "displayName": f"{principal} -> {page_id}",
+                        "scope": {
+                            "orgId": org_id,
+                            "projectId": scope_project or space_key,
+                            "domainId": None,
+                            "teamId": None,
+                        },
+                        "provenance": {"endpointId": endpoint_id, "vendor": "confluence"},
+                        "payload": {
+                            "principal_id": principal,
+                            "principal_type": "group" if principal.startswith("confluence:") else "user",
+                            "doc_cdm_id": doc_cdm_id,
+                            "source_system": "confluence",
+                            "granted_at": page.get("history", {}).get("createdDate"),
+                            "synced_at": datetime.now(timezone.utc).isoformat(),
+                            "dataset_id": "confluence.page",
+                            "endpoint_id": endpoint_id,
+                        },
+                    }
+                )
+                stats["aclEdges"] += 1
+        if last_updated:
+            space_cursor[space_key] = {"lastUpdatedAt": last_updated}
+    next_cursor = {"spaces": space_cursor}
+    return records, next_cursor, stats
+
+
 CONFLUENCE_INGESTION_HANDLERS.update(
     {
         "confluence.space": _ingest_confluence_spaces,
         "confluence.page": _ingest_confluence_pages,
         "confluence.attachment": _ingest_confluence_attachments,
+        "confluence.acl": _ingest_confluence_acl,
     }
 )
 

@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-onedrive-delegated-auth-v1 (success @ 2025-12-06T07:18Z)
+docs-access-graph-and-rls-v1 (success @ 2025-12-06T14:46Z)
 
 ## Last Run
-- slug: onedrive-delegated-auth-v1
+- slug: docs-access-graph-and-rls-v1
 - status: success
-- duration: 2025-12-06T07:10Z→07:18Z
-- tests: metadata-api build; metadata-ui build (tsc+vite)
+- duration: 2025-12-06T09:26Z→14:46Z
+- tests: metadata-api build; metadata-ui build; cdmResolvers test; cdmSink ACL test
 - commits: none
 - decisions: 0
-- next_step: have user retry delegated Connect with real Azure app values; consider wizard follow-up
+- next_step: apply cdm_doc_access migration in target env; consider real principal mapping and UI access summary in follow-up
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-06T14:46Z run success (docs-access-graph-and-rls-v1, ACL/RLS scaffolding added; tests/builds green)
+- 2025-12-06T09:26Z run started (docs-access-graph-and-rls-v1, boot + context sync)
+- 2025-12-06T09:07Z run success (onedrive-delegated-auth-v1, wizard requirements doc added)
 - 2025-12-06T07:18Z run success (onedrive-delegated-auth-v1, delegated auth uses endpoint client/tenant; UI blocks stub client; api/ui builds)
 - 2025-12-06T07:10Z run resumed (onedrive-delegated-auth-v1, delegated auth stub-client fix)
 - 2025-12-06T07:01Z run success (onedrive-delegated-auth-v1, OneDrive base_url default added to avoid missing endpoint URL; api/ui builds)

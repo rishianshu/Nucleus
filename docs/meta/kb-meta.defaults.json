@@ -27,6 +27,24 @@
       "icon": "LuBookOpen",
       "fieldsDisplay": ["displayName", "canonicalPath"],
       "actions": ["openDoc"]
+    },
+    {
+      "value": "principal.user",
+      "label": "User",
+      "description": "Identity for an end user from a source system or IdP.",
+      "synonyms": ["user", "person", "account"],
+      "icon": "LuUser",
+      "fieldsDisplay": ["displayName", "email", "sourceSystem"],
+      "actions": ["openPrincipal"]
+    },
+    {
+      "value": "principal.group",
+      "label": "Group",
+      "description": "Group or team principal sourced from Confluence, OneDrive, or IdP.",
+      "synonyms": ["group", "team"],
+      "icon": "LuUsers",
+      "fieldsDisplay": ["displayName", "sourceSystem"],
+      "actions": ["openPrincipal"]
     }
   ],
   "edgeTypes": [
@@ -45,6 +63,22 @@
       "synonyms": ["depends", "dependency", "lineage"],
       "icon": "LuGitBranch",
       "actions": ["openLineage"]
+    },
+    {
+      "value": "HAS_MEMBER",
+      "label": "Has member",
+      "description": "Group membership: group → user edge.",
+      "synonyms": ["member", "membership"],
+      "icon": "LuUsers",
+      "actions": []
+    },
+    {
+      "value": "CAN_VIEW_DOC",
+      "label": "Can view doc",
+      "description": "Access edge linking a principal (user/group) to a document.",
+      "synonyms": ["access", "view", "read"],
+      "icon": "LuFileCheck2",
+      "actions": ["openDoc"]
     }
   ]
 }

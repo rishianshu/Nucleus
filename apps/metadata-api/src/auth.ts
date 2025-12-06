@@ -5,6 +5,7 @@ export type AuthContext = {
   projectId: string;
   roles: string[];
   subject: string;
+  email?: string | null;
 };
 
 const KEYCLOAK_BASE =
@@ -75,11 +76,12 @@ export async function authenticateRequest(authorizationHeader?: string | null): 
       roles = Array.from(new Set([...roles, ...scopeRoles]));
     }
     const subject = stringClaim(payload["sub"]) ?? "anonymous";
+    const email = stringClaim(payload["email"]) ?? stringClaim(payload["preferred_username"]);
     if (process.env.METADATA_AUTH_DEBUG === "1") {
       // eslint-disable-next-line no-console
-      console.info("[metadata-auth]", { subject, roles, scope: payload["scope"] ?? null });
+      console.info("[metadata-auth]", { subject, email, roles, scope: payload["scope"] ?? null });
     }
-    return { tenantId, projectId, roles, subject };
+    return { tenantId, projectId, roles, subject, email };
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("Token verification failed", error);
@@ -93,6 +95,7 @@ function buildAnonymousContext(): AuthContext {
     projectId: process.env.METADATA_DEFAULT_PROJECT ?? "global",
     roles: [],
     subject: "anonymous",
+    email: null,
   };
 }
 

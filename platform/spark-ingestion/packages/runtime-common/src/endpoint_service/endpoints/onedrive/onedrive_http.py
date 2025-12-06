@@ -491,6 +491,8 @@ class OneDriveEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, Su
         filter: Optional[Dict[str, Any]] = None,
         transient_state: Optional[Dict[str, Any]] = None,
     ) -> OneDriveIngestionResult:
+        if unit_id == "onedrive.acl":
+            return self.ingest_acl(endpoint_id=endpoint_id, policy=policy, checkpoint=checkpoint)
         params = _normalize_onedrive_parameters(_parameter_block(policy))
         base_url = str(params.get("base_url") or self.GRAPH_BASE_URL)
         drive_id = params.get("drive_id")
@@ -554,6 +556,66 @@ class OneDriveEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, Su
             },
         }
         return OneDriveIngestionResult(records=records, cursor=cursor or checkpoint or {}, stats=stats)
+
+    def ingest_acl(
+        self,
+        *,
+        endpoint_id: str,
+        policy: Dict[str, Any],
+        checkpoint: Optional[Dict[str, Any]] = None,
+    ) -> OneDriveIngestionResult:
+        params = _normalize_onedrive_parameters(_parameter_block(policy))
+        base_url = str(params.get("base_url") or self.GRAPH_BASE_URL)
+        drive_id = params.get("drive_id")
+        if not drive_id:
+            raise ValueError("drive_id is required for OneDrive ACL ingestion")
+        principal_ids: List[str] = []
+        raw_principals = params.get("acl_principals") or []
+        if isinstance(raw_principals, str):
+            principal_ids = [raw_principals]
+        elif isinstance(raw_principals, list):
+            principal_ids = [str(entry) for entry in raw_principals if entry]
+        if not principal_ids:
+            principal_ids = ["onedrive:public"]
+        # Include the configured client_id as a synthetic principal hint for dev/stub
+        client_id = params.get("client_id") or params.get("clientId")
+        if client_id:
+            principal_ids.append(f"onedrive:app:{client_id}")
+        session = _build_onedrive_session(params)
+        records: List[Dict[str, Any]] = []
+        try:
+            for item in _iter_drive_items(session, base_url, drive_id, root_path=params.get("root_path") or "/"):
+                doc_cdm_id = f"cdm:doc:item:onedrive:{item.get('id')}"
+                for principal in principal_ids:
+                    logical_id = f"onedrive::{drive_id}::acl::{item.get('id')}::{principal}"
+                    records.append(
+                        {
+                            "entityType": "cdm.doc.access",
+                            "logicalId": logical_id,
+                            "displayName": f"{principal} -> {item.get('id')}",
+                            "scope": {
+                                "orgId": params.get("scope_org_id") or "dev",
+                                "projectId": params.get("scope_project_id"),
+                                "domainId": None,
+                                "teamId": None,
+                            },
+                            "provenance": {"endpointId": endpoint_id, "vendor": "onedrive"},
+                            "payload": {
+                                "principal_id": principal,
+                                "principal_type": "group" if principal.startswith("onedrive:") else "user",
+                                "doc_cdm_id": doc_cdm_id,
+                                "source_system": "onedrive",
+                                "granted_at": item.get("lastModifiedDateTime"),
+                                "synced_at": datetime.now(timezone.utc).isoformat(),
+                                "dataset_id": "onedrive.docs",
+                                "endpoint_id": endpoint_id,
+                            },
+                        }
+                    )
+        finally:
+            session.close()
+        stats = {"recordCount": len(records)}
+        return OneDriveIngestionResult(records=records, cursor=checkpoint or {}, stats=stats)
 
     def preview(
         self,

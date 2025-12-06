@@ -134,6 +134,27 @@ CONFLUENCE_DATASET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "cdm_model_id": CDM_DOC_LINK,
         },
     },
+    "confluence.acl": {
+        "name": "Confluence ACL",
+        "entity": "acl",
+        "description": "Access control mappings from principals (users/groups) to docs.",
+        "static_fields": [
+            {"name": "principalId", "data_type": "STRING", "nullable": False},
+            {"name": "principalType", "data_type": "STRING", "nullable": False},
+            {"name": "docCdmId", "data_type": "STRING", "nullable": False},
+            {"name": "grantedAt", "data_type": "TIMESTAMP", "nullable": True},
+        ],
+        "api_keys": [],
+        "ingestion": {
+            "enabled": True,
+            "unit_id": "confluence.acl",
+            "display_name": "ACL",
+            "description": "ACL edges linking principals to docs (placeholder implementation).",
+            "supports_incremental": True,
+            "default_policy": {"acl_principals": ["confluence:public"]},
+            "cdm_model_id": CDM_DOC_ACCESS,
+        },
+    },
 }
 
 __all__ = ["CONFLUENCE_API_LIBRARY", "CONFLUENCE_DATASET_DEFINITIONS"]
