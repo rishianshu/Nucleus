@@ -21,6 +21,7 @@ import { readCheckpoint, updateCheckpoint, writeCheckpoint, type IngestionCheckp
 import { readTransientState, writeTransientState } from "../ingestion/transientState.js";
 import { markUnitState, upsertUnitState } from "../ingestion/stateStore.js";
 import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
+import { getOneDriveDelegatedToken } from "../onedriveAuth.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SCRIPT_PATH = path.resolve(
@@ -443,9 +444,24 @@ export const activities: MetadataActivities = {
     const stagingProviderId = resolveStagingProvider(endpoint);
     const policyOverrides =
       config?.policy && typeof config.policy === "object" ? (config.policy as Record<string, unknown>) : null;
-    const policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
+    let policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
     const sinkEndpointId = config?.sinkEndpointId ?? null;
     const dataMode = typeof config?.mode === "string" ? config.mode : null;
+    const endpointConfig = normalizeRecordPayload(endpoint.config);
+    const templateId = typeof endpointConfig.templateId === "string" ? endpointConfig.templateId : null;
+    if (templateId === "http.onedrive") {
+      const policyParameters = normalizeRecordPayload((policy ?? {}).parameters ?? endpointConfig.parameters ?? {});
+      const authMode = resolveOneDriveAuthMode(policyParameters);
+      policyParameters.auth_mode = authMode;
+      if (authMode === "delegated") {
+        const delegatedToken = await getOneDriveDelegatedToken(endpointId);
+        if (delegatedToken?.access_token) {
+          policyParameters.access_token = delegatedToken.access_token;
+          policyParameters.delegated_connected = true;
+        }
+      }
+      policy = { ...(policy ?? {}), parameters: { ...policyParameters } };
+    }
     const cdmModelId = await resolveCdmModelIdForUnit(endpoint, endpointId, unitId);
     const checkpointKey: IngestionCheckpointKey = {
       endpointId,
@@ -852,6 +868,21 @@ function resolveStagingProvider(endpoint?: { config?: unknown } | null): string 
     }
   }
   return DEFAULT_STAGING_PROVIDER;
+}
+
+function resolveOneDriveAuthMode(parameters?: Record<string, unknown> | null): string {
+  const authBlock =
+    parameters && typeof parameters.auth === "object" && parameters.auth !== null
+      ? (parameters.auth as Record<string, unknown>)
+      : null;
+  const raw =
+    (parameters?.auth_mode as string | undefined) ??
+    (parameters?.authMode as string | undefined) ??
+    (authBlock?.mode as string | undefined);
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return raw.trim().toLowerCase();
+  }
+  return "stub";
 }
 
 export function resolveIngestionPolicy(endpoint?: { config?: unknown } | null): Record<string, unknown> | null {

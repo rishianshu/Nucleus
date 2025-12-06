@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LuArrowUpRight, LuCircleAlert, LuCircleCheck, LuHistory, LuInfo, LuNetwork, LuRefreshCcw, LuSearch, LuSquarePlus, LuTable, } from "react-icons/lu";
 import { formatDateTime, formatPreviewValue, formatRelativeTime } from "../lib/format";
 import { fetchMetadataGraphQL } from "./api";
-import { ENDPOINT_DATASETS_QUERY, COLLECTION_RUNS_QUERY, METADATA_ENDPOINT_TEMPLATES_QUERY, METADATA_OVERVIEW_QUERY, METADATA_ENDPOINTS_PAGED_QUERY, METADATA_CATALOG_DATASET_QUERY, CATALOG_DATASET_PREVIEW_QUERY, PREVIEW_METADATA_DATASET_MUTATION, REGISTER_METADATA_ENDPOINT_MUTATION, UPDATE_METADATA_ENDPOINT_MUTATION, DELETE_METADATA_ENDPOINT_MUTATION, TEST_METADATA_ENDPOINT_MUTATION, TRIGGER_ENDPOINT_COLLECTION_MUTATION, } from "./queries";
+import { ENDPOINT_DATASETS_QUERY, COLLECTION_RUNS_QUERY, METADATA_ENDPOINT_TEMPLATES_QUERY, METADATA_OVERVIEW_QUERY, METADATA_ENDPOINTS_PAGED_QUERY, METADATA_CATALOG_DATASET_QUERY, CATALOG_DATASET_PREVIEW_QUERY, PREVIEW_METADATA_DATASET_MUTATION, REGISTER_METADATA_ENDPOINT_MUTATION, UPDATE_METADATA_ENDPOINT_MUTATION, DELETE_METADATA_ENDPOINT_MUTATION, TEST_METADATA_ENDPOINT_MUTATION, TRIGGER_ENDPOINT_COLLECTION_MUTATION, START_ONEDRIVE_AUTH_MUTATION, } from "./queries";
 import { parseListInput, previewTableColumns } from "./utils";
 import { useAsyncAction, useCatalogDatasetConnection, useDebouncedValue, usePagedQuery, useToastQueue, } from "./hooks";
 import { formatIngestionMode, formatIngestionSchedule, formatIngestionSink, ingestionStateTone, } from "../ingestion/stateTone";
@@ -165,6 +165,8 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
     const [pendingTriggerEndpointId, setPendingTriggerEndpointId] = useState(null);
     const [metadataTesting, setMetadataTesting] = useState(false);
     const [metadataTestResult, setMetadataTestResult] = useState(null);
+    const [metadataOneDriveAuthUrl, setMetadataOneDriveAuthUrl] = useState(null);
+    const [metadataOneDriveAuthError, setMetadataOneDriveAuthError] = useState(null);
     const [metadataDeletingEndpointId, setMetadataDeletingEndpointId] = useState(null);
     const [metadataCatalogPreviewRows, setMetadataCatalogPreviewRows] = useState({});
     const [metadataCatalogPreviewErrors, setMetadataCatalogPreviewErrors] = useState({});
@@ -1001,9 +1003,13 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         : metadataRegistering
             ? "Registering…"
             : "Register endpoint";
+    const currentAuthMode = (metadataTemplateValues.auth_mode ?? metadataTemplateValues.authMode ?? "").toLowerCase();
+    const allowSaveWithoutTest = selectedTemplate?.id === "http.onedrive" && currentAuthMode === "delegated";
     const submitDisabled = !canModifyEndpoints ||
         metadataRegistering ||
-        (metadataFormMode === "edit" ? requiresRetest : !metadataTestResult?.ok);
+        (metadataFormMode === "edit"
+            ? !allowSaveWithoutTest && requiresRetest
+            : !allowSaveWithoutTest && !metadataTestResult?.ok);
     const showRetestWarning = metadataFormMode === "edit" && requiresRetest;
     useEffect(() => {
         if (metadataView !== "endpoint-register") {
@@ -1025,7 +1031,7 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
         }
         setMetadataTemplateValues((prev) => {
             const next = selectedTemplate.fields.reduce((acc, field) => {
-                acc[field.key] = prev[field.key] ?? "";
+                acc[field.key] = prev[field.key] ?? field.defaultValue ?? "";
                 return acc;
             }, {});
             const prevKeys = Object.keys(prev);
@@ -1035,6 +1041,19 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             return sameValues ? prev : next;
         });
     }, [selectedTemplate]);
+    useEffect(() => {
+        if (!selectedTemplate || metadataFormMode !== "register") {
+            return;
+        }
+        const templateDefaults = Array.isArray(selectedTemplate.defaultLabels)
+            ? selectedTemplate.defaultLabels.join(", ")
+            : "";
+        setMetadataEndpointLabels(templateDefaults);
+    }, [metadataFormMode, selectedTemplate]);
+    useEffect(() => {
+        setMetadataOneDriveAuthUrl(null);
+        setMetadataOneDriveAuthError(null);
+    }, [metadataEditingEndpointId, selectedTemplateId, metadataTemplateValues.auth_mode, metadataTemplateValues.authMode]);
     const sortedMetadataRuns = useMemo(() => {
         return [...metadataRuns].sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
     }, [metadataRuns]);
@@ -1373,6 +1392,46 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
             setMetadataTesting(false);
         }
     }, [authToken, metadataEndpoint, metadataEndpointDescription, metadataEndpointLabels, metadataEndpointName, metadataTemplateValues, selectedTemplate]);
+    const handleStartOneDriveAuth = useCallback(async () => {
+        if (!selectedTemplate || selectedTemplate.id !== "http.onedrive") {
+            setMetadataOneDriveAuthError("Select the OneDrive template to start delegated auth.");
+            return;
+        }
+        if ((metadataTemplateValues.auth_mode ?? metadataTemplateValues.authMode) !== "delegated") {
+            setMetadataOneDriveAuthError("Set auth_mode to delegated before connecting.");
+            return;
+        }
+        const clientId = (metadataTemplateValues.client_id ?? metadataTemplateValues.clientId ?? "").trim().toLowerCase();
+        if (!clientId || clientId.includes("stub")) {
+            setMetadataOneDriveAuthError("Provide a real Azure AD app client_id (not stub-client-id) for delegated OneDrive authentication.");
+            return;
+        }
+        if (!metadataEndpoint || !authToken) {
+            setMetadataOneDriveAuthError("Configure the metadata API endpoint before starting delegated auth.");
+            return;
+        }
+        if (!metadataEditingEndpointId) {
+            setMetadataOneDriveAuthError("Save the endpoint first, then start delegated auth.");
+            return;
+        }
+        try {
+            setMetadataOneDriveAuthError(null);
+            const payload = await fetchMetadataGraphQL(metadataEndpoint, START_ONEDRIVE_AUTH_MUTATION, { endpointId: metadataEditingEndpointId }, undefined, { token: authToken ?? undefined });
+            const authSession = payload.startOneDriveAuth;
+            setMetadataOneDriveAuthUrl(authSession?.authUrl ?? null);
+            if (authSession?.authUrl) {
+                try {
+                    window.open(authSession.authUrl, "_blank", "noopener,noreferrer");
+                }
+                catch {
+                    // ignore window open failures (e.g., headless tests)
+                }
+            }
+        }
+        catch (error) {
+            setMetadataOneDriveAuthError(error instanceof Error ? error.message : String(error));
+        }
+    }, [authToken, metadataEditingEndpointId, metadataEndpoint, metadataTemplateValues, selectedTemplate]);
     const triggerCollectionAction = useAsyncAction(async (endpointId) => {
         if (!metadataEndpoint) {
             throw new Error("Configure VITE_METADATA_GRAPHQL_ENDPOINT to trigger collections.");
@@ -1851,7 +1910,25 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                                             : "border-slate-200 text-slate-700 hover:border-slate-900 dark:border-slate-700 dark:text-slate-200"}`, children: [_jsx("p", { className: "text-sm font-semibold", children: template.title }), _jsx("p", { className: "text-[11px] uppercase tracking-[0.3em] text-slate-400", children: template.vendor }), _jsx("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-400", children: template.description })] }, template.id));
                                 }))] }), selectedTemplate ? (_jsxs("div", { className: "space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300", children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Agent briefing" }), _jsx("p", { className: "whitespace-pre-wrap", children: selectedTemplate.agentPrompt ?? "Collect credentials and scope for this endpoint." }), selectedTemplate.capabilities?.length ? (_jsx("ul", { className: "list-disc space-y-1 pl-4", children: Array.from(new Map(selectedTemplate.capabilities.map((capability) => [capability.key, capability])).values()).map((capability) => (_jsx("li", { children: capability.label }, capability.key))) })) : null, selectedTemplate.connection?.urlTemplate ? (_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Connection template" }), _jsx("pre", { className: "mt-2 overflow-x-auto rounded-xl bg-slate-900/90 p-3 font-mono text-[12px] text-emerald-200 dark:bg-slate-950", children: selectedTemplate.connection.urlTemplate })] })) : null, selectedTemplate.probing?.methods?.length ? (_jsxs("div", { children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Version detection" }), _jsx("ul", { className: "mt-2 space-y-2", children: selectedTemplate.probing.methods.map((method) => (_jsxs("li", { className: "rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800", children: [_jsxs("p", { className: "text-sm font-semibold text-slate-900 dark:text-slate-100", children: [method.label, " ", _jsxs("span", { className: "text-xs uppercase tracking-[0.3em] text-slate-400", children: ["(", method.strategy, ")"] })] }), method.description ? (_jsx("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: method.description })) : null, method.requires && method.requires.length ? (_jsxs("p", { className: "text-[11px] text-slate-500", children: ["Requires: ", method.requires.join(", ")] })) : null] }, method.key))) }), selectedTemplate.probing.fallbackMessage ? (_jsx("p", { className: "mt-2 text-[11px] text-slate-500", children: selectedTemplate.probing.fallbackMessage })) : null] })) : null] })) : null] }), _jsx("section", { className: "space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900", children: !selectedTemplate ? (_jsx("p", { className: "text-sm text-slate-500", children: "Select a template to configure connection details." })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "space-y-1", children: [_jsx("p", { className: "text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500", children: formTitle }), _jsx("p", { className: "text-sm text-slate-500", children: metadataFormMode === "edit"
                                             ? "Update the endpoint details and re-test the connection whenever credentials change."
-                                            : "Select a template, provide connection parameters, and register the endpoint after a passing test." })] }), metadataMutationError ? (_jsx("p", { className: "rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/50 dark:bg-rose-950/40 dark:text-rose-200", "data-testid": "metadata-mutation-error", children: metadataMutationError })) : null, _jsxs("form", { className: "space-y-4", onSubmit: handleSubmitMetadataEndpoint, children: [_jsxs("div", { className: "grid gap-3 md:grid-cols-2", children: [_jsxs("label", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Endpoint name", _jsx("input", { value: metadataEndpointName, onChange: (event) => setMetadataEndpointName(event.target.value), className: "mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" })] }), _jsxs("label", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Labels", _jsx("input", { value: metadataEndpointLabels, onChange: (event) => setMetadataEndpointLabels(event.target.value), placeholder: "analytics, postgres, staging", className: "mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" })] })] }), _jsxs("label", { className: "block text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Description", _jsx("textarea", { value: metadataEndpointDescription, onChange: (event) => setMetadataEndpointDescription(event.target.value), className: "mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100", rows: 2 })] }), _jsx("div", { className: "space-y-3", children: selectedTemplate.fields.map((field) => {
+                                            : "Select a template, provide connection parameters, and register the endpoint after a passing test." })] }), metadataMutationError ? (_jsx("p", { className: "rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/50 dark:bg-rose-950/40 dark:text-rose-200", "data-testid": "metadata-mutation-error", children: metadataMutationError })) : null, _jsxs("form", { className: "space-y-4", onSubmit: handleSubmitMetadataEndpoint, children: [_jsxs("div", { className: "grid gap-3 md:grid-cols-2", children: [_jsxs("label", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Endpoint name", _jsx("input", { value: metadataEndpointName, onChange: (event) => setMetadataEndpointName(event.target.value), className: "mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" })] }), _jsxs("label", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Labels", _jsx("input", { value: metadataEndpointLabels, onChange: (event) => setMetadataEndpointLabels(event.target.value), placeholder: "analytics, postgres, staging", className: "mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" })] })] }), _jsxs("label", { className: "block text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: ["Description", _jsx("textarea", { value: metadataEndpointDescription, onChange: (event) => setMetadataEndpointDescription(event.target.value), className: "mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100", rows: 2 })] }), _jsx("div", { className: "space-y-3", children: (selectedTemplate.id === "http.onedrive"
+                                            ? [...selectedTemplate.fields].sort((a, b) => {
+                                                const onedriveFieldOrder = {
+                                                    auth_mode: 10,
+                                                    drive_id: 20,
+                                                    root_path: 30,
+                                                    include_file_types: 40,
+                                                    exclude_patterns: 50,
+                                                    base_url: 60,
+                                                    tenant_id: 70,
+                                                    client_id: 80,
+                                                    client_secret: 90,
+                                                    delegated_connected: 100,
+                                                };
+                                                const aScore = onedriveFieldOrder[a.key] ?? 1000;
+                                                const bScore = onedriveFieldOrder[b.key] ?? 1000;
+                                                return aScore - bScore;
+                                            })
+                                            : selectedTemplate.fields).map((field) => {
                                             if (!isFieldVisible(field)) {
                                                 return null;
                                             }
@@ -1892,7 +1969,10 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                                                 control = (_jsx("input", { ...commonProps, type: inputType, placeholder: field.placeholder ?? undefined, autoComplete: field.valueType === "PASSWORD" ? "current-password" : undefined }));
                                             }
                                             return (_jsxs("div", { children: [_jsxs("div", { className: "flex items-center justify-between gap-3", children: [_jsxs("label", { htmlFor: labelId, className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: [field.label, !required ? " (optional)" : ""] }), advancedBadge] }), control, field.description ? (_jsx("p", { className: "mt-1 text-[11px] text-slate-500", children: field.description })) : field.helpText ? (_jsx("p", { className: "mt-1 text-[11px] text-slate-500", children: field.helpText })) : null] }, field.key));
-                                        }) }), _jsxs("div", { className: "flex flex-wrap gap-3", children: [_jsx("button", { type: "button", onClick: handleTestMetadataEndpoint, disabled: !canModifyEndpoints || metadataRegistering || metadataTesting, className: "flex-1 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200", children: metadataTesting ? "Testing…" : "Test connection" }), _jsx("button", { type: "submit", disabled: submitDisabled, className: "flex-1 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-emerald-500 dark:hover:bg-emerald-400", children: submitButtonLabel })] }), showRetestWarning ? (_jsx("p", { className: "text-xs text-amber-600", children: "Connection parameters changed. Re-run \u201CTest connection\u201D before saving." })) : null, !canModifyEndpoints ? (_jsx("p", { className: "text-xs text-slate-500", children: "Viewer access cannot register endpoints." })) : null, metadataTestResult ? (_jsxs("div", { "data-testid": "metadata-test-result", className: `rounded-2xl border px-3 py-3 text-xs ${metadataTestResult.ok
+                                        }) }), selectedTemplate?.id === "http.onedrive" &&
+                                        (metadataTemplateValues.auth_mode ?? metadataTemplateValues.authMode) === "delegated" ? (_jsxs("div", { className: "space-y-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900/40", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500", children: "Delegated auth" }), _jsxs("p", { className: "text-sm text-slate-700 dark:text-slate-200", children: ["Status: ", metadataEditingEndpoint?.delegatedConnected ? "Connected" : "Not connected yet"] }), _jsx("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: "Client credential fields are hidden in delegated mode; save (test optional here) and click Connect to launch the browser sign-in." }), metadataOneDriveAuthError ? (_jsx("p", { className: "text-xs text-rose-600", "data-testid": "metadata-onedrive-auth-error", children: metadataOneDriveAuthError })) : null, _jsxs("div", { className: "flex flex-wrap gap-2", children: [_jsx("button", { type: "button", onClick: handleStartOneDriveAuth, className: `rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] transition ${metadataEditingEndpointId
+                                                            ? "border-slate-300 text-slate-700 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                                                            : "border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-500"}`, children: metadataOneDriveAuthUrl ? "Re-open auth" : "Connect OneDrive" }), metadataOneDriveAuthUrl ? (_jsx("a", { href: metadataOneDriveAuthUrl, target: "_blank", rel: "noreferrer", className: "rounded-full border border-emerald-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700 transition hover:border-emerald-700 hover:text-emerald-900 dark:border-emerald-500/50 dark:text-emerald-200", children: "Open auth link" })) : null] }), !metadataEditingEndpointId ? (_jsx("p", { className: "text-xs text-slate-500", children: "Save the endpoint first, then click Connect to launch the delegated sign-in." })) : null] })) : null, _jsxs("div", { className: "flex flex-wrap gap-3", children: [_jsx("button", { type: "button", onClick: handleTestMetadataEndpoint, disabled: !canModifyEndpoints || metadataRegistering || metadataTesting, className: "flex-1 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200", children: metadataTesting ? "Testing…" : "Test connection" }), _jsx("button", { type: "submit", disabled: submitDisabled, className: "flex-1 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-emerald-500 dark:hover:bg-emerald-400", children: submitButtonLabel })] }), showRetestWarning ? (_jsx("p", { className: "text-xs text-amber-600", children: "Connection parameters changed. Re-run \u201CTest connection\u201D before saving." })) : null, !canModifyEndpoints ? (_jsx("p", { className: "text-xs text-slate-500", children: "Viewer access cannot register endpoints." })) : null, metadataTestResult ? (_jsxs("div", { "data-testid": "metadata-test-result", className: `rounded-2xl border px-3 py-3 text-xs ${metadataTestResult.ok
                                             ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200"
                                             : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200"}`, children: [_jsx("p", { className: "text-sm font-semibold", children: metadataTestResult.ok ? "Connection parameters validated." : "Connection test reported issues." }), metadataTestResult.diagnostics.map((diagnostic, index) => (_jsxs("div", { className: "mt-2", children: [_jsxs("p", { className: "text-xs font-semibold uppercase tracking-[0.3em]", children: [diagnostic.code, " \u00B7 ", diagnostic.level] }), _jsx("p", { className: "text-sm", children: diagnostic.message }), diagnostic.hint ? _jsx("p", { className: "text-[11px] text-slate-700", children: diagnostic.hint }) : null] }, `${diagnostic.code}-${index}`)))] })) : null] })] })) })] }) }));
     const renderEndpointCardStatus = (run) => {
@@ -1929,7 +2009,20 @@ export function MetadataWorkspace({ metadataEndpoint, authToken, projectSlug, us
                             ? "Dataset previews disabled: this endpoint is missing the \"preview\" capability."
                             : null;
                         const isTriggerPending = pendingTriggerEndpointId === endpoint.id;
-                        return (_jsxs("article", { "data-testid": "metadata-endpoint-card", className: "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900", children: [_jsxs("div", { className: "flex flex-wrap items-center gap-3", children: [_jsxs("div", { className: "flex-1", children: [_jsx("p", { className: "text-lg font-semibold text-slate-900 dark:text-slate-50", children: endpoint.name }), _jsx("p", { className: "text-sm text-slate-600 dark:text-slate-300", children: endpoint.description ?? endpoint.url }), endpoint.detectedVersion ? (_jsxs("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: ["Detected version \u00B7 ", endpoint.detectedVersion] })) : endpoint.versionHint ? (_jsxs("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: ["Version hint \u00B7 ", endpoint.versionHint] })) : null] }), renderEndpointCardStatus(latestRun), _jsx("button", { type: "button", onClick: () => setMetadataEndpointDetailId(endpoint.id), className: "rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300", children: "Details" })] }), latestRun?.status === "SKIPPED" ? (_jsx("p", { className: "mt-2 text-xs text-amber-600 dark:text-amber-300", "data-testid": "metadata-endpoint-skip", children: latestRun.error ?? "Collection skipped due to missing capability." })) : null, latestRun?.status === "FAILED" ? (_jsx("p", { className: "mt-2 text-xs text-rose-600 dark:text-rose-300", "data-testid": "metadata-endpoint-error", children: latestRun.error ?? "Collection failed. Check endpoint configuration." })) : null, _jsx("p", { className: "mt-3 break-all text-xs font-mono text-slate-500 dark:text-slate-400", children: endpoint.url }), endpoint.domain ? (_jsxs("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-400", children: ["Domain \u00B7 ", endpoint.domain] })) : null, _jsxs("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-400", children: ["Collection schedule \u00B7", " ", collection?.scheduleCron
+                        return (_jsxs("article", { "data-testid": "metadata-endpoint-card", className: "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900", children: [_jsxs("div", { className: "flex flex-wrap items-center gap-3", children: [_jsxs("div", { className: "flex-1", children: [_jsx("p", { className: "text-lg font-semibold text-slate-900 dark:text-slate-50", children: endpoint.name }), _jsx("p", { className: "text-sm text-slate-600 dark:text-slate-300", children: endpoint.description ?? endpoint.url }), endpoint.config && typeof endpoint.config === "object" ? ((() => {
+                                                    const parameters = endpoint.config.parameters && typeof endpoint.config.parameters === "object"
+                                                        ? endpoint.config.parameters
+                                                        : null;
+                                                    const authMode = typeof parameters?.auth_mode === "string"
+                                                        ? parameters.auth_mode
+                                                        : typeof parameters?.authMode === "string"
+                                                            ? parameters.authMode
+                                                            : null;
+                                                    if (authMode && authMode.toLowerCase() === "delegated") {
+                                                        return (_jsxs("span", { className: "mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 px-2 py-0.5 text-[11px] uppercase tracking-[0.3em] text-emerald-700 dark:border-emerald-500/50 dark:text-emerald-200", children: ["Delegated ", endpoint.delegatedConnected ? "connected" : "pending"] }));
+                                                    }
+                                                    return null;
+                                                })()) : null, endpoint.detectedVersion ? (_jsxs("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: ["Detected version \u00B7 ", endpoint.detectedVersion] })) : endpoint.versionHint ? (_jsxs("p", { className: "text-xs text-slate-500 dark:text-slate-400", children: ["Version hint \u00B7 ", endpoint.versionHint] })) : null] }), renderEndpointCardStatus(latestRun), _jsx("button", { type: "button", onClick: () => setMetadataEndpointDetailId(endpoint.id), className: "rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300", children: "Details" })] }), latestRun?.status === "SKIPPED" ? (_jsx("p", { className: "mt-2 text-xs text-amber-600 dark:text-amber-300", "data-testid": "metadata-endpoint-skip", children: latestRun.error ?? "Collection skipped due to missing capability." })) : null, latestRun?.status === "FAILED" ? (_jsx("p", { className: "mt-2 text-xs text-rose-600 dark:text-rose-300", "data-testid": "metadata-endpoint-error", children: latestRun.error ?? "Collection failed. Check endpoint configuration." })) : null, _jsx("p", { className: "mt-3 break-all text-xs font-mono text-slate-500 dark:text-slate-400", children: endpoint.url }), endpoint.domain ? (_jsxs("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-400", children: ["Domain \u00B7 ", endpoint.domain] })) : null, _jsxs("p", { className: "mt-1 text-xs text-slate-500 dark:text-slate-400", children: ["Collection schedule \u00B7", " ", collection?.scheduleCron
                                             ? `${collection.scheduleCron} (${collection.scheduleTimezone ?? "UTC"})`
                                             : "Manual only"] }), endpoint.labels?.length ? (_jsx("div", { className: "mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.3em] text-slate-500", children: endpoint.labels.map((label) => (_jsx("span", { className: "rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-600", children: label }, label))) })) : null, endpoint.capabilities?.length ? (_jsx("div", { className: "mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-400", children: Array.from(new Set(endpoint.capabilities)).map((capability) => (_jsx("span", { className: "rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-600", children: capability }, capability))) })) : null, capabilityBlockedReason ? (_jsx("div", { className: "mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100", children: capabilityBlockedReason })) : null, collectionBlockedReason && !capabilityBlockedReason ? (_jsx("div", { className: "mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100", children: collectionBlockedReason })) : null, previewBlockedReason ? (_jsx("div", { className: "mt-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100", children: previewBlockedReason })) : null, _jsxs("div", { className: "mt-4 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300", children: [_jsx("label", { className: "text-[10px] font-semibold uppercase tracking-[0.35em] text-slate-500", children: "Schema override" }), _jsx("input", { value: metadataRunOverrides[endpoint.id] ?? "", onChange: (event) => setMetadataRunOverrides((prev) => ({
                                                 ...prev,

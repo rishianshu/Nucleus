@@ -60,11 +60,30 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _coerce_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "y"):
+            return True
+        if lowered in ("false", "0", "no", "n"):
+            return False
+    return None
+
+
 def _normalize_onedrive_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]:
     params = {k: (v.strip() if isinstance(v, str) else v) for k, v in (parameters or {}).items()}
     base_url = params.get("base_url") or params.get("baseUrl") or OneDriveEndpoint.GRAPH_BASE_URL
     drive_id = params.get("drive_id") or params.get("driveId") or params.get("drive")
     root_path = params.get("root_path") or params.get("rootPath") or "/"
+    auth_mode_raw = params.get("auth_mode") or params.get("authMode")
+    auth_block = params.get("auth")
+    if isinstance(auth_block, dict):
+        auth_mode_raw = auth_mode_raw or auth_block.get("mode")
+    auth_mode = str(auth_mode_raw or "stub").lower()
+    delegated_connected = _coerce_bool(params.get("delegated_connected") or params.get("delegatedConnected"))
+    access_token = params.get("access_token") or params.get("delegated_token") or params.get("token")
     return {
         "base_url": str(base_url).rstrip("/") + "/",
         "drive_id": drive_id,
@@ -76,12 +95,18 @@ def _normalize_onedrive_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]
         "client_secret": params.get("client_secret"),
         "scope_org_id": params.get("scope_org_id") or params.get("scopeOrgId") or "dev",
         "scope_project_id": params.get("scope_project_id") or params.get("scopeProjectId"),
+        "auth_mode": auth_mode,
+        "delegated_connected": delegated_connected if delegated_connected is not None else False,
+        "access_token": access_token,
     }
 
 
 def _build_onedrive_session(params: Dict[str, Any]) -> requests.Session:
     session = requests.Session()
+    auth_mode = str(params.get("auth_mode") or "stub").lower()
     token = params.get("client_secret")
+    if auth_mode == "delegated":
+        token = params.get("access_token") or params.get("client_secret")
     if token:
         session.headers.update({"Authorization": f"Bearer {token}"})
     return session
@@ -295,6 +320,9 @@ class OneDriveEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, Su
 
     @classmethod
     def _use_stub(cls, parameters: Dict[str, Any]) -> bool:
+        auth_mode = str(parameters.get("auth_mode") or "").lower()
+        if auth_mode == "stub":
+            return True
         base_url = str(parameters.get("base_url") or cls.GRAPH_BASE_URL)
         return cls.STUB_ENV_FLAG == "1" or base_url.startswith("http://localhost") or base_url.startswith("https://localhost")
 
@@ -322,6 +350,7 @@ class OneDriveEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, Su
         normalized = _normalize_onedrive_parameters(parameters)
         drive_id = normalized.get("drive_id")
         base_url = str(normalized.get("base_url") or cls.GRAPH_BASE_URL)
+        auth_mode = str(normalized.get("auth_mode") or "stub")
         if not drive_id:
             return EndpointTestResult(False, "drive_id is required.")
         if cls._use_stub(normalized):
@@ -330,6 +359,13 @@ class OneDriveEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, Su
                 "Stub Graph validated (no network).",
                 capabilities=("metadata", "preview", "ingestion"),
                 detected_version="stub",
+            )
+        if auth_mode == "delegated" and not normalized.get("access_token"):
+            return EndpointTestResult(
+                True,
+                "Delegated auth pending browser sign-in; token not present yet.",
+                capabilities=("metadata", "preview", "ingestion"),
+                detected_version="delegated",
             )
         session = _build_onedrive_session(normalized)
         try:

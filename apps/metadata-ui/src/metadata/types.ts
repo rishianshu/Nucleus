@@ -99,6 +99,7 @@ export type MetadataEndpointSummary = {
   detectedVersion?: string | null;
   versionHint?: string | null;
   capabilities?: string[] | null;
+  delegatedConnected?: boolean | null;
   deletedAt?: string | null;
   deletionReason?: string | null;
   isDeleted: boolean;

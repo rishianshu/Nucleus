@@ -427,12 +427,24 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
     defaultLabels: ["onedrive", "docs"],
     fields: [
       {
+        key: "auth_mode",
+        label: "Auth mode",
+        required: true,
+        valueType: "ENUM",
+        defaultValue: "stub",
+        options: [
+          { label: "Stub (local Graph harness)", value: "stub", description: "Use the built-in stub for CI/dev; no external auth required." },
+          { label: "Delegated (browser sign-in)", value: "delegated", description: "Sign in with Microsoft to use your own OneDrive via delegated OAuth." },
+        ],
+        helpText: "Stub remains the default for CI; delegated uses browser sign-in and stored tokens.",
+      },
+      {
         key: "tenant_id",
         label: "Tenant ID",
         required: false,
         valueType: "TEXT",
         placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        helpText: "Azure AD tenant ID. Not required for stub mode.",
+        helpText: "Azure AD tenant ID. Not required for stub mode; optional for delegated if you want a specific tenant.",
         advanced: true,
       },
       {
@@ -441,7 +453,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
         required: false,
         valueType: "TEXT",
         placeholder: "Azure AD app client ID",
-        helpText: "Client ID for the Graph app. Not required for stub mode.",
+        helpText: "Client ID for the Graph app. Set for delegated auth; not required for stub mode.",
         advanced: true,
       },
       {
@@ -451,8 +463,18 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
         valueType: "PASSWORD",
         placeholder: "Azure AD app client secret",
         sensitive: true,
-        helpText: "Client secret for the Graph app. Not required for stub mode.",
+        helpText: "Client secret for the Graph app. Required for real delegated exchange; not required for stub mode.",
         advanced: true,
+      },
+      {
+        key: "delegated_connected",
+        label: "Delegated connection status",
+        required: false,
+        valueType: "BOOLEAN",
+        defaultValue: "false",
+        helpText: "Set automatically after the delegated auth callback succeeds.",
+        advanced: true,
+        visibleWhen: [{ field: "auth_mode", values: ["delegated"] }],
       },
       {
         key: "drive_id",
@@ -460,7 +482,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
         required: true,
         valueType: "TEXT",
         placeholder: "drive-id or 'me'",
-        helpText: "Target drive (id or 'me'). For stub, use any string.",
+        helpText: "Use 'me' for your personal drive or a specific drive GUID. For stub, any string works.",
       },
       {
         key: "root_path",
@@ -494,6 +516,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
         valueType: "URL",
         placeholder: "http://localhost:8805",
         helpText: "Override Graph base URL (use stub URL in CI). Defaults to ONEDRIVE_GRAPH_BASE_URL or https://graph.microsoft.com/v1.0.",
+        defaultValue: process.env.ONEDRIVE_GRAPH_BASE_URL ?? "https://graph.microsoft.com/v1.0",
         advanced: true,
       },
     ],
@@ -517,6 +540,7 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
     sampleConfig: {
       templateId: "http.onedrive",
       parameters: {
+        auth_mode: "stub",
         drive_id: "drive-stub",
         root_path: "/",
         base_url: "http://localhost:8805",

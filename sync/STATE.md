@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-semantic-onedrive-source-v1 (success @ 2025-12-06T03:33Z)
+onedrive-delegated-auth-v1 (success @ 2025-12-06T07:18Z)
 
 ## Last Run
-- slug: semantic-onedrive-source-v1
+- slug: onedrive-delegated-auth-v1
 - status: success
-- duration: 2025-12-05T11:23Z→2025-12-06T03:33Z
-- tests: pnpm ci-check (metadata-auth + metadata-lifecycle) with METADATA_FAKE_COLLECTIONS=1; pnpm mypy
+- duration: 2025-12-06T07:10Z→07:18Z
+- tests: metadata-api build; metadata-ui build (tsc+vite)
 - commits: none
 - decisions: 0
-- next_step: optional: manual/stub ingestion verification + docs explorer check; otherwise ready for sign-off
+- next_step: have user retry delegated Connect with real Azure app values; consider wizard follow-up
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,15 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-06T07:18Z run success (onedrive-delegated-auth-v1, delegated auth uses endpoint client/tenant; UI blocks stub client; api/ui builds)
+- 2025-12-06T07:10Z run resumed (onedrive-delegated-auth-v1, delegated auth stub-client fix)
+- 2025-12-06T07:01Z run success (onedrive-delegated-auth-v1, OneDrive base_url default added to avoid missing endpoint URL; api/ui builds)
+- 2025-12-06T06:53Z run success (onedrive-delegated-auth-v1, OneDrive field ordering/help + delegated save-before-test; api/ui builds)
+- 2025-12-06T06:46Z run resumed (onedrive-delegated-auth-v1, endpoint-specific form UX work)
+- 2025-12-06T06:21Z run success (onedrive-delegated-auth-v1, delegated form hides client creds; api/ui builds)
+- 2025-12-06T06:02Z run resumed (onedrive-delegated-auth-v1, delegated UI polish + verification)
+- 2025-12-06T04:34Z run success (onedrive-delegated-auth-v1, delegated auth wiring + ci-check green)
+- 2025-12-06T03:15Z run started (onedrive-delegated-auth-v1, boot + context sync)
 - 2025-12-06T03:33Z run success (semantic-onedrive-source-v1, METADATA_FAKE_COLLECTIONS=1 pnpm ci-check + mypy green after endpoint workflow/mypy fixes)
 - 2025-12-05T14:22Z run heartbeat (semantic-onedrive-source-v1, onedrive metadata/ingestion stub wired; targeted pytest+tsx green)
 - 2025-12-05T11:32Z run resumed (semantic-onedrive-source-v1, stub Graph harness plan adopted)

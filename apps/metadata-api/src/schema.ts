@@ -63,6 +63,12 @@ import {
 } from "./cdm/workStore.js";
 import { CdmEntityStore, type CdmEntityDomain, type CdmEntityEnvelope } from "./cdm/entityStore.js";
 import { describeDocDataset, inferDocSourceSystem, isDocDatasetId } from "./cdm/docHelpers.js";
+import {
+  completeOneDriveAuthCallback,
+  getOneDriveDelegatedToken,
+  markOneDriveEndpointDelegatedConnected,
+  startOneDriveAuth,
+} from "./onedriveAuth.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -134,6 +140,9 @@ const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static
 const DEFAULT_INGESTION_SINK = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 const INGESTION_WORKFLOW_MAX_ATTEMPTS = Math.max(1, Number(process.env.METADATA_INGESTION_MAX_RETRIES ?? "3"));
 const COLLECTION_WORKFLOW_TIMEOUT_MS = Math.max(5 * 60 * 1000, Number(process.env.METADATA_COLLECTION_WORKFLOW_TIMEOUT_MS ?? 30 * 60 * 1000));
+const TEMPLATE_OVERRIDES: Record<string, EndpointTemplate | undefined> = {
+  "http.onedrive": DEFAULT_ENDPOINT_TEMPLATES.find((entry) => entry.id === "http.onedrive"),
+};
 
 type GraphQLKbFacetValue = {
   value: string;
@@ -348,6 +357,7 @@ export const typeDefs = `#graphql
     detectedVersion: String
     versionHint: String
     capabilities: [String!]
+    delegatedConnected: Boolean
     createdAt: DateTime
     updatedAt: DateTime
     deletedAt: DateTime
@@ -669,6 +679,17 @@ export const typeDefs = `#graphql
     detectedVersion: String
     capabilities: [String!]
     details: JSON
+  }
+
+  type OneDriveAuthSession {
+    authSessionId: ID!
+    authUrl: String!
+    state: String!
+  }
+
+  type OneDriveAuthResult {
+    ok: Boolean!
+    endpointId: ID
   }
 
   enum IngestionState {
@@ -1125,6 +1146,8 @@ type ProvisionCdmSinkResult {
     testEndpoint(input: TestEndpointInput!): TestResult!
     registerEndpoint(input: EndpointInput!): MetadataEndpoint!
     updateEndpoint(id: ID!, patch: EndpointPatch!): MetadataEndpoint!
+    startOneDriveAuth(endpointId: ID!): OneDriveAuthSession!
+    completeOneDriveAuth(state: String!, code: String): OneDriveAuthResult!
     deleteEndpoint(id: ID!): Boolean!
     createCollection(input: CollectionCreateInput!): MetadataCollection!
     updateCollection(id: ID!, input: CollectionUpdateInput!): MetadataCollection!
@@ -1395,7 +1418,9 @@ export function createResolvers(
   let lastTemplateRefreshFailureAt = 0;
   let fallbackTemplatesSeeded = false;
   const fetchEndpointTemplates = async (family?: "JDBC" | "HTTP" | "STREAM") => {
-    let cached = (await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[];
+    let cached = applyTemplateOverrides(
+      (await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[],
+    );
     const useCachedOrFallback = async () => {
       if (cached.length > 0) {
         return filterTemplatesByFamily(cached, family);
@@ -1406,18 +1431,21 @@ export function createResolvers(
         );
         fallbackTemplatesSeeded = true;
       }
-      const fallback = filterTemplatesByFamily(DEFAULT_ENDPOINT_TEMPLATES as EndpointTemplate[], family);
+      const fallback = filterTemplatesByFamily(
+        applyTemplateOverrides(DEFAULT_ENDPOINT_TEMPLATES as EndpointTemplate[]),
+        family,
+      );
       if (fallback.length > 0) {
         cached = fallback;
       }
       return fallback;
     };
     const now = Date.now();
-    if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
-      return filterTemplatesByFamily(cached, family);
-    }
-    if (FAKE_COLLECTIONS_ENABLED || process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
-      return useCachedOrFallback();
+      if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
+        return filterTemplatesByFamily(cached, family);
+      }
+      if (FAKE_COLLECTIONS_ENABLED || process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
+        return useCachedOrFallback();
     }
     try {
       const { client, taskQueue } = await resolveTemporalClient();
@@ -1434,7 +1462,7 @@ export function createResolvers(
         await store.saveEndpointTemplates(
           templates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
         );
-        return filterTemplatesByFamily(templates as EndpointTemplate[], family);
+        return filterTemplatesByFamily(applyTemplateOverrides(templates as EndpointTemplate[]), family);
       }
       return useCachedOrFallback();
     } catch (error) {
@@ -2743,6 +2771,17 @@ export function createResolvers(
           });
         }
         const parameters = normalizePayload(endpointConfig?.parameters) ?? {};
+        if (isOneDriveTemplate(templateId)) {
+          const authMode = resolveOneDriveAuthMode(parameters);
+          parameters.auth_mode = authMode;
+          if (authMode === "delegated") {
+            const delegatedToken = await getOneDriveDelegatedToken(sourceEndpointId);
+            if (delegatedToken?.access_token) {
+              parameters.access_token = delegatedToken.access_token;
+              parameters.delegated_connected = true;
+            }
+          }
+        }
         const connectionTarget = endpoint.url ?? null;
         const inferredUnitId = extractIngestionUnitId(payload, schema, table);
         if (!inferredUnitId) {
@@ -2890,6 +2929,37 @@ export function createResolvers(
         const descriptor = await registerEndpointWithInput(payload, ctx);
         return normalizeEndpointForGraphQL(descriptor)!;
       },
+      startOneDriveAuth: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceWriteAccess(ctx);
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const endpoint = await prisma.metadataEndpoint.findUnique({ where: { id: args.endpointId } });
+        if (!endpoint || (projectRowId && endpoint.projectId && endpoint.projectId !== projectRowId)) {
+          throw new GraphQLError("Endpoint not found", { extensions: { code: "E_ENDPOINT_NOT_FOUND" } });
+        }
+        const config = normalizePayload(endpoint.config);
+        const templateId = typeof config?.templateId === "string" ? config.templateId : null;
+        if (!isOneDriveTemplate(templateId)) {
+          throw new GraphQLError("Endpoint does not support OneDrive delegated auth.", {
+            extensions: { code: "E_ONEDRIVE_TEMPLATE_REQUIRED" },
+          });
+        }
+        const parameters = normalizePayload(config?.parameters) ?? {};
+        const authMode = resolveOneDriveAuthMode(parameters);
+        if (authMode !== "delegated") {
+          throw new GraphQLError("Switch auth_mode to delegated before starting browser auth.", {
+            extensions: { code: "E_ONEDRIVE_AUTH_MODE" },
+          });
+        }
+        return startOneDriveAuth(args.endpointId, parameters);
+      },
+      completeOneDriveAuth: async (_parent: unknown, args: { state: string; code?: string | null }) => {
+        const result = await completeOneDriveAuthCallback(args.state, args.code ?? null);
+        if (result.ok && result.endpointId) {
+          await markOneDriveEndpointDelegatedConnected(result.endpointId);
+        }
+        return { ok: result.ok, endpointId: result.endpointId ?? null };
+      },
       deleteEndpoint: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx, "editor");
         const endpoints = await store.listEndpoints(ctx.auth.projectId);
@@ -2929,6 +2999,28 @@ export function createResolvers(
       },
     },
     MetadataEndpoint: {
+      delegatedConnected: async (parent: MetadataEndpointDescriptor) => {
+        const config = normalizePayload(parent.config);
+        const templateId = typeof config?.templateId === "string" ? config.templateId : null;
+        if (!isOneDriveTemplate(templateId)) {
+          return null;
+        }
+        const parameters = normalizePayload(config?.parameters) ?? {};
+        const authMode = resolveOneDriveAuthMode(parameters);
+        if (authMode !== "delegated") {
+          return false;
+        }
+        const flag = coerceBoolean(parameters.delegated_connected ?? parameters.delegatedConnected);
+        if (flag !== null) {
+          return flag;
+        }
+        const endpointKey = parent.id ?? parent.sourceId ?? "";
+        if (!endpointKey) {
+          return false;
+        }
+        const token = await getOneDriveDelegatedToken(endpointKey);
+        return Boolean(token);
+      },
       url: (parent: { url?: string | null }) => maskEndpointUrl(parent.url),
       runs: async (parent: { id: string; projectId?: string | null }, args: { limit?: number | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -3954,6 +4046,25 @@ function normalizeEndpointListForGraphQL(
 ): Array<MetadataEndpointDescriptor & { isDeleted: boolean }> {
   const filtered = includeDeleted ? endpoints : endpoints.filter((endpoint) => !endpoint.deletedAt);
   return filtered.map((endpoint) => ({ ...endpoint, isDeleted: Boolean(endpoint.deletedAt) }));
+}
+
+function applyTemplateOverrides(templates: EndpointTemplate[]): EndpointTemplate[] {
+  return templates.map((template) => {
+    const override = TEMPLATE_OVERRIDES[template.id];
+    if (!override) {
+      return template;
+    }
+    // Return a fresh object to avoid mutating shared references across templates.
+    return {
+      ...template,
+      descriptorVersion: override.descriptorVersion ?? template.descriptorVersion,
+      fields: override.fields ? [...override.fields] : template.fields ? [...template.fields] : [],
+      extras: override.extras ?? template.extras,
+      capabilities: override.capabilities ? [...override.capabilities] : template.capabilities ? [...template.capabilities] : [],
+      connection: override.connection ?? template.connection,
+      sampleConfig: override.sampleConfig ?? template.sampleConfig,
+    };
+  });
 }
 
 async function buildFallbackEndpointConfig(
@@ -5267,6 +5378,41 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
         reject(error);
       });
   });
+}
+
+function isOneDriveTemplate(templateId: string | null): boolean {
+  return templateId === "http.onedrive";
+}
+
+function resolveOneDriveAuthMode(parameters?: Record<string, unknown> | null): string {
+  const authBlock =
+    parameters && typeof parameters.auth === "object" && parameters.auth !== null
+      ? (parameters.auth as Record<string, unknown>)
+      : null;
+  const raw =
+    (parameters?.auth_mode as string | undefined) ??
+    (parameters?.authMode as string | undefined) ??
+    (authBlock?.mode as string | undefined);
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return raw.trim().toLowerCase();
+  }
+  return "stub";
+}
+
+function coerceBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "n"].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
 }
 
 function normalizePayload(value: unknown): Record<string, any> | null {
