@@ -14,6 +14,7 @@ export function registerDefaultIngestionSinks() {
       "cdm.work.worklog",
       "cdm.doc.space",
       "cdm.doc.item",
+      "cdm.doc.access",
       "cdm.doc.revision",
       "cdm.doc.link",
     ],

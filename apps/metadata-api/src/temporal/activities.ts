@@ -449,6 +449,26 @@ export const activities: MetadataActivities = {
     const dataMode = typeof config?.mode === "string" ? config.mode : null;
     const endpointConfig = normalizeRecordPayload(endpoint.config);
     const templateId = typeof endpointConfig.templateId === "string" ? endpointConfig.templateId : null;
+    const endpointParameters = isRecord(endpointConfig.parameters)
+      ? (endpointConfig.parameters as Record<string, unknown>)
+      : null;
+    const policyParameters = isRecord((policy ?? {}).parameters)
+      ? ((policy as Record<string, unknown>).parameters as Record<string, unknown>)
+      : null;
+    if (endpointParameters || policyParameters) {
+      policy = {
+        ...(policy ?? {}),
+        parameters: { ...(endpointParameters ?? {}), ...(policyParameters ?? {}) },
+      };
+    }
+    if (process.env.METADATA_AUTH_DEBUG === "1") {
+      console.info("[ingestion.policy]", {
+        endpointId,
+        unitId,
+        templateId,
+        policy,
+      });
+    }
     if (templateId === "http.onedrive") {
       const policyParameters = normalizeRecordPayload((policy ?? {}).parameters ?? endpointConfig.parameters ?? {});
       const authMode = resolveOneDriveAuthMode(policyParameters);
@@ -901,10 +921,23 @@ function mergeIngestionPolicies(
   base: Record<string, unknown> | null,
   overrides: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
-  if (base && overrides) {
-    return { ...base, ...overrides };
+  if (!base && !overrides) {
+    return null;
   }
-  return overrides ?? base;
+  const merged: Record<string, unknown> = { ...(base ?? {}) };
+  if (overrides) {
+    Object.assign(merged, overrides);
+  }
+  const baseParams = isRecord(base?.parameters) ? (base?.parameters as Record<string, unknown>) : null;
+  const overrideParams = isRecord(overrides?.parameters) ? (overrides?.parameters as Record<string, unknown>) : null;
+  if (baseParams || overrideParams) {
+    merged.parameters = { ...(baseParams ?? {}), ...(overrideParams ?? {}) };
+  }
+  return merged;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function buildCheckpointKey({

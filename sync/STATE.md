@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-docs-access-graph-and-rls-v1 (success @ 2025-12-06T14:46Z)
+docs-access-graph-and-rls-v1 (success @ 2025-12-06T20:22Z)
 
 ## Last Run
 - slug: docs-access-graph-and-rls-v1
 - status: success
-- duration: 2025-12-06T09:26Z→14:46Z
-- tests: metadata-api build; metadata-ui build; cdmResolvers test; cdmSink ACL test
+- duration: 2025-12-06T18:18Z→20:22Z (follow-on to 09:26Z→14:46Z)
+- tests: manual Confluence ACL ingestion run; metadata-api/ui already green from prior run
 - commits: none
 - decisions: 0
-- next_step: apply cdm_doc_access migration in target env; consider real principal mapping and UI access summary in follow-up
+- next_step: follow-up slug to mirror cdm_doc_access into metadata/KB and harden ACL ingestion (see docs/future-requirements/docs-access-acl-followup.md)
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-06T20:22Z run success (docs-access-graph-and-rls-v1, real Confluence ACL ingested into cdm_work; follow-up doc filed)
+- 2025-12-06T18:18Z run resumed (docs-access-graph-and-rls-v1, verifying real Confluence ACL ingestion)
 - 2025-12-06T14:46Z run success (docs-access-graph-and-rls-v1, ACL/RLS scaffolding added; tests/builds green)
 - 2025-12-06T09:26Z run started (docs-access-graph-and-rls-v1, boot + context sync)
 - 2025-12-06T09:07Z run success (onedrive-delegated-auth-v1, wizard requirements doc added)

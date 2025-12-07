@@ -8,6 +8,8 @@ from ingestion_models.cdm import (
     CDM_DOC_SPACE,
 )
 
+CDM_DOC_ACCESS = "cdm.doc.access"
+
 CONFLUENCE_API_LIBRARY: Dict[str, Dict[str, str]] = {
     "space_search": {
         "method": "GET",

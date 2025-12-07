@@ -2567,5 +2567,298 @@
     },
     "version": "3bc955eba9854dbfb6bb2b8c4edf8be4",
     "updatedAt": "2025-12-06T04:51:24.786Z"
+  },
+  "ingest::docs.confluence::endpoint::f038624232644ded815b343703ade7d4::unit::confluence.acl::sink::cdm": {
+    "value": {
+      "cursor": {
+        "spaces": {
+          "AS": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "BSP": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "CE": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "CLAIMS": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "CM": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "CRMCKYC": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "DC": {
+            "lastUpdatedAt": "2025-11-13T11:02:14.459Z"
+          },
+          "DE": {
+            "lastUpdatedAt": "2025-12-06T09:13:46.511Z"
+          },
+          "DIGITAL": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "DL": {
+            "lastUpdatedAt": "2025-12-05T09:43:45.655Z"
+          },
+          "DNA": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "DSIP": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "DSO": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "EAPI": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "FBC": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "FEE": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "FINANCE": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "GLXY": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "INFRA": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "INNOVATION": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "IS": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "KG": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "LP": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "NGHP": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "NJ": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "NW": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "PLATFORM": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "SAS": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "SC": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "SE": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "SP": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "SP1": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "STARHEALTH": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "TBC": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "TC": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "TEST": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "TEST1": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          },
+          "ZOHOCRM": {
+            "lastUpdatedAt": "2025-11-06T20:17:56.658791+00:00"
+          }
+        }
+      },
+      "lastRunId": "7eb2f513-f435-4d47-85a8-05663a1d6518",
+      "stats": {
+        "planMetadata": {
+          "cursor": {
+            "spaces": {
+              "AS": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "BSP": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "CE": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "CLAIMS": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "CM": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "CRMCKYC": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "DC": {
+                "lastUpdatedAt": "2025-11-13T11:02:14.459Z"
+              },
+              "DE": {
+                "lastUpdatedAt": "2025-12-06T09:13:46.511Z"
+              },
+              "DIGITAL": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "DL": {
+                "lastUpdatedAt": "2025-12-05T09:43:45.655Z"
+              },
+              "DNA": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "DSIP": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "DSO": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "EAPI": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "FBC": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "FEE": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "FINANCE": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "GLXY": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "INFRA": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "INNOVATION": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "IS": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "KG": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "LP": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "NGHP": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "NJ": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "NW": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "PLATFORM": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "SAS": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "SC": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "SE": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "SP": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "SP1": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "STARHEALTH": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "TBC": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "TC": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "TEST": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "TEST1": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              },
+              "ZOHOCRM": {
+                "lastUpdatedAt": "2025-11-06T20:15:03.066842+00:00"
+              }
+            }
+          },
+          "spaces": [
+            "*"
+          ],
+          "target_slice_size": null,
+          "updated_from": null
+        },
+        "slices": [
+          {
+            "aclEdges": 28,
+            "completedAt": "2025-12-06T20:17:56.657755+00:00",
+            "endpointId": "f038624232644ded815b343703ade7d4",
+            "planMetadata": {
+              "cursor": {},
+              "spaces": [
+                "*"
+              ],
+              "target_slice_size": "<cycle>",
+              "updated_from": null
+            },
+            "plannedSlices": 1,
+            "recordCount": "<cycle>",
+            "slice": {
+              "lower": "2025-11-06T20:17:56.658791+00:00",
+              "sequence": 0,
+              "slice_key": "confluence.acl:*:0",
+              "upper": "2025-12-06T20:17:56.658788+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "aclEdges": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "spacesProcessed": "<cycle>",
+                "unitId": "<cycle>"
+              }
+            ],
+            "spacesProcessed": 38,
+            "strategy": "confluence-space-window",
+            "unitId": "confluence.acl"
+          }
+        ],
+        "strategy": "confluence-space-window"
+      },
+      "lastUpdatedAt": "2025-12-06T20:18:16.096Z"
+    },
+    "version": "958a1906174540d9b13ce5140121e530",
+    "updatedAt": "2025-12-06T20:18:16.098Z"
   }
 }

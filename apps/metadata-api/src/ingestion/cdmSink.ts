@@ -122,6 +122,7 @@ export const CDM_MODEL_TABLES = {
   "cdm.doc.access": {
     suffix: "doc_access",
     columns: [
+      logicalIdColumn(),
       column("principal_id", "TEXT"),
       column("principal_type", "TEXT"),
       column("doc_cdm_id", "TEXT"),
@@ -177,6 +178,17 @@ function column(name: string, type = "TEXT"): ColumnDefinition {
     name,
     type,
     extract: (payload) => normalizePrimitive(payload[name]),
+  };
+}
+
+function logicalIdColumn(name = "cdm_id"): ColumnDefinition {
+  return {
+    name,
+    type: "TEXT",
+    extract: (payload, record) =>
+      normalizePrimitive(payload[name]) ??
+      normalizePrimitive((record as unknown as { logicalId?: string }).logicalId) ??
+      normalizePrimitive((record as unknown as { id?: string }).id),
   };
 }
 

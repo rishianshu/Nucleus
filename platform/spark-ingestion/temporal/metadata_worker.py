@@ -420,6 +420,7 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         sink_id=request.sinkId,
         staging_provider=request.stagingProviderId or "in_memory",
     )
+    logger.info(event="ingestion_policy_debug", policy=request.policy)
     normalized_mode = (request.mode or "").upper()
     reset_flag = False
     if isinstance(request.policy, dict):
