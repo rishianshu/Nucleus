@@ -219,9 +219,15 @@ class PostgresMetadataSubsystem(MetadataSubsystem, MetadataProducer):
           tc.initially_deferred,
           tc.constraint_schema,
           rc.unique_constraint_name AS referenced_constraint,
+          rc.unique_constraint_schema AS referenced_constraint_schema,
           rc.delete_rule,
+          rc.update_rule,
           kcu.column_name,
-          kcu.ordinal_position
+          kcu.ordinal_position,
+          ccu.table_schema AS referenced_table_schema,
+          ccu.table_name AS referenced_table,
+          ccu.column_name AS referenced_column,
+          ccu.ordinal_position AS referenced_column_position
         FROM information_schema.table_constraints tc
         LEFT JOIN information_schema.key_column_usage kcu
           ON tc.constraint_name = kcu.constraint_name
@@ -230,6 +236,10 @@ class PostgresMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         LEFT JOIN information_schema.referential_constraints rc
           ON tc.constraint_name = rc.constraint_name
           AND tc.constraint_schema = rc.constraint_schema
+        LEFT JOIN information_schema.key_column_usage ccu
+          ON rc.unique_constraint_name = ccu.constraint_name
+          AND rc.unique_constraint_schema = ccu.constraint_schema
+          AND ccu.ordinal_position = kcu.ordinal_position
         WHERE tc.table_schema = '{escape_literal(schema)}'
           AND tc.table_name = '{escape_literal(table)}'
         ORDER BY tc.constraint_name, kcu.ordinal_position
@@ -250,15 +260,27 @@ class PostgresMetadataSubsystem(MetadataSubsystem, MetadataProducer):
                     "constraint_schema": row.get("constraint_schema"),
                     "constraint_status": None,
                     "delete_rule": row.get("delete_rule"),
+                    "update_rule": row.get("update_rule"),
                     "referenced_constraint": row.get("referenced_constraint"),
+                    "referenced_constraint_schema": row.get("referenced_constraint_schema"),
+                    "referenced_table": None,
+                    "referenced_fields": [],
                     "columns": [],
                 },
             )
             if row.get("column_name"):
+                if not entry.get("referenced_table") and row.get("referenced_table"):
+                    ref_schema = row.get("referenced_table_schema")
+                    ref_table = row.get("referenced_table")
+                    entry["referenced_table"] = f"{ref_schema}.{ref_table}" if ref_schema else ref_table
+                if row.get("referenced_column"):
+                    entry["referenced_fields"].append(row.get("referenced_column"))
                 entry["columns"].append(
                     {
                         "column_name": row.get("column_name"),
                         "position": row.get("ordinal_position"),
+                        "referenced_column": row.get("referenced_column"),
+                        "referenced_column_position": row.get("referenced_column_position"),
                     }
                 )
         return list(grouped.values())

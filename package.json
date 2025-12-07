@@ -11,6 +11,7 @@
     "bootstrap": "pnpm install && pnpm -r build",
     "build": "pnpm -r build",
     "ci-check": "bash scripts/ci-check.sh && pnpm mypy",
+    "ci-shard": "SKIP_STACK=1 bash scripts/ci-check.sh",
     "check:metadata-lifecycle": "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-lifecycle.spec.ts --project=chromium",
     "check:metadata-auth": "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-auth.spec.ts --project=chromium",
     "dev:metadata-api": "pnpm --filter @apps/metadata-api dev",

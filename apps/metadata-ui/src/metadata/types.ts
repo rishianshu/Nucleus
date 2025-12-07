@@ -43,6 +43,34 @@ export type CatalogDataset = BaseMetadataDataset & {
       lastError?: string | null;
     } | null;
   } | null;
+  tables?: CatalogTable[] | null;
+};
+
+export type CatalogColumn = {
+  id: string;
+  name: string;
+  dataType?: string | null;
+  nullable?: boolean | null;
+};
+
+export type CatalogForeignKey = {
+  name?: string | null;
+  fromTable?: CatalogTable | null;
+  fromColumns?: CatalogColumn[] | null;
+  toTable?: CatalogTable | null;
+  toColumns?: CatalogColumn[] | null;
+  onDelete?: string | null;
+  onUpdate?: string | null;
+};
+
+export type CatalogTable = {
+  id: string;
+  name: string;
+  schema?: string | null;
+  columns?: CatalogColumn[] | null;
+  primaryKeyColumns?: CatalogColumn[] | null;
+  inboundForeignKeys?: CatalogForeignKey[] | null;
+  outboundForeignKeys?: CatalogForeignKey[] | null;
 };
 
 export type DatasetPreviewResult = {

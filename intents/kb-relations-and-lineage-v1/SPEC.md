@@ -1,218 +1,256 @@
-# SPEC — KB relations and lineage v1 (PK/FK and structural edges)
+# SPEC — KB relations and lineage v1 (generic relation framework)
 
 ## Problem
 
-Right now Nucleus can show:
+Current KB state:
 
-- Datasets and some basic metadata from JDBC sources.
-- KB nodes for various entities (datasets, endpoints, etc.).
-- A KB admin console that lists nodes/edges but with limited structural richness.
+- We have entities: endpoints, datasets, tables, columns, docs, work items, etc.
+- We have some edges but they’re ad-hoc and mostly structural.
+- The earlier “relations & lineage” idea focused almost entirely on JDBC PK/FK.
 
 Missing:
 
-- Explicit, queryable **containment** relations: dataset → table → column.
-- Explicit **primary key** and **foreign key** relations at table/column level.
-- UI surfaces to inspect “what references what” (lineage-like views) and for agents to traverse via GraphQL.
+- A **generic way** to represent relations across domains:
+  - Structural (PK/FK, containment),
+  - Cross-entity (doc→issue, doc→doc, doc→dataset),
+  - Future signals.
+- A **registry** so producers and consumers agree on relation semantics.
+- UI and GraphQL support that treat relations as **first-class metadata**, not one-off hacks.
 
-JDBC metadata (information_schema and vendor views) already provides most of this. We need to:
+We need:
 
-- Normalize those relations,
-- Emit them into KB using existing GraphStore APIs,
-- Expose them via GraphQL,
-- And surface them in the KB console and Catalog detail screens.
+1. A relation-kind registry and generic relation representation in KB.
+2. At least two concrete relation families implemented end-to-end:
+   - JDBC structural relations (containment + PK/FK).
+   - One doc relation (e.g. Confluence page ↔ Jira issue) using existing explicit links.
 
 ## Interfaces / Contracts
 
-### 1. KB schema: nodes & edges
+### 1. Relation-kind registry
 
-Use existing GraphStore mechanism but with new types/labels.
+Define a registry that enumerates supported relation kinds with human + machine semantics.
 
-**Nodes (types):**
+Conceptual model:
 
-- `dataset`:
-  - Represents a logical dataset (already present).
-  - Attributes: id, name, domain, endpoint, etc.
+```ts
+type RelationKindId =
+  | "rel.contains"
+  | "rel.contains.table"
+  | "rel.contains.column"
+  | "rel.pk_of"
+  | "rel.fk_references"
+  | "rel.doc_links_issue"
+  | "rel.doc_links_doc";
 
-- `table`:
-  - Represents a physical or logical table/view.
-  - Attributes: id, dataset_id, schema_name, table_name, type.
-
-- `column`:
-  - Represents a column of a table.
-  - Attributes: id, table_id, column_name, ordinal_position, data_type, nullable, etc.
-
-**Edges (labels):**
-
-- `CONTAINS_TABLE`:
-  - `dataset` → `table`.
-
-- `CONTAINS_COLUMN`:
-  - `table` → `column`.
-
-- `HAS_PRIMARY_KEY`:
-  - `table` → `column` (or to a PK node; v1 can attach directly to column).
-
-- `REFERENCES_COLUMN`:
-  - `column` → `column` (FK->PK).
-  - Attributes:
-    - `fk_name`,
-    - `on_delete`, `on_update` if available.
-
-All edges should carry:
-
-- `source_system` (e.g., `jdbc.postgres`),
-- `synced_at` timestamp,
-- Optional `confidence` if needed later (v1 can be 1.0).
-
-Encode these using existing GraphStore APIs, e.g.:
-
-- `graphStore.upsertEntity({ id, type: 'column', ... })`
-- `graphStore.upsertEdge({ fromId, toId, type: 'REFERENCES_COLUMN', ... })`
-
-### 2. JDBC metadata extraction
-
-Extend the **JDBC metadata ingestion path** to emit these relations.
-
-Sources:
-
-- `information_schema.tables` (or equivalent) for table list.
-- `information_schema.columns` for columns.
-- PK info:
-  - Postgres: `pg_constraint` + `pg_attribute` or `information_schema.table_constraints` / `key_column_usage`.
-- FK info:
-  - Postgres: `information_schema.referential_constraints` / `key_column_usage`.
-
-Design:
-
-- During metadata collection for JDBC endpoints (already emitting datasets/tables/columns into `MetadataRecord` / catalog), add a phase that:
-
-  - For each dataset/table/column:
-    - Emit/update KB `dataset`, `table`, `column` nodes.
-    - Emit `CONTAINS_TABLE` and `CONTAINS_COLUMN` edges.
-
-  - For each PK:
-    - For each PK column, emit `HAS_PRIMARY_KEY` from `table` to `column`.
-
-  - For each FK:
-    - Resolve FK column(s) and referenced PK column(s).
-    - Emit `REFERENCES_COLUMN` edges from FK column to PK column.
-
-Consider partial or composite keys:
-
-- v1 can either:
-  - Emit an edge per column pair (FK_col → PK_col), OR
-  - Represent composite keys as separate nodes (out-of-scope for v1; keep it simple and per column).
-
-The ingestion must remain **incremental**:
-
-- If table or column disappears, we may:
-  - Keep edges but mark them inactive, or
-  - Detect deletion and remove edges. v1 can focus on “add/update”, with rely-on-reload for deletions.
-
-### 3. GraphQL exposure
-
-Update GraphQL schema (metadata-api) to expose structural relations:
-
-- On dataset type:
-
-  ```graphql
-  type Dataset {
-    id: ID!
-    name: String!
-    tables: [Table!]!      # existing or new
-  }
+type RelationKind = {
+  id: RelationKindId;
+  label: string;            // human name
+  description: string;
+  fromTypes: string[];      // allowed from entity types
+  toTypes: string[];        // allowed to entity types
+  symmetric?: boolean;      // for rel.doc_links_doc etc.
+};
 ````
 
-* On table type:
+Implementation:
 
-  ```graphql
-  type Table {
-    id: ID!
-    name: String!
-    columns: [Column!]!
-    primaryKeyColumns: [Column!]!
-    inboundForeignKeys: [ForeignKey!]!
-    outboundForeignKeys: [ForeignKey!]!
-  }
+* Code-level registry (e.g. a TypeScript map or JSON manifest under `docs/meta/nucleus-architecture/kb-meta-registry-v1.md` + runtime).
+* Optionally mirrored into KB meta nodes (so KB can be introspected).
 
-  type ForeignKey {
-    name: String
-    fromTable: Table!
-    fromColumns: [Column!]!
-    toTable: Table!
-    toColumns: [Column!]!
-    onDelete: String
-    onUpdate: String
-  }
-  ```
+V1 must support at least:
 
-Resolvers:
+* `rel.contains` / `rel.contains.table` / `rel.contains.column` (dataset→table→column).
+* `rel.pk_of` (table → column).
+* `rel.fk_references` (fk column → pk column).
+* `rel.doc_links_issue` (doc → work item) *or* `rel.doc_links_doc` (doc ↔ doc).
 
-* Use KB as the primary source:
+### 2. Generic relation edges in KB
 
-  * Look up edges from `dataset` to `table` (CONTAINS_TABLE).
-  * Edges from `table` to `column` (CONTAINS_COLUMN).
-  * `HAS_PRIMARY_KEY` for `primaryKeyColumns`.
-  * `REFERENCES_COLUMN` edges for inbound/outbound FKs.
+Represent relations as KB edges with:
 
-Optionally cache or denormalize for performance.
+```ts
+type RelationEdge = {
+  id: string;
+  kind: RelationKindId;
+  fromId: string;          // KB entity id
+  toId: string;            // KB entity id
+  sourceSystem: string;    // "jdbc.postgres", "confluence", "jira", ...
+  strength?: number;       // optional weight/score
+  tags?: string[];         // optional labels, e.g. ["explicit-link", "schema"]
+  createdAt: Date;
+  updatedAt: Date;
+};
+```
 
-### 4. UI: KB admin and Catalog views
+Stored via existing GraphStore API:
 
-KB admin console:
+* `graphStore.upsertEntity({ id, type, ... })`
+* `graphStore.upsertEdge({ id, type: kind, fromId, toId, props })`
 
-* Add filters for relation types:
+No new datastore; just a consistent use of `type` for `RelationKindId` and some common props.
 
-  * “Show FK edges”, “Show PK edges”, etc.
-* Allow selecting a table node and see:
+### 3. JDBC structural relations
 
-  * Its columns,
-  * Its PK columns,
-  * FKs to/from other tables.
+Extend JDBC metadata ingestion so that when we collect JDBC metadata and emit catalog datasets:
 
-Catalog dataset/table detail:
+* For each dataset:
 
-* Dataset detail:
+  * Create/ensure KB `dataset` entity.
+* For each table:
 
-  * Show list of tables (from KB).
-  * Maybe a small count of inbound/outbound FKs for the dataset.
+  * Create KB `table` entity.
+  * Add `rel.contains.table` edge: `dataset -> table`.
+* For each column:
 
-* Table detail:
+  * Create KB `column` entity.
+  * Add `rel.contains.column` edge: `table -> column`.
 
-  * Add sections:
+For PKs:
 
-    * Primary Key: list of columns.
-    * Foreign Keys:
+* For each PK constraint, for each PK column:
 
-      * Outbound FKs (this table → others).
-      * Inbound FKs (others → this table).
+  * Add `rel.pk_of` edge: `table -> column`.
 
-The UI can reuse existing GraphQL resolvers; no new data sources.
+For FKs:
+
+* For each FK constraint:
+
+  * For each FK column referenced:
+
+    * Add `rel.fk_references` edge: `fkColumn -> pkColumn`.
+
+Notes:
+
+* For composite keys, v1 can emit one edge per column pair.
+* Upserts must be idempotent: re-running metadata collection should not create duplicates.
+
+### 4. Doc relation (Confluence ↔ Jira or doc ↔ doc)
+
+Pick one concrete relation that already has **explicit linking**:
+
+* Option A: `rel.doc_links_issue`:
+
+  * Confluence pages that embed or link a Jira issue via structured macro or a known field.
+* Option B: `rel.doc_links_doc`:
+
+  * Confluence page linking another page via a structured reference.
+
+Specification for A (example):
+
+* During Confluence metadata or ingestion:
+
+  * For each page, inspect its metadata/normalized payload for:
+
+    * A list of Jira issue keys (if present from existing Jira macro extractions); or
+    * A structured “linked issues” field in normalized records.
+  * For each `(page, issueKey)` pair:
+
+    * Resolve or create KB entities:
+
+      * `doc` (Confluence page),
+      * `work_item` (Jira issue, from CDM or KB).
+    * Emit `rel.doc_links_issue` edge: `doc -> work_item`.
+
+In tests, we can seed a small fixture:
+
+* One Confluence doc with a known Jira issue link.
+* One Jira issue ingested into CDM Work / KB.
+* One `rel.doc_links_issue` edge connecting them.
+
+### 5. GraphQL exposure
+
+Expose relations via GraphQL in two main places:
+
+1. **Catalog / schema view** (JDBC):
+
+   ```graphql
+   type Dataset {
+     id: ID!
+     name: String!
+     tables: [Table!]!
+   }
+
+   type Table {
+     id: ID!
+     name: String!
+     columns: [Column!]!
+     primaryKeyColumns: [Column!]!
+     inboundForeignKeys: [ForeignKey!]!
+     outboundForeignKeys: [ForeignKey!]!
+   }
+
+   type Column {
+     id: ID!
+     name: String!
+     table: Table!
+     referencedBy: [Column!]!   # via rel.fk_references edges
+     references: [Column!]!
+   }
+   ```
+
+   Resolvers read KB relations:
+
+   * `rel.contains.*`, `rel.pk_of`, `rel.fk_references`.
+
+2. **Doc/work view**:
+
+   ```graphql
+   type Doc {
+     id: ID!
+     title: String!
+     linkedIssues: [WorkItem!]!    # via rel.doc_links_issue
+     # or
+     linkedDocs: [Doc!]!           # via rel.doc_links_doc
+   }
+   ```
+
+   Resolvers read KB `rel.doc_links_issue` / `rel.doc_links_doc` edges.
+
+### 6. UI: KB admin and detail views
+
+* KB admin console:
+
+  * Allow filtering edges by `kind` (`rel.pk_of`, `rel.fk_references`, `rel.doc_links_issue`, etc.).
+  * When clicking a node (table/doc), show:
+
+    * its neighbors grouped by relation kind.
+
+* Catalog dataset/table detail:
+
+  * Show PK/FK info as in the earlier PK/FK-only design.
+  * Optionally show “related docs” or “linked issues” in a side panel using the doc relation.
+
+* CDM Docs or Work Explorer:
+
+  * For the chosen doc relation:
+
+    * Show linked issues/docs in the detail pane.
 
 ## Data & State
 
-* KB nodes: `dataset`, `table`, `column`.
-* KB edges: `CONTAINS_TABLE`, `CONTAINS_COLUMN`, `HAS_PRIMARY_KEY`, `REFERENCES_COLUMN`.
-* Existing catalog metadata (e.g., `MetadataRecord`) remains the underlying source; KB is a semantic overlay.
+* KB entities: `dataset`, `table`, `column`, `doc`, `work_item` (some already exist).
+* KB edges with `type = RelationKindId`: stored via GraphStore.
+* Relation-kind registry stored at:
+
+  * Code level (TS/JSON),
+  * Optionally mirrored as meta nodes.
 
 ## Constraints
 
-* KB changes must be additive; do not rename or delete existing types/edges.
-* For large schemas, ensure ingestion:
-
-  * Batches writes to KB,
-  * Avoids N² behaviour (e.g., we generate one FK edge per actual FK column relation, not cross joins).
+* Keep KB schema changes additive; no renames/deletes of existing types.
+* Ensure ingestion batch writes and upserts are bounded and idempotent.
 
 ## Acceptance Mapping
 
-* AC1 → KB contains structural nodes/edges for seeded JDBC schemas.
-* AC2 → GraphQL exposes these relations in dataset/table/column types.
-* AC3 → UI shows FK/PK info in dataset/table detail.
-* AC4 → KB admin console can inspect relations.
-* AC5 → Ingestion remains incremental; CI stays green.
+* AC1 → relation-kind registry implemented and queryable.
+* AC2 → JDBC ingestion emits containment + PK/FK relations consistently.
+* AC3 → a doc relation (doc↔issue or doc↔doc) is emitted.
+* AC4 → GraphQL exposes these relations for schema + docs.
+* AC5 → KB admin console can filter and inspect relations by kind.
+* AC6 → CI remains green.
 
 ## Risks / Open Questions
 
-* R1: Different JDBC vendors represent PK/FK info differently; v1 may target Postgres and a subset of others, with fallbacks.
-* R2: Handling composite keys elegantly may require a future slug (e.g., dedicated PK node).
-* Q1: Whether to ingest relations for all domains or only for specific ones (e.g., `catalog.dataset`); v1 can scope to catalog JDBC datasets only.
+* R1: Confluence↔Jira link extraction may be limited by what the current normalizer exposes; v1 can use explicit fixture fields.
+* R2: Composite keys semantics; v1 can treat them as per-column edges.
+* Q1: Which doc relation is easiest to implement now (doc↔issue vs doc↔doc); choice can be finalized during implementation based on current data.

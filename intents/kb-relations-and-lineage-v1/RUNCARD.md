@@ -4,7 +4,7 @@ ROLE: Developer Agent (follow docs/meta/AGENT_CODEX.md)
 
 SLUG: kb-relations-and-lineage-v1
 
-SCOPE: Enrich the Knowledge Base with structural relations for JDBC datasets (dataset→table→column containment, primary keys, and foreign keys), expose them via GraphQL, and surface them in the KB admin console and Catalog UI, while keeping ingestion incremental and CI green.
+SCOPE: Introduce a generic relation framework in the Knowledge Base (relation kinds + edges), and implement it for (1) JDBC structural relations (containment + PK/FK) and (2) one doc relation (doc↔issue or doc↔doc), exposing these relations via GraphQL and UI while keeping ingestion incremental and CI green.
 
 INPUTS:
 - intents/kb-relations-and-lineage-v1/INTENT.md
@@ -23,35 +23,37 @@ OUTPUTS:
 - runs/kb-relations-and-lineage-v1/QUESTIONS.md
 - runs/kb-relations-and-lineage-v1/DECISIONS.md
 - runs/kb-relations-and-lineage-v1/TODO.md
-- Extended JDBC metadata ingestion emitting KB nodes/edges for dataset/table/column and PK/FK relations
-- GraphQL schema/resolvers exposing these relations
-- Updated Catalog and KB admin UI to visualize PK/FK and containment
-- New tests (unit/integration/e2e) and passing `pnpm ci-check`
+- Relation-kind registry (code + docs)
+- JDBC metadata ingestion emitting KB relations for containment + PK/FK
+- Doc relation ingestion emitting KB relations for doc↔issue or doc↔doc
+- GraphQL schema/resolvers exposing these relations for datasets/tables/columns and docs
+- Updated KB admin console and Catalog/Docs/Work detail UIs to show relations
+- New tests (unit, integration, e2e) and passing `pnpm ci-check`
 
 LOOP:
-Plan → Extend KB schema/types for structural relations → Implement JDBC metadata extraction and KB upserts → Add GraphQL fields/resolvers → Update Catalog UI and KB admin console → Add/adjust tests → Run `pnpm ci-check` → Heartbeat.
+Plan → Implement relation-kind registry → Wire JDBC structural relations to KB via generic model → Implement doc relation ingestion → Expose via GraphQL → Update UIs → Add tests → Run `pnpm ci-check` → Heartbeat.
 
 HEARTBEAT:
-Append to LOG.md every 10–15 minutes with `{timestamp, done, next, risks}`.
+Append to LOG.md every 40–45 minutes with `{timestamp, done, next, risks}`.
+Treat the heartbeat entry as the sole routine status output and immediately continue with the recorded `next` step—no conversational “still working?” messages in the main console.
 
 STOP WHEN:
 - All acceptance criteria in intents/kb-relations-and-lineage-v1/ACCEPTANCE.md are satisfied, OR
 - A blocking ambiguity is logged in QUESTIONS.md and sync/STATE.md is set to blocked.
 
 POST-RUN:
-- Update sync/STATE.md Last Run and status for `kb-relations-and-lineage-v1`.
-- Append a line to stories/kb-relations-and-lineage-v1/STORY.md describing the run and key decisions.
+- Update sync/STATE.md Last Run/status for `kb-relations-and-lineage-v1`.
+- Append a line to stories/kb-relations-and-lineage-v1/STORY.md describing outcomes and key decisions.
 
 GUARDRAILS:
 - Do not modify `*_custom.*` files or `// @custom` blocks.
-- Keep GraphQL changes additive (no breaking changes).
-- Keep KB schema changes additive; do not remove or rename existing node/edge types.
-- Preserve ingestion performance; avoid O(N²) behaviour for large schemas.
+- Keep KB and GraphQL changes additive.
+- Ensure ingestion changes remain incremental and idempotent.
+- Prefer emitting relations from existing metadata/normalized payloads; do not add heavy heuristic parsers in this slug.
 
 TASKS:
-1) Define/encode KB node and edge types for dataset/table/column containment and PK/FK relations; register them in the KB meta registry.
-2) Extend JDBC metadata ingestion to extract PK/FK info and upsert corresponding nodes/edges into KB, idempotently.
-3) Add GraphQL fields/resolvers to expose tables, columns, PKs, and inbound/outbound FKs for datasets/tables.
-4) Update Catalog dataset/table detail and KB admin console UIs to display PK/FK relationships; add tests.
-5) Run `pnpm ci-check` and refine until all new and existing tests pass.
-
+1) Implement the relation-kind registry and document it in the KB meta registry docs.
+2) Extend JDBC metadata ingestion to emit KB relations (containment + PK/FK) using the generic relation model.
+3) Implement one doc relation ingestion (doc↔issue or doc↔doc) using existing explicit link metadata and emit KB relations.
+4) Add GraphQL fields/resolvers to expose relations for datasets/tables/columns and docs; update Catalog/Docs/Work detail and KB admin UI to visualize them.
+5) Add tests and run `pnpm ci-check` until everything passes.

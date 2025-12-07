@@ -2860,5 +2860,209 @@
     },
     "version": "958a1906174540d9b13ce5140121e530",
     "updatedAt": "2025-12-06T20:18:16.098Z"
+  },
+  "ingest::global-playwright-jira-temporal-mivmhfub-af6b792ea2c74cd2931f13730598bd79::endpoint::7d3acc4dfc9a4225aaebb6e59cc2d5f8::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-07T16:41:51.339372"
+      },
+      "lastRunId": "7865d3a9-a74f-461f-83d2-6b6eecd0960a",
+      "stats": {
+        "planMetadata": {
+          "cursor": {},
+          "projects": [
+            "ENG"
+          ],
+          "target_slice_size": null
+        },
+        "slices": [
+          {
+            "completedAt": "2025-12-07T11:11:51.285842+00:00",
+            "endpointId": "7d3acc4dfc9a4225aaebb6e59cc2d5f8",
+            "planMetadata": {
+              "cursor": {},
+              "projects": [
+                "<cycle>"
+              ],
+              "target_slice_size": null
+            },
+            "plannedSlices": "<cycle>",
+            "projectsSynced": 1,
+            "recordCount": "<cycle>",
+            "slice": {
+              "lower": "2025-11-07T11:11:51.287160+00:00",
+              "project": "ENG",
+              "sequence": 0,
+              "slice_key": "jira.projects:ENG:0",
+              "upper": "2025-12-07T11:11:51.287156+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "projectsSynced": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "unitId": "<cycle>"
+              }
+            ],
+            "strategy": "jira-project-window",
+            "unitId": "jira.projects"
+          }
+        ],
+        "strategy": "jira-project-window"
+      },
+      "lastUpdatedAt": "2025-12-07T11:11:51.393Z"
+    },
+    "version": "8b5076b08c0e47ccaf4a6f5070790d6c",
+    "updatedAt": "2025-12-07T11:11:51.396Z"
+  },
+  "ingest_state::endpoint::7d3acc4dfc9a4225aaebb6e59cc2d5f8::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-07T11:11:51.398Z"
+    },
+    "version": "a2a005a72c1542058a74308911e38329",
+    "updatedAt": "2025-12-07T11:11:51.398Z"
+  },
+  "ingest::global-playwright-jira-temporal-mivnn2l8-4d433a52afea42bc8c8f0683a8998546::endpoint::dc87c1cc57f14821b516bf9becdd7a55::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-07T17:14:13.593856"
+      },
+      "lastRunId": "a8677109-1bd4-40c6-9fc1-511be06bac86",
+      "stats": {
+        "planMetadata": {
+          "cursor": {},
+          "projects": [
+            "ENG"
+          ],
+          "target_slice_size": null
+        },
+        "slices": [
+          {
+            "completedAt": "2025-12-07T11:44:13.581426+00:00",
+            "endpointId": "dc87c1cc57f14821b516bf9becdd7a55",
+            "planMetadata": {
+              "cursor": {},
+              "projects": [
+                "<cycle>"
+              ],
+              "target_slice_size": null
+            },
+            "plannedSlices": "<cycle>",
+            "projectsSynced": 1,
+            "recordCount": "<cycle>",
+            "slice": {
+              "lower": "2025-11-07T11:44:13.582910+00:00",
+              "project": "ENG",
+              "sequence": 0,
+              "slice_key": "jira.projects:ENG:0",
+              "upper": "2025-12-07T11:44:13.582899+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "projectsSynced": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "unitId": "<cycle>"
+              }
+            ],
+            "strategy": "jira-project-window",
+            "unitId": "jira.projects"
+          }
+        ],
+        "strategy": "jira-project-window"
+      },
+      "lastUpdatedAt": "2025-12-07T11:44:13.739Z"
+    },
+    "version": "a4851f463b9c4514a57478f90ca82c4d",
+    "updatedAt": "2025-12-07T11:44:13.742Z"
+  },
+  "ingest_state::endpoint::dc87c1cc57f14821b516bf9becdd7a55::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-07T11:44:13.744Z"
+    },
+    "version": "71e495829ddf41948f640a6a90f4370e",
+    "updatedAt": "2025-12-07T11:44:13.745Z"
+  },
+  "ingest::global-playwright-jira-temporal-mivrteq6-1caebec1958249948f89c179f20cedaf::endpoint::131be53570f6458e83636eefae39c80f::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-07T19:11:07.480522"
+      },
+      "lastRunId": "43aa86ef-6b02-4895-8c21-f49430c772f7",
+      "stats": {
+        "planMetadata": {
+          "cursor": {},
+          "projects": [
+            "ENG"
+          ],
+          "target_slice_size": null
+        },
+        "slices": [
+          {
+            "completedAt": "2025-12-07T13:41:07.459953+00:00",
+            "endpointId": "131be53570f6458e83636eefae39c80f",
+            "planMetadata": {
+              "cursor": {},
+              "projects": [
+                "<cycle>"
+              ],
+              "target_slice_size": null
+            },
+            "plannedSlices": "<cycle>",
+            "projectsSynced": 1,
+            "recordCount": "<cycle>",
+            "slice": {
+              "lower": "2025-11-07T13:41:07.461052+00:00",
+              "project": "ENG",
+              "sequence": 0,
+              "slice_key": "jira.projects:ENG:0",
+              "upper": "2025-12-07T13:41:07.461049+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "projectsSynced": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "unitId": "<cycle>"
+              }
+            ],
+            "strategy": "jira-project-window",
+            "unitId": "jira.projects"
+          }
+        ],
+        "strategy": "jira-project-window"
+      },
+      "lastUpdatedAt": "2025-12-07T13:41:07.565Z"
+    },
+    "version": "ebabc6630d5645c1ab1077c165e0c69f",
+    "updatedAt": "2025-12-07T13:41:07.567Z"
+  },
+  "ingest_state::endpoint::131be53570f6458e83636eefae39c80f::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-07T13:41:07.570Z"
+    },
+    "version": "5488232610d643fb99408ee8eab3cd38",
+    "updatedAt": "2025-12-07T13:41:07.570Z"
   }
 }

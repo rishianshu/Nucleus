@@ -12,6 +12,10 @@ export METADATA_FAKE_COLLECTIONS="${METADATA_FAKE_COLLECTIONS:-1}"
 TEMPORAL_DEV_PORT="${TEMPORAL_DEV_PORT:-${TEMPORAL_PORT:-7233}}"
 export TEMPORAL_PORT="${TEMPORAL_PORT:-$TEMPORAL_DEV_PORT}"
 export TEMPORAL_ADDRESS="${TEMPORAL_ADDRESS:-127.0.0.1:${TEMPORAL_DEV_PORT}}"
+PLAYWRIGHT_SHARD="${PLAYWRIGHT_SHARD:-}"
+PLAYWRIGHT_WORKERS="${PLAYWRIGHT_WORKERS:-}"
+SKIP_STACK="${SKIP_STACK:-0}"
+SKIP_WORKERS="${SKIP_WORKERS:-0}"
 
 cleanup() {
   if [[ "$STACK_STARTED" == "1" ]]; then
@@ -91,21 +95,37 @@ PY
   TEMPORAL_PID=$!
 }
 
-run_step "starting dev stack" pnpm dev:stack
-STACK_STARTED=1
+if [[ "$SKIP_STACK" != "1" ]]; then
+  run_step "starting dev stack" pnpm dev:stack
+  STACK_STARTED=1
+else
+  echo "[ci-check] SKIP_STACK=1 set; reusing existing stack"
+fi
 
 start_temporal_dev_server
 wait_for_port "127.0.0.1" "$TEMPORAL_DEV_PORT" "temporal dev server"
 
-run_step "starting metadata workers" pnpm metadata:workers:start
-WORKERS_STARTED=1
+if [[ "$SKIP_WORKERS" != "1" ]]; then
+  run_step "starting metadata workers" pnpm metadata:workers:start
+  WORKERS_STARTED=1
+else
+  echo "[ci-check] SKIP_WORKERS=1 set; assuming workers are already running"
+fi
 
 wait_for_port "127.0.0.1" "4010" "metadata api"
 wait_for_port "127.0.0.1" "5176" "metadata ui"
 
 run_step "building metadata api" pnpm --filter @apps/metadata-api build
 run_step "building metadata ui" pnpm --filter @apps/metadata-ui build
-run_step "running metadata-auth playwright suite" pnpm check:metadata-auth
-run_step "running metadata-lifecycle playwright suite" pnpm check:metadata-lifecycle
+PW_SHARD_ARGS=()
+if [[ -n "${PLAYWRIGHT_SHARD:-}" ]]; then
+  PW_SHARD_ARGS+=(--shard "$PLAYWRIGHT_SHARD")
+fi
+if [[ -n "${PLAYWRIGHT_WORKERS:-}" ]]; then
+  PW_SHARD_ARGS+=(--workers "$PLAYWRIGHT_WORKERS")
+fi
+PW_ARGS_STR="${PW_SHARD_ARGS[*]:-}"
+run_step "running metadata-auth playwright suite" bash -c "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-auth.spec.ts --project=chromium ${PW_ARGS_STR}"
+run_step "running metadata-lifecycle playwright suite" bash -c "PLAYWRIGHT_BROWSERS_PATH=.playwright dotenv -e .env -- npx playwright test tests/metadata-lifecycle.spec.ts --project=chromium ${PW_ARGS_STR}"
 
 echo "[ci-check] all checks passed"

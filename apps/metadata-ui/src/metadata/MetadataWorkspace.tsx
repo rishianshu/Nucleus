@@ -4101,6 +4101,55 @@ export function MetadataWorkspace({
                 <span>Schema · {metadataDatasetDetail.schema ?? "—"}</span>
               </div>
               <IngestionSummaryCard dataset={metadataDatasetDetail} className="mt-4" />
+              {metadataDatasetDetail.tables && metadataDatasetDetail.tables.length > 0 ? (
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/30">
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                    Schema relations ({metadataDatasetDetail.tables.length} tables)
+                  </p>
+                  <div className="space-y-3">
+                    {metadataDatasetDetail.tables.slice(0, 6).map((table) => (
+                      <div key={table.id} className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {table.schema ? `${table.schema}.` : ""}
+                            {table.name}
+                          </p>
+                          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">
+                            {table.columns?.length ?? 0} cols
+                          </p>
+                        </div>
+                        {table.primaryKeyColumns && table.primaryKeyColumns.length > 0 ? (
+                          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                            PK: {table.primaryKeyColumns.map((col) => col.name).join(", ")}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">PK: none detected</p>
+                        )}
+                        {table.outboundForeignKeys && table.outboundForeignKeys.length > 0 ? (
+                          <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">FK →</p>
+                            <ul className="list-disc space-y-1 pl-4">
+                              {table.outboundForeignKeys.slice(0, 3).map((fk, idx) => (
+                                <li key={`${fk.name ?? "fk"}-${idx}`}>
+                                  {(fk.fromColumns ?? []).map((c) => c.name).join(", ") || "column"} →{" "}
+                                  {fk.toTable?.name ?? "table"}
+                                  {fk.toColumns && fk.toColumns.length > 0 ? ` (${fk.toColumns.map((c) => c.name).join(",")})` : ""}
+                                </li>
+                              ))}
+                              {table.outboundForeignKeys.length > 3 ? <li className="text-slate-500">…more</li> : null}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No outbound FKs</p>
+                        )}
+                      </div>
+                    ))}
+                    {metadataDatasetDetail.tables.length > 6 ? (
+                      <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Showing first 6 tables</p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Fields ({metadataDatasetDetailFields.length})</p>
                 <div className="mt-2 space-y-2">

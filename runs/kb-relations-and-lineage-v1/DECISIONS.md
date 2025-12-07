@@ -1,0 +1,16 @@
+- 2025-12-07: KB structural schema plan (additive)
+  - Node types:
+    - `table`: id `table:{endpointId}:{schema}.{table}` (lowercased), props: `dataset_id`, `schema`, `table`, `type` (BASE/VIEW), `source_system`, `synced_at`.
+    - `column`: id `column:{endpointId}:{schema}.{table}.{column}` (lowercased), props: `table_id`, `name`, `ordinal`, `data_type`, `nullable`, `source_system`, `synced_at`.
+    - `dataset` already exists; reuse existing ids/props.
+  - Edge labels (all carry `source_system`, `synced_at`):
+    - `CONTAINS_TABLE`: dataset -> table.
+    - `CONTAINS_COLUMN`: table -> column.
+    - `HAS_PRIMARY_KEY`: table -> column (per PK column) with `pk_name` and `position` for composite order.
+    - `REFERENCES_COLUMN`: column (FK) -> column (PK) with `fk_name`, `on_delete`, `on_update`, and `position` for composite order.
+  - IDs are additive; no existing types/labels removed. Composite keys represented as multiple edges with `position`.
+- 2025-12-07: Relation-kind registry (additive)
+  - Relation kinds: `rel.contains.table`, `rel.contains.column`, `rel.pk_of`, `rel.fk_references`, `rel.doc_links_issue`, `rel.doc_links_doc`.
+  - Registry lives in code (`apps/metadata-api/src/graph/relationKinds.ts`) and defaults (`docs/meta/kb-meta.defaults.json`), additive to existing edge types.
+- 2025-12-07: Relation-kind registry expanded for semantic sources
+  - Added: `rel.work_links_work`, `rel.doc_contains_attachment`, `rel.drive_contains_item`, `rel.drive_shares_with` to support Jira/Confluence/OneDrive-style relations.

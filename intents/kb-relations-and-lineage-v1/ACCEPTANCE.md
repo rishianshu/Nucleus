@@ -1,58 +1,54 @@
 # Acceptance Criteria
 
-1) KB contains containment and PK/FK edges for seeded JDBC schemas
-   - Type: integration
+1) Relation-kind registry exists with core kinds
+   - Type: unit / integration
    - Evidence:
-     - For a seeded Postgres schema (used in tests), KB contains:
-       - `dataset` nodes for the catalog datasets.
-       - `table` nodes for each table.
-       - `column` nodes for columns.
-       - `CONTAINS_TABLE` edges from dataset → table.
-       - `CONTAINS_COLUMN` edges from table → column.
-       - `HAS_PRIMARY_KEY` edges from table → column(s) that form the PK.
-       - `REFERENCES_COLUMN` edges from FK columns to referenced PK columns.
-     - A KB query (or unit test using GraphStore) can assert these relationships for at least one example schema.
+     - A registry structure or API exposes at least:
+       - `rel.contains.table`, `rel.contains.column`,
+       - `rel.pk_of`, `rel.fk_references`,
+       - `rel.doc_links_issue` or `rel.doc_links_doc`.
+     - Tests assert that each kind includes allowed from/to types.
 
-2) GraphQL exposes structural relations clearly
+2) JDBC structural relations are persisted in KB
    - Type: integration
    - Evidence:
-     - Dataset GraphQL type exposes a `tables` field listing its tables.
-     - Table GraphQL type exposes:
+     - After running JDBC metadata collection for a seeded schema:
+       - KB has `dataset`, `table`, `column` entities.
+       - KB contains `rel.contains.table` edges dataset→table.
+       - KB contains `rel.contains.column` edges table→column.
+       - KB contains `rel.pk_of` edges table→PK column(s).
+       - KB contains `rel.fk_references` edges fk column→pk column.
+     - A test using the GraphStore client verifies these relations for at least one known FK.
+
+3) One doc relation (doc↔issue or doc↔doc) is persisted in KB
+   - Type: integration
+   - Evidence:
+     - Seeded fixtures for Confluence + Jira (or just Confluence) produce KB entities:
+       - `doc` (page),
+       - `work_item` (issue) or another `doc`.
+     - KB contains at least one `rel.doc_links_issue` or `rel.doc_links_doc` edge connecting them.
+     - A test asserts that the correct doc/work pair is related.
+
+4) GraphQL exposes relations to clients
+   - Type: integration
+   - Evidence:
+     - A GraphQL query for a seeded table returns:
        - `columns`,
        - `primaryKeyColumns`,
        - `inboundForeignKeys`,
-       - `outboundForeignKeys`.
-     - ForeignKey GraphQL type exposes from/to tables and columns and optional `name`, `onDelete`, `onUpdate`.
-     - A GraphQL integration test verifies that querying a known table returns correct PK and FK info.
+       - `outboundForeignKeys`, which match the KB relations.
+     - A GraphQL query for a seeded doc returns:
+       - `linkedIssues` or `linkedDocs` that align with the KB relation edges.
 
-3) Catalog dataset/table detail UI shows PK/FK relations
-   - Type: e2e (Playwright)
+5) UI can inspect relations (KB admin + detail views)
+   - Type: e2e (Playwright) or snapshot integration
    - Evidence:
-     - Opening a dataset in the Catalog UI shows its tables.
-     - Opening a table detail view shows:
-       - A list of PK columns (if any).
-       - A list of outbound FKs with target table names.
-       - A list of inbound FKs with source table names.
-     - Playwright tests assert that seeded FK relationships appear in the UI as expected.
+     - KB admin console allows filtering edges by relation kind (e.g. PK/FK vs doc-links).
+     - Catalog table detail view shows PK/FK information based on KB, not hardcoded fixtures.
+     - Docs or Work explorer detail shows linked issues/docs for the seeded relation.
 
-4) KB admin console can inspect structural edges
-   - Type: e2e / integration
+6) Ingestion is idempotent and CI is green
+   - Type: integration / meta
    - Evidence:
-     - KB admin console (or an equivalent admin view) allows:
-       - Filtering nodes/edges by type (dataset/table/column, PK/FK).
-       - Selecting a table node and seeing its PK/FK edges.
-     - An automated test or snapshot confirms that at least one FK edge is visible from the admin view.
-
-5) Ingestion remains incremental and stable
-   - Type: integration
-   - Evidence:
-     - Running metadata collection twice for the same JDBC endpoint:
-       - Does not create duplicate PK/FK edges.
-       - Updates edges if the schema changes (e.g., new FK added).
-     - A test ensures idempotent behaviour for KB writes (upserts) based on the same physical schema.
-
-6) CI remains green
-   - Type: meta
-   - Evidence:
-     - `pnpm ci-check` passes after all changes.
-     - New KB/graph and UI tests are part of the CI run.
+     - Running JDBC metadata collection twice does not create duplicate relation edges (verified via GraphStore queries).
+     - `pnpm ci-check` passes with new tests included.

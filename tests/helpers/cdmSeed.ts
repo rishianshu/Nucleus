@@ -23,7 +23,7 @@ export async function seedCdmData() {
   }
   const schema = process.env.CDM_WORK_DATABASE_SCHEMA ?? "cdm_work";
   const prefix = process.env.CDM_WORK_DATABASE_TABLE_PREFIX ?? "cdm_";
-  const pool = new Pool({ connectionString: connectionUrl });
+  const pool = new Pool({ connectionString: connectionUrl, max: 5 });
   try {
     await pool.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
     await createTables(pool, schema, prefix);

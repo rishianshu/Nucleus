@@ -22,6 +22,7 @@ import { readTransientState, writeTransientState } from "../ingestion/transientS
 import { markUnitState, upsertUnitState } from "../ingestion/stateStore.js";
 import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
 import { getOneDriveDelegatedToken } from "../onedriveAuth.js";
+import { upsertJdbcRelations } from "../graph/jdbcRelations.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SCRIPT_PATH = path.resolve(
@@ -1025,6 +1026,9 @@ async function syncRecordToGraph(
     },
     context,
   );
+  if (datasetIdentity) {
+    await upsertJdbcRelations(graphStore, datasetIdentity, payload, context);
+  }
 }
 
 function normalizeObject(value: unknown): Record<string, unknown> {

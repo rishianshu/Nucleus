@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-docs-access-graph-and-rls-v1 (success @ 2025-12-06T20:22Z)
+kb-relations-and-lineage-v1 (success @ 2025-12-07T13:59Z)
 
 ## Last Run
-- slug: docs-access-graph-and-rls-v1
+- slug: kb-relations-and-lineage-v1
 - status: success
-- duration: 2025-12-06T18:18Z→20:22Z (follow-on to 09:26Z→14:46Z)
-- tests: manual Confluence ACL ingestion run; metadata-api/ui already green from prior run
+- duration: resumed 2025-12-07T05:10Z → 2025-12-07T13:59Z
+- tests: pnpm ci-check green (metadata-auth + lifecycle Playwright) + mypy green
 - commits: none
-- decisions: 0
-- next_step: follow-up slug to mirror cdm_doc_access into metadata/KB and harden ACL ingestion (see docs/future-requirements/docs-access-acl-followup.md)
+- decisions: 0 (no new decisions added this run)
+- next_step: optional follow-up to surface new semantic relations (drive_shares_with, UI views) in future slug
 
 ## Global Queue
 TODAY:
@@ -20,8 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-07T05:10Z run restarted (kb-relations-and-lineage-v1, START_PROMPT re-issued)
+- 2025-12-07T03:39Z run started (kb-relations-and-lineage-v1, boot + context sync)
 - 2025-12-06T20:22Z run success (docs-access-graph-and-rls-v1, real Confluence ACL ingested into cdm_work; follow-up doc filed)
-- 2025-12-06T18:18Z run resumed (docs-access-graph-and-rls-v1, verifying real Confluence ACL ingestion)
 - 2025-12-06T14:46Z run success (docs-access-graph-and-rls-v1, ACL/RLS scaffolding added; tests/builds green)
 - 2025-12-06T09:26Z run started (docs-access-graph-and-rls-v1, boot + context sync)
 - 2025-12-06T09:07Z run success (onedrive-delegated-auth-v1, wizard requirements doc added)

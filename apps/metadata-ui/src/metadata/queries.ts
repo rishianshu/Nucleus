@@ -145,6 +145,51 @@ export const METADATA_CATALOG_DATASET_QUERY = `
         type
         description
       }
+      tables {
+        id
+        name
+        schema
+        columns {
+          id
+          name
+          dataType
+          nullable
+        }
+        primaryKeyColumns {
+          id
+          name
+        }
+        outboundForeignKeys {
+          name
+          toTable {
+            id
+            name
+          }
+          toColumns {
+            id
+            name
+          }
+          fromColumns {
+            id
+            name
+          }
+        }
+        inboundForeignKeys {
+          name
+          fromTable {
+            id
+            name
+          }
+          fromColumns {
+            id
+            name
+          }
+          toColumns {
+            id
+            name
+          }
+        }
+      }
       sampleRows
       statistics
       profile {

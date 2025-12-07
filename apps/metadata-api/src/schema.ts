@@ -12,6 +12,7 @@ import type {
   MetadataRecord,
   HttpVerb,
   GraphStore,
+  GraphEntity,
   TenantContext,
   IngestionUnitDescriptor,
   IngestionSinkCapabilities,
@@ -321,6 +322,12 @@ export const typeDefs = `#graphql
     teams: [KbFacetValue!]!
   }
 
+  type DocRelations {
+    id: ID!
+    linkedDocs: [GraphNode!]!
+    linkedIssues: [GraphNode!]!
+  }
+
   input GraphNodeFilter {
     entityTypes: [String!]
     search: String
@@ -451,6 +458,35 @@ export const typeDefs = `#graphql
     fields: [CatalogDatasetField!]!
     lastCollectionRun: MetadataCollectionRun
     ingestionConfig: IngestionUnitConfig
+    tables: [CatalogTable!]!
+  }
+
+  type CatalogColumn {
+    id: ID!
+    name: String!
+    tableId: ID
+    dataType: String
+    nullable: Boolean
+  }
+
+  type CatalogForeignKey {
+    name: String
+    fromTable: CatalogTable!
+    fromColumns: [CatalogColumn!]!
+    toTable: CatalogTable!
+    toColumns: [CatalogColumn!]!
+    onDelete: String
+    onUpdate: String
+  }
+
+  type CatalogTable {
+    id: ID!
+    name: String!
+    schema: String
+    columns: [CatalogColumn!]!
+    primaryKeyColumns: [CatalogColumn!]!
+    inboundForeignKeys: [CatalogForeignKey!]!
+    outboundForeignKeys: [CatalogForeignKey!]!
   }
 
   type PageInfo {
@@ -1102,6 +1138,7 @@ type ProvisionCdmSinkResult {
     kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbFacets(scope: GraphScopeInput): KbFacets!
     kbMeta(scope: GraphScopeInput): KbMeta!
+    docRelations(id: ID!): DocRelations!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
@@ -1671,6 +1708,14 @@ export function createResolvers(
           projectId: scope.projectId,
           teamId: scope.teamId,
         });
+      },
+      docRelations: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const graphStore = await resolveGraphStore();
+        const tenant = buildTenantContextForGraph(ctx);
+        const linkedDocs = await listRelationTargets(graphStore, args.id, ["rel.doc_links_doc"], tenant);
+        const linkedIssues = await listRelationTargets(graphStore, args.id, ["rel.doc_links_issue"], tenant);
+        return { id: args.id, linkedDocs, linkedIssues };
       },
       metadataEndpoints: async (
         _parent: unknown,
@@ -3190,6 +3235,14 @@ export function createResolvers(
         const state = await stateStore.getUnitState({ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId });
         return mapIngestionUnitConfig(config, state ? mapIngestionStateRow(state) : null);
       },
+      tables: async (parent: CatalogDataset, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        if (!parent.id) {
+          return [];
+        }
+        const graphStore = await resolveGraphStore();
+        return resolveCatalogTablesForDataset(parent.id, graphStore, ctx);
+      },
     },
   };
 }
@@ -3562,6 +3615,41 @@ type CatalogDataset = {
   sampleRows?: unknown[];
   statistics?: Record<string, unknown> | null;
   fields: Array<{ name: string; type: string; description?: string | null }>;
+  tables?: CatalogTable[] | null;
+};
+
+type CatalogColumn = {
+  id: string;
+  name: string;
+  tableId?: string | null;
+  dataType?: string | null;
+  nullable?: boolean | null;
+};
+
+type CatalogForeignKey = {
+  name?: string | null;
+  fromTable: CatalogTable;
+  fromColumns: CatalogColumn[];
+  toTable: CatalogTable;
+  toColumns: CatalogColumn[];
+  onDelete?: string | null;
+  onUpdate?: string | null;
+};
+
+type CatalogTable = {
+  id: string;
+  name: string;
+  schema?: string | null;
+  columns: CatalogColumn[];
+  primaryKeyColumns: CatalogColumn[];
+  inboundForeignKeys: CatalogForeignKey[];
+  outboundForeignKeys: CatalogForeignKey[];
+};
+
+type DocRelations = {
+  id: string;
+  linkedDocs: GraphEntity[];
+  linkedIssues: GraphEntity[];
 };
 
 type CatalogDatasetProfile = {
@@ -7237,6 +7325,164 @@ function buildTenantContextForGraph(ctx: ResolverContext): TenantContext {
     projectId: ctx.auth.projectId,
     actorId: ctx.userId ?? undefined,
   };
+}
+
+async function resolveCatalogTablesForDataset(
+  datasetId: string,
+  graphStore: GraphStore,
+  ctx: ResolverContext,
+): Promise<CatalogTable[]> {
+  const tenant = buildTenantContextForGraph(ctx);
+  const tableEdges = await graphStore.listEdges(
+    { edgeTypes: ["rel.contains.table"], sourceEntityId: datasetId, limit: 500 },
+    tenant,
+  );
+  const tables: CatalogTable[] = [];
+  const tableCache = new Map<string, CatalogTable>();
+  const tableEntityCache = new Map<string, GraphEntity>();
+  const columnCache = new Map<string, CatalogColumn>();
+
+  const ensureTableEntity = async (tableId: string): Promise<GraphEntity | null> => {
+    if (tableEntityCache.has(tableId)) {
+      return tableEntityCache.get(tableId) ?? null;
+    }
+    const entity = await graphStore.getEntity(tableId, tenant);
+    if (entity) {
+      tableEntityCache.set(tableId, entity);
+    }
+    return entity;
+  };
+
+  const ensureTable = async (tableId: string): Promise<CatalogTable | null> => {
+    if (tableCache.has(tableId)) {
+      return tableCache.get(tableId) ?? null;
+    }
+    const entity = await ensureTableEntity(tableId);
+    if (!entity) {
+      return null;
+    }
+    const tbl: CatalogTable = {
+      id: entity.id,
+      name: String(entity.displayName ?? entity.properties?.table ?? entity.properties?.name ?? entity.id),
+      schema: (entity.properties?.schema as string | undefined) ?? null,
+      columns: [],
+      primaryKeyColumns: [],
+      inboundForeignKeys: [],
+      outboundForeignKeys: [],
+    };
+    tableCache.set(tableId, tbl);
+    tables.push(tbl);
+    return tbl;
+  };
+
+  const ensureColumn = async (columnId: string): Promise<CatalogColumn | null> => {
+    if (columnCache.has(columnId)) {
+      return columnCache.get(columnId) ?? null;
+    }
+    const entity = await graphStore.getEntity(columnId, tenant);
+    if (!entity) {
+      return null;
+    }
+    const props = entity.properties ?? {};
+    const col: CatalogColumn = {
+      id: entity.id,
+      name: String(entity.displayName ?? (props as any).name ?? entity.id),
+      tableId: (props as any).table_id ?? null,
+      dataType: (props as any).data_type ?? (props as any).type ?? null,
+      nullable: typeof (props as any).nullable === "boolean" ? (props as any).nullable : null,
+    };
+    columnCache.set(columnId, col);
+    return col;
+  };
+
+  for (const edge of tableEdges) {
+    await ensureTable(edge.targetEntityId);
+  }
+
+  // Populate columns and PK/FK for each table
+  for (const table of Array.from(tableCache.values())) {
+    const columnEdges = await graphStore.listEdges(
+      { edgeTypes: ["rel.contains.column"], sourceEntityId: table.id, limit: 500 },
+      tenant,
+    );
+    for (const edge of columnEdges) {
+      const col = await ensureColumn(edge.targetEntityId);
+      if (col) {
+        table.columns.push(col);
+      }
+    }
+    const pkEdges = await graphStore.listEdges(
+      { edgeTypes: ["rel.pk_of"], sourceEntityId: table.id, limit: 200 },
+      tenant,
+    );
+    for (const edge of pkEdges) {
+      const col = await ensureColumn(edge.targetEntityId);
+      if (col) {
+        table.primaryKeyColumns.push(col);
+      }
+    }
+  }
+
+  // FK edges (outbound and inbound)
+  for (const table of Array.from(tableCache.values())) {
+    for (const column of table.columns) {
+      const fkEdges = await graphStore.listEdges(
+        { edgeTypes: ["rel.fk_references"], sourceEntityId: column.id, limit: 200 },
+        tenant,
+      );
+      for (const edge of fkEdges) {
+        const targetCol = await ensureColumn(edge.targetEntityId);
+        if (!targetCol) {
+          continue;
+        }
+        const targetTable = targetCol.tableId ? await ensureTable(targetCol.tableId) : null;
+        const targetTableRef =
+          targetTable ??
+          ({
+            id: targetCol.tableId ?? "unknown",
+            name: targetCol.tableId ?? "unknown",
+            schema: null,
+            columns: [],
+            primaryKeyColumns: [],
+            inboundForeignKeys: [],
+            outboundForeignKeys: [],
+          } as CatalogTable);
+
+        const fk: CatalogForeignKey = {
+          name: (edge.metadata as Record<string, unknown> | undefined)?.fk_name as string | undefined,
+          fromTable: table,
+          fromColumns: [column],
+          toTable: targetTableRef,
+          toColumns: [targetCol],
+          onDelete: (edge.metadata as Record<string, unknown> | undefined)?.on_delete as string | undefined,
+          onUpdate: (edge.metadata as Record<string, unknown> | undefined)?.on_update as string | undefined,
+        };
+        table.outboundForeignKeys.push(fk);
+        if (targetTableRef && targetTableRef.inboundForeignKeys) {
+          targetTableRef.inboundForeignKeys.push(fk);
+        }
+      }
+    }
+  }
+
+  return tables;
+}
+
+async function listRelationTargets(
+  graphStore: GraphStore,
+  sourceId: string,
+  edgeTypes: string[],
+  tenant: TenantContext,
+) {
+  const edges = await graphStore.listEdges({ edgeTypes, sourceEntityId: sourceId, limit: 200 }, tenant);
+  const nodes: GraphEntity[] = [];
+  for (const edge of edges) {
+    const entity = await graphStore.getEntity(edge.targetEntityId, tenant);
+    if (entity) {
+      nodes.push(entity);
+    }
+  }
+  return nodes;
 }
 
 async function fetchJiraDimensionRecords(

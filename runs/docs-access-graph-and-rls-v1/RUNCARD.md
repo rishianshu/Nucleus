@@ -1,59 +1,59 @@
-# Run Card — docs-access-graph-and-rls-v1
+# Run Card — kb-relations-and-lineage-v1
 
 ROLE: Developer Agent (follow docs/meta/AGENT_CODEX.md)
 
-SLUG: docs-access-graph-and-rls-v1
+SLUG: kb-relations-and-lineage-v1
 
-SCOPE: Ingest doc ACLs from Confluence and OneDrive into KB as access edges (user/group → doc), and enforce row-level security (RLS) in CDM Docs resolvers and the Docs Explorer so users only see docs they are allowed to access, while keeping KB schema and CI stable.
+SCOPE: Introduce a generic relation framework in the Knowledge Base (relation kinds + edges), and implement it for (1) JDBC structural relations (containment + PK/FK) and (2) one doc relation (doc↔issue or doc↔doc), exposing these relations via GraphQL and UI while keeping ingestion incremental and CI green.
 
 INPUTS:
-- intents/docs-access-graph-and-rls-v1/INTENT.md
-- intents/docs-access-graph-and-rls-v1/SPEC.md
-- intents/docs-access-graph-and-rls-v1/ACCEPTANCE.md
-- runtime_core/cdm/docs/*
+- intents/kb-relations-and-lineage-v1/INTENT.md
+- intents/kb-relations-and-lineage-v1/SPEC.md
+- intents/kb-relations-and-lineage-v1/ACCEPTANCE.md
 - apps/metadata-api/src/schema.ts
 - apps/metadata-api/src/graph/*
 - apps/metadata-ui/*
 - platform/spark-ingestion/*
 - docs/meta/nucleus-architecture/*
-- runs/docs-access-graph-and-rls-v1/*
+- runs/kb-relations-and-lineage-v1/*
 
 OUTPUTS:
-- runs/docs-access-graph-and-rls-v1/PLAN.md
-- runs/docs-access-graph-and-rls-v1/LOG.md
-- runs/docs-access-graph-and-rls-v1/QUESTIONS.md
-- runs/docs-access-graph-and-rls-v1/DECISIONS.md
-- runs/docs-access-graph-and-rls-v1/TODO.md
-- ACL ingestion units for Confluence and OneDrive docs
-- KB edges for principals and docs (HAS_MEMBER, CAN_VIEW_DOC)
-- RLS-aware CDM Docs resolvers with `secured` behavior
-- Updated Docs Explorer UI with access metadata and RLS
-- Updated KB admin console capabilities for ACL debugging
-- New/updated tests (unit/integration/e2e) and a passing `pnpm ci-check`
+- runs/kb-relations-and-lineage-v1/PLAN.md
+- runs/kb-relations-and-lineage-v1/LOG.md
+- runs/kb-relations-and-lineage-v1/QUESTIONS.md
+- runs/kb-relations-and-lineage-v1/DECISIONS.md
+- runs/kb-relations-and-lineage-v1/TODO.md
+- Relation-kind registry (code + docs)
+- JDBC metadata ingestion emitting KB relations for containment + PK/FK
+- Doc relation ingestion emitting KB relations for doc↔issue or doc↔doc
+- GraphQL schema/resolvers exposing these relations for datasets/tables/columns and docs
+- Updated KB admin console and Catalog/Docs/Work detail UIs to show relations
+- New tests (unit, integration, e2e) and passing `pnpm ci-check`
 
 LOOP:
-Plan → Define/confirm KB ACL schema → Implement ACL ingestion for Confluence and OneDrive → Add/adjust KB resolvers and/or RLS index → Wire secured CDM Docs resolvers → Update Docs Explorer UI and KB admin views → Add tests → Run `pnpm ci-check` → Heartbeat.
+Plan → Implement relation-kind registry → Wire JDBC structural relations to KB via generic model → Implement doc relation ingestion → Expose via GraphQL → Update UIs → Add tests → Run `pnpm ci-check` → Heartbeat.
 
 HEARTBEAT:
-Append to LOG.md every 10–15 minutes with `{timestamp, done, next, risks}`.
+Append to LOG.md every 40–45 minutes with `{timestamp, done, next, risks}`.
+Treat the heartbeat entry as the sole routine status output and immediately continue with the recorded `next` step—no conversational “still working?” messages in the main console.
 
 STOP WHEN:
-- All acceptance criteria in intents/docs-access-graph-and-rls-v1/ACCEPTANCE.md are satisfied, OR
+- All acceptance criteria in intents/kb-relations-and-lineage-v1/ACCEPTANCE.md are satisfied, OR
 - A blocking ambiguity is logged in QUESTIONS.md and sync/STATE.md is set to blocked.
 
 POST-RUN:
-- Update sync/STATE.md Last Run and status for `docs-access-graph-and-rls-v1`.
-- Append a line to stories/docs-access-graph-and-rls-v1/STORY.md describing the run and key decisions.
+- Update sync/STATE.md Last Run/status for `kb-relations-and-lineage-v1`.
+- Append a line to stories/kb-relations-and-lineage-v1/STORY.md describing outcomes and key decisions.
 
 GUARDRAILS:
 - Do not modify `*_custom.*` files or `// @custom` blocks.
-- Keep KB changes additive and backward compatible.
-- Enforce RLS in resolvers; do not rely on client-only filters.
-- Preserve the unified ingestion infrastructure (Temporal, Source → Staging → Sink) for any ACL flows that use ingestion.
+- Keep KB and GraphQL changes additive.
+- Ensure ingestion changes remain incremental and idempotent.
+- Prefer emitting relations from existing metadata/normalized payloads; do not add heavy heuristic parsers in this slug.
 
 TASKS:
-1) Define/encode KB ACL node and edge types (principal:user, principal:group, doc, HAS_MEMBER, CAN_VIEW_DOC) and register them in the KB meta registry.
-2) Implement ACL ingestion units for Confluence and OneDrive that populate KB access edges incrementally.
-3) Implement RLS in CDM Docs resolvers using KB/ACL data (or a derived RLS index) with `secured=true` by default.
-4) Update Docs Explorer to use secured queries and display basic access metadata in the detail pane; extend KB admin views to inspect ACL edges.
-5) Add unit/integration/Playwright tests for ACL ingestion and RLS; run `pnpm ci-check` until everything passes.
+1) Implement the relation-kind registry and document it in the KB meta registry docs.
+2) Extend JDBC metadata ingestion to emit KB relations (containment + PK/FK) using the generic relation model.
+3) Implement one doc relation ingestion (doc↔issue or doc↔doc) using existing explicit link metadata and emit KB relations.
+4) Add GraphQL fields/resolvers to expose relations for datasets/tables/columns and docs; update Catalog/Docs/Work detail and KB admin UI to visualize them.
+5) Add tests and run `pnpm ci-check` until everything passes.
