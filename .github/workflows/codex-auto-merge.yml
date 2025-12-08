@@ -1,0 +1,47 @@
+name: Auto-Merge on Codex Approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.review.state == 'APPROVED'
+    
+    steps:
+      - name: Check if Reviewer is Codex
+        id: check-reviewer
+        run: |
+          REVIEWER="${{ github.event.review.user.login }}"
+          echo "Reviewer: $REVIEWER"
+          
+          # Codex uses github-actions[bot] or can be configured
+          if [[ "$REVIEWER" == "github-actions[bot]" ]] || [[ "$REVIEWER" == "codex-bot" ]]; then
+            echo "is_codex=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_codex=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Enable Auto-Merge
+        if: steps.check-reviewer.outputs.is_codex == 'true'
+        run: |
+          echo "Codex approved PR #${{ github.event.pull_request.number }}"
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --auto \
+            --squash \
+            --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post Merge Comment
+        if: steps.check-reviewer.outputs.is_codex == 'true'
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "🤖 **Auto-merge enabled** by Codex approval. PR will merge when all checks pass."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
