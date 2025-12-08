@@ -58,6 +58,43 @@ Write review artifacts to: `.agent/reviews/REVIEW-{identifier}.md`
 - Shared models - coordinate with endpoint/ types
 - CDM models must match Nucleus docs
 
+## Sprint Stories
+
+Codex should validate PRs against sprint requirements in `.agent/stories/`:
+
+| Sprint | File | Status |
+|--------|------|--------|
+| 6 | [`sprint-6-hdfs-onedrive.md`](.agent/stories/sprint-6-hdfs-onedrive.md) | ✅ Complete |
+
+When reviewing, check commits against the linked story's acceptance criteria.
+
+## Commit Message Convention
+
+Commits should follow this format for Codex to understand context:
+
+```
+<type>(<scope>): <subject>
+
+[optional body]
+
+Story: .agent/stories/<sprint>.md
+Closes: #<issue>
+```
+
+**Types**: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
+**Scopes**: `ucl`, `jira`, `confluence`, `hdfs`, `onedrive`, etc.
+
+**Example**:
+```
+feat(hdfs): Add WebHDFS connector
+
+- Implements SourceEndpoint interface
+- Datasets: hdfs.file, hdfs.directory
+- Pure REST API (no Spark)
+
+Story: .agent/stories/sprint-6-hdfs-onedrive.md
+```
+
 ## Severity Levels
 
 | Level | Description |
@@ -65,3 +102,4 @@ Write review artifacts to: `.agent/reviews/REVIEW-{identifier}.md`
 | ERROR | Must fix before merge |
 | WARN | Should fix, can defer |
 | INFO | Suggestion for improvement |
+
