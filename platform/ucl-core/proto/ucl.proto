@@ -110,12 +110,19 @@ message ListDatasetsResponse {
   repeated Dataset datasets = 1;
 }
 
+// CODEX FIX: Aligned with endpoint.Dataset - includes all fields
 message Dataset {
   string id = 1;
   string name = 2;
   string description = 3;
-  bool supports_incremental = 4;
-  map<string, string> metadata = 5;
+  string kind = 4;  // "table", "view", "stream", "topic"
+  bool supports_incremental = 5;
+  string cdm_model_id = 6;  // e.g., "cdm.work.item"
+  string ingestion_strategy = 7;  // "full", "scd1", "cdc"
+  string incremental_column = 8;
+  string incremental_literal = 9;  // "timestamp", "epoch"
+  repeated string primary_keys = 10;
+  map<string, string> metadata = 11;
 }
 
 // ===== Schema =====
@@ -130,10 +137,15 @@ message GetSchemaResponse {
   repeated SchemaField fields = 1;
 }
 
+// CODEX FIX: Aligned with endpoint.FieldDefinition - includes all fields
 message SchemaField {
   string name = 1;
   string type = 2;
   bool nullable = 3;
   bool is_primary_key = 4;
   string description = 5;
+  int32 precision = 6;
+  int32 scale = 7;
+  int32 length = 8;
 }
+

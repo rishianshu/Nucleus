@@ -25,6 +25,10 @@ import { getOneDriveDelegatedToken } from "../onedriveAuth.js";
 import { upsertJdbcRelations } from "../graph/jdbcRelations.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+// DEPRECATED: Python CLI - will be replaced by gRPC client (Sprint 10)
+// TODO: Replace with UCL gRPC client when protoc stubs are generated
+// See: platform/ucl-core/proto/ucl.proto for gRPC service definition
 const REGISTRY_SCRIPT_PATH = path.resolve(
   moduleDir,
   "..",

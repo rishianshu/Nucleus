@@ -291,23 +291,9 @@ export async function previewDatasetWorkflow(input: {
     connectionUrl: input.connectionUrl ?? "",
   };
   
-  // Use appropriate task queue based on feature flag
-  const previewTaskQueue = USE_GO_WORKER ? GO_ACTIVITY_TASK_QUEUE : PYTHON_ACTIVITY_TASK_QUEUE;
-  const previewActivity = USE_GO_WORKER 
-    ? goActivities.PreviewDataset 
-    : pythonActivities.previewDataset;
-  
-  const preview = await previewActivity.executeWithOptions(
-    {
-      taskQueue: previewTaskQueue,
-      scheduleToCloseTimeout: "5 minutes",
-      retry: {
-        maximumAttempts: 3,
-        nonRetryableErrorTypes: ["SampleDatasetPreview"],
-      },
-    },
-    [normalizedInput],
-  );
+  // CODEX FIX: Use unified ingestionActivities interface instead of executeWithOptions
+  // executeWithOptions is not a valid method on Temporal activity stubs
+  const preview = await ingestionActivities.previewDataset(normalizedInput);
   if (preview.recordsPath) {
     const rows = await loadStagedRecordsActivity({
       path: preview.recordsPath,
