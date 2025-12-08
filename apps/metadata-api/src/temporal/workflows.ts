@@ -98,6 +98,31 @@ const goActivities = proxyActivities<GoMetadataActivities>({
 // Shadow mode flag - when true, runs Go activities in parallel for comparison
 const GO_SHADOW_MODE = process.env.GO_SHADOW_MODE === "true";
 
+// Feature flag - when true, uses Go activities instead of Python (Sprint 9)
+const USE_GO_WORKER = process.env.USE_GO_WORKER === "true";
+
+// Unified ingestion activities - switches based on feature flag
+const ingestionActivities = USE_GO_WORKER
+  ? {
+      collectCatalogSnapshots: goActivities.CollectCatalogSnapshots,
+      previewDataset: goActivities.PreviewDataset,
+      planIngestionUnit: goActivities.PlanIngestionUnit,
+      runIngestionUnit: goActivities.RunIngestionUnit,
+    }
+  : {
+      collectCatalogSnapshots: pythonActivities.collectCatalogSnapshots,
+      previewDataset: pythonActivities.previewDataset,
+      planIngestionUnit: pythonActivities.planIngestionUnit,
+      runIngestionUnit: pythonActivities.runIngestionUnit,
+    };
+
+// Log which worker is being used
+if (USE_GO_WORKER) {
+  log.info("worker-mode", { mode: "go", taskQueue: GO_ACTIVITY_TASK_QUEUE });
+} else {
+  log.info("worker-mode", { mode: "python", taskQueue: PYTHON_ACTIVITY_TASK_QUEUE });
+}
+
 // Helper to run shadow comparison without blocking main flow
 async function runGoShadow<T>(
   activityName: string,
@@ -210,7 +235,7 @@ export async function collectionRunWorkflow(input: CollectionRunWorkflowInput) {
       await markRunSkipped({ runId, reason: plan.reason });
       return;
     }
-    const result = await pythonActivities.collectCatalogSnapshots(plan.job);
+    const result = await ingestionActivities.collectCatalogSnapshots(plan.job);
     result?.logs?.forEach((entry: Record<string, unknown>) => {
       log.info("metadata-collection-log", entry);
     });
@@ -265,9 +290,16 @@ export async function previewDatasetWorkflow(input: {
     ...input,
     connectionUrl: input.connectionUrl ?? "",
   };
-  const preview = await pythonActivities.previewDataset.executeWithOptions(
+  
+  // Use appropriate task queue based on feature flag
+  const previewTaskQueue = USE_GO_WORKER ? GO_ACTIVITY_TASK_QUEUE : PYTHON_ACTIVITY_TASK_QUEUE;
+  const previewActivity = USE_GO_WORKER 
+    ? goActivities.PreviewDataset 
+    : pythonActivities.previewDataset;
+  
+  const preview = await previewActivity.executeWithOptions(
     {
-      taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
+      taskQueue: previewTaskQueue,
       scheduleToCloseTimeout: "5 minutes",
       retry: {
         maximumAttempts: 3,
@@ -324,7 +356,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       transientStateVersion: context.transientStateVersion ?? null,
     };
 
-  const plan = await pythonActivities.planIngestionUnit(baseRequest);
+  const plan = await ingestionActivities.planIngestionUnit(baseRequest);
   const slices = Array.isArray(plan.slices) ? plan.slices : [];
   const planMetadata = (plan.plan_metadata as Record<string, unknown> | undefined) ?? {};
   const planStrategy = (plan.strategy as string | null | undefined) ?? (planMetadata as any)?.strategy ?? null;
@@ -348,7 +380,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       const batch = requests.slice(i, i + maxParallel);
       const results = await Promise.all(
         batch.map((req) =>
-          pythonActivities.runIngestionUnit(req).catch((err) => {
+          ingestionActivities.runIngestionUnit(req).catch((err) => {
             throw ApplicationFailure.fromError(err as Error);
           }),
         ),
@@ -356,7 +388,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       sliceResults.push(...results);
     }
   } else {
-    sliceResults.push(await pythonActivities.runIngestionUnit(baseRequest));
+    sliceResults.push(await ingestionActivities.runIngestionUnit(baseRequest));
   }
 
   const stagingHandles: Array<{ path: string; providerId?: string | null }> = [];
