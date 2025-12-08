@@ -533,11 +533,22 @@ func (o *OneDrive) fetchDelta(ctx context.Context, link string) (*DeltaResponse,
 		// Use the provided link directly (nextLink or deltaLink)
 		apiPath = link
 	} else {
-		// Initial delta request
-		if o.Config.DriveID != "" {
-			apiPath = fmt.Sprintf("/drives/%s/root/delta", o.Config.DriveID)
+		// Initial delta request - scope to RootPath if configured
+		rootPath := o.Config.RootPath
+		if rootPath == "" || rootPath == "/" {
+			// Delta on drive root
+			if o.Config.DriveID != "" {
+				apiPath = fmt.Sprintf("/drives/%s/root/delta", o.Config.DriveID)
+			} else {
+				apiPath = "/me/drive/root/delta"
+			}
 		} else {
-			apiPath = "/me/drive/root/delta"
+			// Delta on specific folder path (scoped to RootPath)
+			if o.Config.DriveID != "" {
+				apiPath = fmt.Sprintf("/drives/%s/root:%s:/delta", o.Config.DriveID, rootPath)
+			} else {
+				apiPath = fmt.Sprintf("/me/drive/root:%s:/delta", rootPath)
+			}
 		}
 	}
 
