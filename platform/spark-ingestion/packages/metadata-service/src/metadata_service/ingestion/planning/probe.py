@@ -12,6 +12,6 @@ class RowCountProbe(Probe):
     lower: str
     upper: Optional[str] = None
 
-    def run(self, endpoint: SourceEndpoint) -> Dict[str, int]:
+    def run(self, endpoint: SourceEndpoint) -> Dict[str, int | str | None]:
         count = endpoint.count_between(lower=self.lower, upper=self.upper)
         return {"rows": count, "lower": self.lower, "upper": self.upper}

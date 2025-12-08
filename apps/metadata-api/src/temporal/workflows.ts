@@ -50,7 +50,11 @@ type PythonMetadataActivities = {
     endpointId: string;
     unitId: string;
   }): Promise<{ rows: unknown[]; sampledAt: string; recordsPath?: string | null; stagingProviderId?: string | null }>;
-  planIngestionUnit(input: PythonIngestionRequest): Promise<{ slices?: Array<Record<string, unknown>>; plan_metadata?: Record<string, unknown> }>;
+  planIngestionUnit(input: PythonIngestionRequest): Promise<{
+    slices?: Array<Record<string, unknown>>;
+    plan_metadata?: Record<string, unknown>;
+    strategy?: string | null;
+  }>;
   runIngestionUnit(input: PythonIngestionRequest): Promise<PythonIngestionResult>;
 };
 
@@ -86,6 +90,7 @@ type PythonIngestionResult = {
   transientState?: Record<string, unknown> | null;
   stagingPath?: string | null;
   stagingProviderId?: string | null;
+  staging?: Array<{ path: string; providerId?: string | null }>;
 };
 
 type NormalizedRecordInput = {
@@ -248,13 +253,13 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       policyKeys: context.policy ? Object.keys(context.policy) : [],
       hasParameters: Boolean(context.policy && (context.policy as Record<string, unknown>).parameters),
     });
-  const baseRequest: PythonIngestionRequest = {
-    endpointId: input.endpointId,
-    unitId: input.unitId,
-    sinkId: context.sinkId ?? null,
-    checkpoint: context.policy?.reset || context.policy?.resetCheckpoint ? null : context.checkpoint,
-    stagingProviderId: context.stagingProviderId ?? null,
-    policy: context.policy ?? null,
+    const baseRequest: PythonIngestionRequest = {
+      endpointId: input.endpointId,
+      unitId: input.unitId,
+      sinkId: context.sinkId ?? null,
+      checkpoint: context.policy?.reset || context.policy?.resetCheckpoint ? null : context.checkpoint,
+      stagingProviderId: context.stagingProviderId ?? null,
+      policy: context.policy ?? null,
       mode: context.mode ?? null,
       dataMode: context.dataMode ?? null,
       sinkEndpointId: context.sinkEndpointId ?? null,
@@ -266,6 +271,8 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
 
   const plan = await pythonActivities.planIngestionUnit(baseRequest);
   const slices = Array.isArray(plan.slices) ? plan.slices : [];
+  const planMetadata = (plan.plan_metadata as Record<string, unknown> | undefined) ?? {};
+  const planStrategy = (plan.strategy as string | null | undefined) ?? (planMetadata as any)?.strategy ?? null;
   const sliceResults: PythonIngestionResult[] = [];
 
   if (slices.length > 0) {
@@ -293,62 +300,81 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       );
       sliceResults.push(...results);
     }
+  } else {
+    sliceResults.push(await pythonActivities.runIngestionUnit(baseRequest));
   }
 
-  const ingestionResult: PythonIngestionResult =
-    sliceResults.length > 0
-      ? {
-          newCheckpoint: sliceResults.find((r) => r?.newCheckpoint !== undefined)?.newCheckpoint ?? null,
-          stats: {
-            planMetadata: plan.plan_metadata ?? {},
-            slices: sliceResults.map((r, idx) => ({
-              ...(r.stats ?? {}),
-              sliceIndex: idx,
-            })),
-          },
-          records: sliceResults.flatMap((r) => r.records || []),
-          transientState: sliceResults.find((r) => r?.transientState)?.transientState ?? null,
-          stagingPath: sliceResults.find((r) => r?.stagingPath)?.stagingPath ?? null,
-          stagingProviderId: sliceResults.find((r) => r?.stagingProviderId)?.stagingProviderId ?? null,
+  const stagingHandles: Array<{ path: string; providerId?: string | null }> = [];
+  const sliceStats: Array<Record<string, unknown>> = [];
+  let transientState: Record<string, unknown> | null = context.transientState ?? null;
+  for (let idx = 0; idx < sliceResults.length; idx += 1) {
+    const res = sliceResults[idx];
+    if (Array.isArray(res.staging)) {
+      for (const handle of res.staging) {
+        if (handle?.path) {
+          stagingHandles.push({
+            path: handle.path,
+            providerId: handle.providerId ?? res.stagingProviderId ?? context.stagingProviderId ?? null,
+          });
         }
-      : await pythonActivities.runIngestionUnit(baseRequest);
-    let stagedRecords: any[] = [];
-    if (ingestionResult.stagingPath) {
-      stagedRecords = await loadStagedRecordsActivity({
-        path: ingestionResult.stagingPath,
-        stagingProviderId: ingestionResult.stagingProviderId ?? context.stagingProviderId ?? null,
-      });
-    } else if (ingestionResult.records && ingestionResult.records.length > 0) {
-      stagedRecords = ingestionResult.records;
-    }
-    if (stagedRecords.length > 0) {
-      if (!context.sinkId) {
-        throw new Error("Ingestion sink is not defined for this run.");
       }
-      await persistIngestionBatchesActivity({
-        endpointId: input.endpointId,
-        unitId: input.unitId,
-        sinkId: context.sinkId,
-        runId: context.runId,
-        records: stagedRecords,
-        stats: ingestionResult.stats ?? null,
-        sinkEndpointId: context.sinkEndpointId ?? null,
-        dataMode: context.dataMode ?? null,
-        cdmModelId: context.cdmModelId ?? null,
+    } else if (res.stagingPath) {
+      stagingHandles.push({
+        path: res.stagingPath,
+        providerId: res.stagingProviderId ?? context.stagingProviderId ?? null,
       });
     }
-    await completeIngestionRunActivity({
+    if (res.stats) {
+      sliceStats.push({ ...res.stats, sliceIndex: idx });
+    }
+    if (res.transientState) {
+      transientState = res.transientState;
+    }
+  }
+
+  const newCheckpoint = sliceResults.find((r) => r?.newCheckpoint !== undefined)?.newCheckpoint ?? null;
+  let aggregatedStats: Record<string, unknown> | null = null;
+  if (sliceStats.length > 0) {
+    aggregatedStats = { planMetadata, slices: sliceStats };
+  } else if (sliceResults[0]?.stats) {
+    aggregatedStats = { ...sliceResults[0].stats, planMetadata };
+  } else if (Object.keys(planMetadata).length > 0) {
+    aggregatedStats = { planMetadata };
+  }
+  if (planStrategy) {
+    aggregatedStats = aggregatedStats ?? {};
+    aggregatedStats.strategy = planStrategy;
+  }
+
+  const fallbackRecords = sliceResults[0]?.records ?? null;
+  if (context.sinkId && (stagingHandles.length > 0 || (fallbackRecords && fallbackRecords.length > 0))) {
+    await persistIngestionBatchesActivity({
       endpointId: input.endpointId,
       unitId: input.unitId,
       sinkId: context.sinkId,
-      vendorKey: context.vendorKey,
       runId: context.runId,
-      checkpointVersion: context.checkpointVersion,
-      newCheckpoint: ingestionResult.newCheckpoint,
-      stats: ingestionResult.stats ?? null,
-      transientStateVersion: context.transientStateVersion,
-      newTransientState: ingestionResult.transientState ?? context.transientState ?? null,
+      staging: stagingHandles,
+      records: stagingHandles.length === 0 ? fallbackRecords ?? undefined : undefined,
+      stats: aggregatedStats ?? null,
+      sinkEndpointId: context.sinkEndpointId ?? null,
+      dataMode: context.dataMode ?? null,
+      cdmModelId: context.cdmModelId ?? null,
     });
+  } else if (!context.sinkId && (stagingHandles.length > 0 || (fallbackRecords?.length ?? 0) > 0)) {
+    throw new Error("Ingestion sink is not defined for this run.");
+  }
+  await completeIngestionRunActivity({
+    endpointId: input.endpointId,
+    unitId: input.unitId,
+    sinkId: context.sinkId,
+    vendorKey: context.vendorKey,
+    runId: context.runId,
+    checkpointVersion: context.checkpointVersion,
+    newCheckpoint: newCheckpoint,
+    stats: aggregatedStats ?? null,
+    transientStateVersion: context.transientStateVersion,
+    newTransientState: transientState,
+  });
   } catch (error) {
     await failIngestionRunActivity({
       endpointId: input.endpointId,

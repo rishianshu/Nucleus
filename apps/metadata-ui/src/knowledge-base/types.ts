@@ -33,6 +33,7 @@ export type KbEdge = {
   sourceEntityId: string;
   targetEntityId: string;
   confidence?: number | null;
+  metadata?: Record<string, unknown> | null;
   updatedAt: string;
   identity: KbIdentity;
   scope: KbScope;

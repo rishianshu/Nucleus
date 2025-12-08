@@ -52,9 +52,11 @@ class MetadataCacheManager:
         self._fs.replace(tmp_path, self.index_path)
 
     def _key(self, target: MetadataTarget) -> str:
-        return f"{target.namespace.lower()}::{target.entity.lower()}"
+        return f"{self._sanitize(target.namespace)}::{self._sanitize(target.entity)}"
 
-    def _sanitize(self, value: str) -> str:
+    def _sanitize(self, value: Optional[str]) -> str:
+        if value is None:
+            return "unknown"
         return value.lower().replace("/", "_")
 
     def artifact_dir(self, target: MetadataTarget) -> str:

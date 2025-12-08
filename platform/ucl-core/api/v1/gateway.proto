@@ -1,0 +1,212 @@
+syntax = "proto3";
+
+package ucl.gateway.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nucleus/ucl-core/gen/gateway/v1;gatewayv1";
+
+// The Universal Gateway Service
+service GatewayService {
+  // --- Discovery ---
+  rpc ListEndpoints(ListEndpointsRequest) returns (ListEndpointsResponse);
+  rpc GetEndpointDescriptor(GetEndpointDescriptorRequest) returns (GetEndpointDescriptorResponse);
+  rpc ListActions(ListActionsRequest) returns (ListActionsResponse);
+  rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+
+  // --- Data Plane: Source ---
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+  rpc ReadData(ReadDataRequest) returns (stream ReadDataResponse);
+  rpc PlanIngestion(PlanIngestionRequest) returns (PlanIngestionResponse);
+
+  // --- Data Plane: Sink (NEW) ---
+  rpc WriteData(WriteDataRequest) returns (WriteDataResponse);
+  rpc GetLatestWatermark(GetLatestWatermarkRequest) returns (GetLatestWatermarkResponse);
+
+  // --- Control Plane ---
+  rpc ExecuteAction(ExecuteActionRequest) returns (ExecuteActionResponse);
+}
+
+// ============================================================================
+// DISCOVERY MESSAGES
+// ============================================================================
+
+message ListEndpointsRequest {
+  string environment = 1;
+  string category = 2;
+}
+message EndpointDescription {
+  string id = 1;
+  string template_id = 2;
+  string display_name = 3;
+}
+message ListEndpointsResponse {
+  repeated EndpointDescription endpoints = 1;
+}
+
+message GetEndpointDescriptorRequest {
+  string template_id = 1;
+}
+message GetEndpointDescriptorResponse {
+  string id = 1;
+  string family = 2;
+  string title = 3;
+  string vendor = 4;
+  string description = 5;
+  repeated string categories = 6;
+  repeated FieldDescriptor fields = 7;
+  repeated CapabilityDescriptor capabilities = 8;
+}
+
+message FieldDescriptor {
+  string key = 1;
+  string label = 2;
+  string value_type = 3;
+  bool required = 4;
+  string semantic = 5;
+  string description = 6;
+  string placeholder = 7;
+  string default_value = 8;
+  bool advanced = 9;
+  bool sensitive = 10;
+}
+
+message CapabilityDescriptor {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+}
+
+message ListActionsRequest {
+  string endpoint_template_id = 1;
+}
+message ActionSchema {
+  string name = 1;
+  string description = 2;
+  string input_schema_json = 3;
+}
+message ListActionsResponse {
+  repeated ActionSchema actions = 1;
+}
+
+message ListDatasetsRequest {
+  string endpoint_id = 1;
+}
+message DatasetItem {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  bool supports_incremental = 4;
+  string cdm_model_id = 5;
+  string ingestion_strategy = 6;
+}
+message ListDatasetsResponse {
+  repeated DatasetItem datasets = 1;
+}
+
+// ============================================================================
+// DATA PLANE: SOURCE MESSAGES
+// ============================================================================
+
+message GetSchemaRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+}
+message FieldDefinition {
+  string name = 1;
+  string data_type = 2;
+  bool nullable = 3;
+  int32 precision = 4;
+  int32 scale = 5;
+  string comment = 6;
+}
+message Constraint {
+  string name = 1;
+  string type = 2;
+  repeated string fields = 3;
+}
+message DatasetStatistics {
+  int64 row_count = 1;
+  int64 size_bytes = 2;
+  int32 partitions = 3;
+}
+message GetSchemaResponse {
+  repeated FieldDefinition fields = 1;
+  repeated Constraint constraints = 2;
+  DatasetStatistics statistics = 3;
+}
+
+message ReadDataRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+  google.protobuf.Struct filter = 3;
+  int64 limit = 4;
+}
+message ReadDataResponse {
+  google.protobuf.Struct record = 1;
+}
+
+message PlanIngestionRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+  string strategy = 3; // "adaptive", "linear", "partition"
+  google.protobuf.Struct bounds = 4;
+}
+message IngestionSlice {
+  string slice_id = 1;
+  google.protobuf.Struct slice_params = 2;
+  int64 estimated_rows = 3;
+}
+message PlanIngestionResponse {
+  repeated IngestionSlice slices = 1;
+  string strategy_used = 2;
+}
+
+// ============================================================================
+// DATA PLANE: SINK MESSAGES (NEW)
+// ============================================================================
+
+message WriteDataRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+  string mode = 3; // "append", "overwrite", "merge"
+  string load_date = 4;
+  repeated google.protobuf.Struct records = 5;
+  ExecutionMode execution_mode = 6;
+}
+message WriteDataResponse {
+  string execution_id = 1;
+  int64 rows_written = 2;
+  string path = 3;
+}
+
+message GetLatestWatermarkRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+}
+message GetLatestWatermarkResponse {
+  string watermark = 1;
+}
+
+// ============================================================================
+// CONTROL PLANE MESSAGES
+// ============================================================================
+
+enum ExecutionMode {
+  EXECUTION_MODE_UNSPECIFIED = 0;
+  EXECUTION_MODE_SYNC = 1;
+  EXECUTION_MODE_ASYNC = 2;
+}
+
+message ExecuteActionRequest {
+  string endpoint_id = 1;
+  string action_name = 2;
+  google.protobuf.Struct parameters = 3;
+  ExecutionMode mode = 4;
+}
+message ExecuteActionResponse {
+  string execution_id = 1;
+  google.protobuf.Struct result = 2;
+  string status_url = 3;
+}

@@ -22,10 +22,10 @@ class JiraMetadataNormalizer(MetadataNormalizer):
     def normalize(
         self,
         *,
-        raw: Dict[str, object],
-        environment: Dict[str, object],
-        config: Dict[str, object],
-        endpoint_descriptor: Dict[str, object],
+        raw: Dict[str, Any],
+        environment: Dict[str, Any],
+        config: Dict[str, Any],
+        endpoint_descriptor: Dict[str, Any],
     ) -> CatalogSnapshot:
         datasource = self._build_datasource(raw.get("datasource") or {}, endpoint_descriptor)
         dataset_cfg = raw.get("dataset") or {}
@@ -49,7 +49,7 @@ class JiraMetadataNormalizer(MetadataNormalizer):
                 "raw_vendor": {"dataset": dataset_cfg, "datasource": raw.get("datasource"), "config": config},
             },
         )
-        snapshot.schema_fields = schema_fields  # type: ignore[attr-defined]
+        snapshot.schema_fields = schema_fields
         return snapshot
 
     # ------------------------------------------------------------------ helpers --

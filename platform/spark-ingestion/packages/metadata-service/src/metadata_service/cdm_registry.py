@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from endpoint_service.endpoints.jira import jira_work_mapper
 from endpoint_service.endpoints.confluence import confluence_docs_mapper
+from endpoint_service.endpoints.onedrive.onedrive_docs_mapper import map_onedrive_drive_to_cdm, map_onedrive_item_to_cdm
 from ingestion_models.cdm.docs import CDM_DOC_ITEM, CDM_DOC_LINK, CDM_DOC_REVISION, CDM_DOC_SPACE
 
 
@@ -31,10 +32,12 @@ registry = CdmRegistry()
 
 def infer_family(template_id: Optional[str], unit_id: str) -> str:
     if template_id and "." in template_id:
-        return template_id.split(".", 1)[0]
+        candidate = template_id.split(".", 1)[0]
+        if candidate.lower() not in ("http", "https", "jdbc", "stream"):
+            return candidate
     if unit_id and "." in unit_id:
         return unit_id.split(".", 1)[0]
-    return "unknown"
+    return template_id or "unknown"
 
 
 def register_default_mappers() -> None:
@@ -66,6 +69,20 @@ def register_default_mappers() -> None:
     registry.register("confluence", "confluence.page.version", CDM_DOC_REVISION, _map_confluence_page_to_revision)
     registry.register("confluence", "confluence.attachment", CDM_DOC_LINK, _map_attachment_to_link)
 
+    # OneDrive Docs
+    registry.register(
+        "onedrive",
+        "onedrive.docs",
+        CDM_DOC_ITEM,
+        lambda payload: map_onedrive_item_to_cdm(payload, drive_id=_extract_drive_id(payload)),
+    )
+    registry.register(
+        "onedrive",
+        "onedrive.docs.space",
+        CDM_DOC_SPACE,
+        lambda payload: map_onedrive_drive_to_cdm(payload),
+    )
+
 
 def apply_cdm(
     family: str,
@@ -78,13 +95,14 @@ def apply_cdm(
 ) -> List[Dict[str, Any]]:
     if not cdm_model_id:
         return records
+    family_key = infer_family(family, unit_id)
     mapped: List[Dict[str, Any]] = []
     for record in records:
         payload = record.get("payload") if isinstance(record, dict) else record
         if not isinstance(payload, dict):
             mapped.append(record)
             continue
-        mapper = registry.resolve(family, unit_id, cdm_model_id)
+        mapper = registry.resolve(family_key, unit_id, cdm_model_id)
         if mapper is None:
             mapped.append(record)
             continue
@@ -159,7 +177,8 @@ def _map_confluence_page_to_item(payload: Dict[str, Any]):
         space_cdm_id = f"cdm:doc:space:confluence:{space.get('key')}"
     elif isinstance(space, str):
         space_cdm_id = f"cdm:doc:space:confluence:{space}"
-    return confluence_docs_mapper.map_confluence_page_to_cdm(payload, space_cdm_id=space_cdm_id, parent_item_cdm_id=None)
+    resolved_space_id = space_cdm_id or ""
+    return confluence_docs_mapper.map_confluence_page_to_cdm(payload, space_cdm_id=resolved_space_id, parent_item_cdm_id=None)
 
 
 def _map_confluence_page_to_revision(payload: Dict[str, Any]):
@@ -167,9 +186,10 @@ def _map_confluence_page_to_revision(payload: Dict[str, Any]):
     if not isinstance(version, dict) or not version:
         return None
     doc_item_id = payload.get("id")
-    if doc_item_id:
-        doc_item_id = f"cdm:doc:item:confluence:{doc_item_id}"
-    return confluence_docs_mapper.map_confluence_page_version_to_cdm(payload, version, item_cdm_id=doc_item_id)
+    if not doc_item_id:
+        return None
+    item_cdm_id = f"cdm:doc:item:confluence:{doc_item_id}"
+    return confluence_docs_mapper.map_confluence_page_version_to_cdm(payload, version, item_cdm_id=item_cdm_id)
 
 
 def _map_attachment_to_link(payload: Dict[str, Any]):
@@ -220,6 +240,18 @@ def _attach_cdm_source_metadata(payload: Dict[str, Any], *, dataset_id: Optional
     if metadata_block:
         properties["_metadata"] = metadata_block
     payload["properties"] = properties
+
+
+def _extract_drive_id(payload: Dict[str, Any]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    drive_id = payload.get("driveId") or payload.get("drive_id")
+    if not drive_id and isinstance(payload.get("provenance"), dict):
+        drive_id = payload["provenance"].get("driveId")
+    raw = payload.get("raw")
+    if not drive_id and isinstance(raw, dict):
+        drive_id = raw.get("driveId") or raw.get("drive_id")
+    return str(drive_id or "")
 
 
 register_default_mappers()

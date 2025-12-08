@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
+from urllib.parse import urlparse
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from endpoint_service.tools.base import ExecutionTool, QueryRequest
 from endpoint_service.tools.sqlalchemy import SQLAlchemyTool
@@ -23,12 +25,23 @@ from ingestion_models.endpoints import (
     SupportsQueryExecution,
     IngestionCapableEndpoint,
     EndpointUnitDescriptor,
+    IngestionPlan,
+    IngestionSlice,
+    SupportsIncrementalPlanning,
+    QueryPlan as QueryPlanContract,
+    QueryResult as QueryResultContract,
 )
-from endpoint_service.query.plan import QueryPlan, QueryResult, SelectItem
+from endpoint_service.query.plan import QueryPlan as QueryPlanModel, QueryResult as QueryResultModel, SelectItem
 from ingestion_models.metadata import MetadataTarget
 
 
-class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPreview, IngestionCapableEndpoint):
+class JdbcEndpoint(
+    MetadataCapableEndpoint,
+    SupportsQueryExecution,
+    SupportsPreview,
+    SupportsIncrementalPlanning,
+    IngestionCapableEndpoint,
+):
     """Generic JDBC endpoint with dialect-specific subclasses."""
 
     DIALECT = "generic"
@@ -127,7 +140,9 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
         request = QueryRequest(format="jdbc", options=options, partition_options=partition)
         return self.tool.query(request)
 
-    def read_slice(self, *, lower: str, upper: Optional[str]) -> Any:
+    def read_slice(self, *, lower: Optional[str], upper: Optional[str]) -> Any:
+        if lower is None:
+            raise ValueError("lower bound is required for incremental reads")
         dbtable = self._dbtable_for_range(lower, upper)
         options = self._jdbc_options(dbtable=dbtable)
         partition = self._partition_options()
@@ -141,7 +156,7 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
         request = QueryRequest(format="jdbc", options=options, partition_options=None)
         return int(self.tool.query_scalar(request))
 
-    def execute_query_plan(self, plan: QueryPlan, *, fetchsize_override: Optional[int] = None) -> QueryResult:
+    def execute_query_plan(self, plan: QueryPlanContract, *, fetchsize_override: Optional[int] = None) -> QueryResultContract:
         selects = plan.selects or (SelectItem(expression="*"),)
         select_clause = ", ".join(sel.render() for sel in selects)
         source_sql = plan.source or self.base_from_sql
@@ -166,7 +181,7 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
         execute_sql = getattr(self.tool, "execute_sql", None)
         if callable(execute_sql):
             records = execute_sql(sql_core)
-            return QueryResult.from_records(records)
+            return QueryResultModel.from_records(records)
         wrapped = f"({sql_core}) q"
         options = self._jdbc_options(dbtable=wrapped)
         if fetchsize_override is not None:
@@ -178,7 +193,7 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
         request = QueryRequest(format="jdbc", options=options, partition_options=None)
         df = self.tool.query(request)
         rows = [row.asDict(recursive=True) for row in df.collect()]
-        return QueryResult.from_records(rows)
+        return QueryResultModel.from_records(rows)
 
     # --- Descriptor & testing --------------------------------------------------
 
@@ -352,6 +367,24 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
             sa_url = sa_url[len("jdbc:") :]
             if sa_url.startswith("postgres:"):
                 sa_url = "postgresql:" + sa_url[len("postgres:") :]
+        # Ensure credentials are carried into the SQLAlchemy URL even when the JDBC URL omits them.
+        user = cfg.get("user") or cfg.get("username")
+        password = cfg.get("password")
+        try:
+            parsed = urlparse(sa_url)
+        except Exception:
+            parsed = None
+        if parsed and user and not parsed.username:
+            netloc = user
+            if password:
+                netloc = f"{netloc}:{password}"
+            host = parsed.hostname or ""
+            if host:
+                netloc = f"{netloc}@{host}"
+            port = parsed.port
+            if port:
+                netloc = f"{netloc}:{port}"
+            sa_url = parsed._replace(netloc=netloc).geturl()
         runtime_cfg = {"runtime": {"sqlalchemy": {"url": sa_url}}}
         return SQLAlchemyTool.from_config(runtime_cfg)
 
@@ -446,7 +479,8 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
         guardrail = getattr(access, "precision_guardrail", None) if access else None
         if guardrail is None:
             return None
-        target = MetadataTarget(namespace=self.schema.upper(), entity=self.table.upper())
+        source_id = self.table_cfg.get("endpoint_id") or self.table_cfg.get("source_id") or "jdbc_endpoint"
+        target = MetadataTarget(source_id=source_id, namespace=self.schema.upper(), entity=self.table.upper())
         result = guardrail.evaluate(
             target,
             max_precision=self._precision_guardrail_max,
@@ -576,13 +610,13 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
             if isinstance(filters.get("predicates"), (list, tuple)):
                 extra_filters.extend(str(f).strip() for f in filters["predicates"] if str(f).strip())
         plan_filters.extend(extra_filters)
-        plan = QueryPlan(
+        plan = QueryPlanModel(
             selects=(SelectItem(expression="*"),),
             source=self.base_from_sql,
             filters=tuple(plan_filters),
             limit=max(1, min(int(limit), 500)),
         )
-        result = self.execute_query_plan(plan)
+        result = self.execute_query_plan(cast(QueryPlanContract, plan))
         return result.to_dicts()
 
     # --- IngestionCapableEndpoint --------------------------------------------
@@ -602,6 +636,45 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
                 incremental_literal=self._caps.incremental_literal,
             )
         ]
+
+    def plan_incremental_slices(
+        self,
+        *,
+        unit: EndpointUnitDescriptor,
+        checkpoint: Optional[Dict[str, Any]],
+        policy: Optional[Dict[str, Any]] = None,
+        target_slice_size: Optional[int] = None,
+    ) -> IngestionPlan:
+        last_wm = None
+        if isinstance(checkpoint, dict):
+            last_wm = checkpoint.get("watermark") or checkpoint.get("last_watermark") or checkpoint.get("cursor")
+            if isinstance(last_wm, dict):
+                last_wm = last_wm.get("watermark") or last_wm.get("last_watermark")
+        literal = self._caps.incremental_literal or "timestamp"
+        now = datetime.now(timezone.utc)
+        now_lit = str(int(now.timestamp())) if literal in {"epoch", "epoch_seconds", "numeric"} else now.strftime("%Y-%m-%d %H:%M:%S")
+        lower = str(last_wm) if last_wm is not None else None
+        slices = [
+            IngestionSlice(
+                key=f"{unit.unit_id}:range:0",
+                sequence=0,
+                params={k: v for k, v in {"lower": lower, "upper": now_lit}.items() if v is not None},
+                lower=lower,
+                upper=now_lit,
+            )
+        ]
+        statistics = {
+            "incremental_column": self.incremental_column,
+            "last_watermark": last_wm,
+            "target_slice_size": target_slice_size,
+        }
+        return IngestionPlan(
+            endpoint_id=self.table_cfg.get("endpoint_id") or "",
+            unit_id=unit.unit_id,
+            slices=slices,
+            statistics=statistics,
+            strategy="jdbc-range",
+        )
 
     def run_ingestion_unit(
         self,
@@ -663,24 +736,26 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
                     expr = expr[:-5].strip()
                 order_by.append(OrderItem(expression=expr, descending=desc))
 
-        limit_value = None
+        limit_value: Optional[int] = None
         if isinstance(policy, dict) and policy.get("limit") is not None:
+            raw_limit = policy.get("limit")
             try:
-                limit_value = int(policy.get("limit"))
+                limit_value = int(str(raw_limit))
             except (TypeError, ValueError):
                 limit_value = None
 
-        plan = QueryPlan(
+        plan = QueryPlanModel(
             selects=(SelectItem(expression="*"),),
             source=self.base_from_sql,
             filters=tuple(predicates),
             order_by=tuple(order_by),
             limit=limit_value,
         )
-        fetchsize_override = None
+        fetchsize_override: Optional[int] = None
         if isinstance(policy, dict) and policy.get("fetchsize") is not None:
+            raw_fetch = policy.get("fetchsize")
             try:
-                fetchsize_override = int(policy.get("fetchsize"))
+                fetchsize_override = int(str(raw_fetch))
             except (TypeError, ValueError):
                 fetchsize_override = None
         if mode and str(mode).upper() == "PREVIEW":
@@ -688,7 +763,7 @@ class JdbcEndpoint(MetadataCapableEndpoint, SupportsQueryExecution, SupportsPrev
             if limit_value is None:
                 limit_value = 50
 
-        result = self.execute_query_plan(plan, fetchsize_override=fetchsize_override)
+        result = self.execute_query_plan(cast(QueryPlanContract, plan), fetchsize_override=fetchsize_override)
         records = result.to_dicts()
         stats: Dict[str, Any] = {
             "unitId": unit_id,

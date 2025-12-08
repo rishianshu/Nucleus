@@ -34,4 +34,7 @@ def plan_ingestion(
         incremental_literal=incremental_literal,
         table_cfg={"slicing": cfg.get("runtime", {}).get("scd1_slicing", {}), "runtime": cfg.get("runtime", {}), "table": table_cfg},
     )
-    return planner.build_plan(endpoint=cfg.get("endpoint"), request=planner_request)
+    endpoint = cfg.get("endpoint")
+    if endpoint is None or not hasattr(endpoint, "read_full"):
+        raise ValueError("Planner requires a SourceEndpoint instance in cfg['endpoint']")
+    return planner.build_plan(endpoint=endpoint, request=planner_request)

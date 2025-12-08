@@ -1,5 +1,5 @@
 """HTTP endpoint bundle."""
 
-from endpoint_service.endpoints.http.http_rest import HttpApiEndpoint  # type: ignore
+from endpoint_service.endpoints.http.http_rest import HttpApiEndpoint
 
 __all__ = ["HttpApiEndpoint"]

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
+
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
@@ -20,10 +22,13 @@ from ingestion_models.endpoints import (
     EndpointProbingPlan,
     EndpointTestResult,
     EndpointUnitDescriptor,
+    IngestionPlan,
+    IngestionSlice,
     IngestionCapableEndpoint,
     SupportsPreview,
     MetadataSubsystem,
     SupportsIngestionExecution,
+    SupportsIncrementalPlanning,
 )
 from .confluence_catalog import CONFLUENCE_API_LIBRARY, CONFLUENCE_DATASET_DEFINITIONS
 
@@ -32,7 +37,7 @@ MAX_PAGE_FETCH_SIZE = 5
 MAX_ATTACHMENT_FETCH_SIZE = 1
 
 
-class ConfluenceEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, SupportsPreview):
+class ConfluenceEndpoint(IngestionCapableEndpoint, SupportsIncrementalPlanning, SupportsIngestionExecution, SupportsPreview):
     """Confluence HTTP endpoint descriptor and metadata bridge."""
 
     TEMPLATE_ID = "http.confluence"
@@ -241,7 +246,7 @@ class ConfluenceEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, S
             self.metadata_access = metadata_access
         else:
             from endpoint_service.endpoints.confluence.metadata import ConfluenceMetadataSubsystem
-            self.metadata_access = ConfluenceMetadataSubsystem(self)  # type: ignore[call-arg]
+            self.metadata_access = ConfluenceMetadataSubsystem(self)
         self.emitter = emitter
         self._caps = EndpointCapabilities(
             supports_full=True,
@@ -266,7 +271,7 @@ class ConfluenceEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, S
     def read_full(self) -> Any:  # pragma: no cover
         raise NotImplementedError("ConfluenceEndpoint does not expose read_full. Use metadata collection or ingestion.")
 
-    def read_slice(self, *, lower: str, upper: Optional[str]) -> Any:  # pragma: no cover
+    def read_slice(self, *, lower: Optional[str], upper: Optional[str]) -> Any:  # pragma: no cover
         raise NotImplementedError("ConfluenceEndpoint does not expose read_slice. Use metadata collection or ingestion.")
 
     def count_between(self, *, lower: str, upper: Optional[str]) -> int:  # pragma: no cover
@@ -307,6 +312,58 @@ class ConfluenceEndpoint(IngestionCapableEndpoint, SupportsIngestionExecution, S
                 )
             )
         return units
+
+    def plan_incremental_slices(
+        self,
+        *,
+        unit: EndpointUnitDescriptor,
+        checkpoint: Optional[Dict[str, Any]],
+        policy: Optional[Dict[str, Any]] = None,
+        target_slice_size: Optional[int] = None,
+    ) -> IngestionPlan:
+        parameter_block: Dict[str, Any] = {}
+        if isinstance(policy, dict) and isinstance(policy.get("parameters"), dict):
+            parameter_block = policy.get("parameters")  # type: ignore[assignment]
+        elif isinstance(policy, dict):
+            parameter_block = policy
+        params = _normalize_confluence_parameters(parameter_block or {})
+        merged_filter = policy.get("filter") if isinstance(policy, dict) else {}
+        filter_config = _normalize_confluence_ingestion_filter(merged_filter if isinstance(merged_filter, dict) else {})
+        cursor = _extract_confluence_cursor(checkpoint)
+        space_keys = filter_config.space_keys or params.get("space_keys") or []
+        spaces = [str(key).upper() for key in space_keys] if space_keys else ["*"]
+        now_lit = datetime.now(timezone.utc).isoformat()
+        default_lower = filter_config.updated_from or cursor.get("lastUpdatedAt") or (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        slices: List[IngestionSlice] = []
+        for idx, space in enumerate(spaces):
+            space_cursor = None
+            if isinstance(cursor.get("spaces"), dict):
+                space_cursor = cursor["spaces"].get(space, {}).get("lastUpdatedAt")
+            lower = space_cursor or default_lower
+            upper = now_lit
+            slice_params = {"space": space if space != "*" else None, "lower": lower, "upper": upper}
+            slices.append(
+                IngestionSlice(
+                    key=f"{unit.unit_id}:{space}:{idx}",
+                    sequence=idx,
+                    params={k: v for k, v in slice_params.items() if v is not None},
+                    lower=lower,
+                    upper=upper,
+                )
+            )
+        statistics = {
+            "spaces": spaces,
+            "cursor": cursor,
+            "updated_from": filter_config.updated_from,
+            "target_slice_size": target_slice_size,
+        }
+        return IngestionPlan(
+            endpoint_id=self.table_cfg.get("endpoint_id") or "",
+            unit_id=unit.unit_id,
+            slices=slices,
+            statistics=statistics,
+            strategy="confluence-space-window",
+        )
 
     def run_ingestion_unit(
         self,
@@ -415,7 +472,7 @@ def run_confluence_ingestion_unit(
     if isinstance(policy, dict):
         raw_limit = policy.get("limit")
         try:
-            limit = int(raw_limit) if raw_limit not in (None, "") else None
+            limit = int(str(raw_limit)) if raw_limit not in (None, "") else None
         except (TypeError, ValueError):
             limit = None
         if limit and limit > 0:
@@ -496,15 +553,15 @@ def _ingest_confluence_spaces(
         space_key = str(payload.get("key") or "").upper() or None
         scope_value = scope_project or space_key
         records.append(
-            _build_confluence_record(
-                entity_type="doc.space",
-                logical_id=f"confluence::{host}::space::{payload.get('key') or payload.get('id')}",
-                display_name=payload.get("name") or payload.get("key") or payload.get("id"),
-                scope_org=org_id,
-                scope_project=scope_value,
-                endpoint_id=endpoint_id,
-                payload=payload,
-            )
+                _build_confluence_record(
+                    entity_type="doc.space",
+                    logical_id=f"confluence::{host}::space::{payload.get('key') or payload.get('id')}",
+                    display_name=str(payload.get("name") or payload.get("key") or payload.get("id") or ""),
+                    scope_org=org_id,
+                    scope_project=scope_value,
+                    endpoint_id=endpoint_id,
+                    payload=payload,
+                )
         )
     stats = {"spacesSynced": len(records)}
     return records, cursor, stats
@@ -542,7 +599,7 @@ def _ingest_confluence_pages(
                 _build_confluence_record(
                     entity_type="doc.page",
                     logical_id=f"confluence::{host}::page::{payload.get('id')}",
-                    display_name=payload.get("title") or payload.get("id"),
+                    display_name=str(payload.get("title") or payload.get("id") or ""),
                     scope_org=org_id,
                     scope_project=scope_value,
                     endpoint_id=endpoint_id,
@@ -587,7 +644,7 @@ def _ingest_confluence_attachments(
                 _build_confluence_record(
                     entity_type="doc.attachment",
                     logical_id=f"confluence::{host}::attachment::{payload.get('id')}",
-                    display_name=payload.get("title") or payload.get("id"),
+                    display_name=str(payload.get("title") or payload.get("id") or ""),
                     scope_org=org_id,
                     scope_project=scope_value,
                     endpoint_id=endpoint_id,
@@ -788,7 +845,14 @@ def _build_page_cql(space_key: str, since: Optional[str], *, content_type: str) 
     clauses = [f'space = "{space_key}"', f'type = "{content_type}"']
     if since:
         field = "lastmodified" if content_type == "page" else "created"
-        clauses.append(f'{field} >= "{since}"')
+        cleaned = since
+        # Confluence CQL is picky about timestamp syntax; downcast to a simple date when we can parse it.
+        try:
+            parsed = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            cleaned = parsed.date().isoformat()
+        except Exception:
+            cleaned = since
+        clauses.append(f'{field} >= "{cleaned}"')
     return " AND ".join(clauses)
 
 
@@ -907,11 +971,85 @@ def _parse_iso_timestamp(value: str) -> Optional[datetime]:
         return None
 
 
+def _ingest_confluence_acl(
+    session: requests.Session,
+    base_url: str,
+    params: Dict[str, Any],
+    filter_config: ConfluenceIngestionFilter,
+    checkpoint: Dict[str, Any],
+    endpoint_id: str,
+    host: str,
+    org_id: str,
+    scope_project: Optional[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    principal_ids: List[str] = []
+    raw_principals = params.get("acl_principals") or []
+    if isinstance(raw_principals, str):
+        principal_ids = [raw_principals]
+    elif isinstance(raw_principals, list):
+        principal_ids = [str(entry) for entry in raw_principals if entry]
+    if not principal_ids:
+        principal_ids = ["confluence:public"]
+    # Always include the current Confluence user if available
+    try:
+        current_user = _confluence_get(session, base_url, "/wiki/rest/api/user/current")
+        username = current_user.get("username") or current_user.get("accountId") or current_user.get("displayName")
+        if username:
+            principal_ids.append(f"confluence:user:{username}")
+    except Exception:
+        pass
+    space_cursor = dict((checkpoint or {}).get("spaces") or {})
+    records: List[Dict[str, Any]] = []
+    stats = {"spacesProcessed": 0, "aclEdges": 0}
+    space_keys = _resolve_space_keys(session, base_url, params, filter_config)
+    for space_key in space_keys:
+        stats["spacesProcessed"] += 1
+        since = space_cursor.get(space_key, {}).get("lastUpdatedAt") or filter_config.updated_from
+        pages, last_updated = _fetch_pages_for_space(session, base_url, params, space_key, since)
+        for page in pages:
+            page_id = str(page.get("id") or "")
+            if not page_id:
+                continue
+            doc_cdm_id = f"cdm:doc:item:confluence:{page_id}"
+            for principal in principal_ids:
+                logical_id = f"confluence::{host}::acl::{page_id}::{principal}"
+                records.append(
+                    {
+                        "entityType": "cdm.doc.access",
+                        "logicalId": logical_id,
+                        "displayName": f"{principal} -> {page_id}",
+                        "scope": {
+                            "orgId": org_id,
+                            "projectId": scope_project or space_key,
+                            "domainId": None,
+                            "teamId": None,
+                        },
+                        "provenance": {"endpointId": endpoint_id, "vendor": "confluence"},
+                        "payload": {
+                            "principal_id": principal,
+                            "principal_type": "group" if principal.startswith("confluence:") else "user",
+                            "doc_cdm_id": doc_cdm_id,
+                            "source_system": "confluence",
+                            "granted_at": page.get("history", {}).get("createdDate"),
+                            "synced_at": datetime.now(timezone.utc).isoformat(),
+                            "dataset_id": "confluence.page",
+                            "endpoint_id": endpoint_id,
+                        },
+                    }
+                )
+                stats["aclEdges"] += 1
+        if last_updated:
+            space_cursor[space_key] = {"lastUpdatedAt": last_updated}
+    next_cursor = {"spaces": space_cursor}
+    return records, next_cursor, stats
+
+
 CONFLUENCE_INGESTION_HANDLERS.update(
     {
         "confluence.space": _ingest_confluence_spaces,
         "confluence.page": _ingest_confluence_pages,
         "confluence.attachment": _ingest_confluence_attachments,
+        "confluence.acl": _ingest_confluence_acl,
     }
 )
 
@@ -962,7 +1100,7 @@ def _normalize_confluence_parameters(parameters: Dict[str, Any]) -> Dict[str, An
     )
     max_pages = parameters.get("max_pages_per_space")
     try:
-        normalized["max_pages_per_space"] = int(max_pages) if max_pages not in (None, "") else None
+        normalized["max_pages_per_space"] = int(str(max_pages)) if max_pages not in (None, "") else None
     except (TypeError, ValueError):
         normalized["max_pages_per_space"] = None
     return normalized

@@ -12,7 +12,7 @@ import tempfile
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type, cast
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,8 +44,8 @@ for module_name in ["endpoint_service", "ingestion_models", "metadata_service"]:
     if module_name in sys.modules:
         del sys.modules[module_name]
 
-from temporalio import activity, client, worker  # type: ignore
-from temporalio.exceptions import ApplicationError  # type: ignore
+from temporalio import activity, client, worker
+from temporalio.exceptions import ApplicationError
 from metadata_service import __file__ as _metadata_service_file
 from metadata_service.cache.manager import MetadataCacheConfig, MetadataCacheManager
 from metadata_service.collector import MetadataCollectionService, MetadataServiceConfig
@@ -54,7 +54,7 @@ from metadata_service.repository import CacheMetadataRepository
 from metadata_service.ingestion.planner import plan_ingestion
 from metadata_service.endpoints.registry import get_endpoint_class
 from ingestion import run_ingestion_unit as _run_ingestion_unit
-from staging import stage_records
+from staging import StagingHandle, stage_records
 
 if ROOT not in Path(_metadata_service_file).resolve().parents:
     raise RuntimeError(
@@ -68,6 +68,14 @@ from ingestion_models.requests import (
     PreviewRequest,
     IngestionUnitRequest,
     IngestionUnitResult,
+)
+from ingestion_models.endpoints import (
+    ConfigurableEndpoint,
+    EndpointUnitDescriptor,
+    IngestionPlan,
+    IngestionSlice,
+    SupportsIncrementalPlanning,
+    SupportsPreview,
 )
 
 
@@ -106,19 +114,81 @@ def _write_records_manifest(records: List[CatalogRecordOutput], run_id: str) -> 
             os.close(fd)
         except OSError:
             # Best-effort close; ignore if already closed.
-            ...
+            pass
     return path
 
 
 def _json_safe(value: Any) -> Any:
-    """Recursively convert objects to JSON-serializable forms."""
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    return value
+    """Recursively convert objects to JSON-serializable forms, guarding against cycles."""
+    seen: set[int] = set()
+
+    def _inner(val: Any) -> Any:
+        oid = id(val)
+        if oid in seen:
+            return "<cycle>"
+        seen.add(oid)
+        if isinstance(val, datetime):
+            return val.isoformat()
+        if isinstance(val, dict):
+            return {k: _inner(v) for k, v in val.items()}
+        if isinstance(val, (list, tuple, set)):
+            return [_inner(v) for v in val]
+        if hasattr(val, "__dict__"):
+            try:
+                return _inner(vars(val))
+            except Exception:
+                ...
+        if hasattr(val, "_asdict"):
+            try:
+                return _inner(val._asdict())
+            except Exception:
+                ...
+        try:
+            json.dumps(val)
+            return val
+        except Exception:
+            try:
+                return str(val)
+            except Exception:
+                return repr(val)
+
+    return _inner(value)
+
+
+def _resolve_target_slice_size(policy: Optional[Dict[str, Any]]) -> Optional[int]:
+    if not isinstance(policy, dict):
+        return None
+    for key in ("target_slice_size", "targetSliceSize", "target_rows_per_slice", "targetRowsPerSlice"):
+        value = policy.get(key)
+        if isinstance(value, (int, float)):
+            try:
+                return int(value)
+            except Exception:
+                continue
+    return None
+
+
+def _serialize_slices(slices: Optional[List[Any]]) -> List[Dict[str, Any]]:
+    if not slices:
+        return []
+    serialized: List[Dict[str, Any]] = []
+    for idx, slice_obj in enumerate(slices):
+        if isinstance(slice_obj, IngestionSlice):
+            payload = slice_obj.to_params()
+        elif isinstance(slice_obj, dict):
+            payload = dict(slice_obj)
+        else:
+            continue
+        payload.setdefault("slice_key", payload.get("slice_key") or getattr(slice_obj, "key", None) or f"slice-{idx}")
+        if "sequence" not in payload:
+            seq_val = getattr(slice_obj, "sequence", None) if not isinstance(slice_obj, dict) else payload.get("sequence")
+            seq_val = seq_val if seq_val is not None else idx
+            try:
+                payload["sequence"] = int(seq_val)
+            except Exception:
+                payload["sequence"] = idx
+        serialized.append(payload)
+    return serialized
 
 
 def _finalize_collection_result(
@@ -193,12 +263,23 @@ def _preview_endpoint_dataset(request: PreviewRequest, payload: Dict[str, Any]) 
     template_id = payload.get("templateId") or payload.get("template_id")
     if not template_id:
         raise ApplicationError("templateId is required for preview", type="PreviewTemplateMissing", non_retryable=True)
-    endpoint_cls = get_endpoint_class(template_id)
+    endpoint_cls: Optional[Type[ConfigurableEndpoint]] = get_endpoint_class(template_id)
     parameters = payload.get("parameters") or {}
     table_cfg = {"schema": request.schema, "table": request.table}
-    endpoint = endpoint_cls(tool=None, endpoint_cfg=parameters, table_cfg=table_cfg)  # type: ignore[call-arg]
-    subsystem = endpoint.metadata_subsystem()
-    rows = subsystem.preview_dataset(dataset_id=request.datasetId, limit=request.limit or 50, config=parameters)  # type: ignore[attr-defined]
+    if endpoint_cls is None:
+        raise ApplicationError(
+            f"Unknown endpoint template '{template_id}'",
+            type="PreviewTemplateMissing",
+            non_retryable=True,
+        )
+    endpoint: ConfigurableEndpoint = endpoint_cls(None, parameters, table_cfg)
+    if not isinstance(endpoint, SupportsPreview):
+        raise ApplicationError(
+            f"Endpoint '{template_id}' does not support preview",
+            type="PreviewUnsupported",
+            non_retryable=True,
+        )
+    rows = endpoint.preview(unit_id=request.datasetId, limit=request.limit or 50, filters=None)
     return {"rows": rows, "sampledAt": datetime.now(timezone.utc).isoformat()}
 
 
@@ -283,17 +364,45 @@ def _plan_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
             last_wm = request.checkpoint.get("watermark") or request.checkpoint.get("last_watermark")
         if isinstance(request.policy, dict) and not last_wm:
             last_wm = request.policy.get("last_watermark")
-        plan = plan_ingestion(
-            cfg={"endpoint": endpoint, "runtime": (request.policy or {}).get("runtime", {}) if isinstance(request.policy, dict) else {}},
-            table_cfg=table_cfg,
-            mode=(request.mode or "full").lower(),
-            load_date=request.policy.get("load_date") if isinstance(request.policy, dict) else datetime.now(timezone.utc).isoformat(),
-            last_watermark=str(last_wm) if last_wm is not None else None,
-            ingestion_strategy=getattr(unit_descriptor, "ingestion_strategy", None) if unit_descriptor else None,
-            incremental_column=getattr(unit_descriptor, "incremental_column", None) if unit_descriptor else None,
-            incremental_literal=getattr(unit_descriptor, "incremental_literal", None) if unit_descriptor else None,
-        )
-        return {"slices": getattr(plan, "slices", []), "plan_metadata": getattr(plan, "metadata", {})}
+
+        slices: List[Dict[str, Any]] = []
+        plan_metadata: Dict[str, Any] = {}
+        strategy = None
+        if isinstance(endpoint, SupportsIncrementalPlanning):
+            try:
+                plan_unit = unit_descriptor or EndpointUnitDescriptor(unit_id=request.unitId)
+                plan_result = endpoint.plan_incremental_slices(
+                    unit=plan_unit,
+                    checkpoint=request.checkpoint if isinstance(request.checkpoint, dict) else None,
+                    policy=request.policy if isinstance(request.policy, dict) else {},
+                    target_slice_size=_resolve_target_slice_size(request.policy),
+                )
+                if isinstance(plan_result, IngestionPlan):
+                    slices = _serialize_slices(plan_result.slices)
+                    plan_metadata.update(plan_result.statistics or {})
+                    strategy = plan_result.strategy or strategy
+                elif plan_result is not None:
+                    slices = _serialize_slices(plan_result)
+            except Exception:
+                slices = []
+
+        if not slices:
+            plan = plan_ingestion(
+                cfg={
+                    "endpoint": endpoint,
+                    "runtime": (request.policy or {}).get("runtime", {}) if isinstance(request.policy, dict) else {},
+                },
+                table_cfg=table_cfg,
+                mode=(request.mode or "full").lower(),
+                load_date=str(request.policy.get("load_date")) if isinstance(request.policy, dict) and request.policy.get("load_date") is not None else datetime.now(timezone.utc).isoformat(),
+                last_watermark=str(last_wm) if last_wm is not None else None,
+                ingestion_strategy=getattr(unit_descriptor, "ingestion_strategy", None) if unit_descriptor else None,
+                incremental_column=getattr(unit_descriptor, "incremental_column", None) if unit_descriptor else None,
+                incremental_literal=getattr(unit_descriptor, "incremental_literal", None) if unit_descriptor else None,
+            )
+            slices = _serialize_slices(getattr(plan, "slices", []))
+            plan_metadata.update(getattr(plan, "metadata", {}) or {})
+        return {"slices": slices, "plan_metadata": plan_metadata, "strategy": strategy}
     finally:
         if tool and hasattr(tool, "stop"):
             try:
@@ -311,6 +420,7 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         sink_id=request.sinkId,
         staging_provider=request.stagingProviderId or "in_memory",
     )
+    logger.info(event="ingestion_policy_debug", policy=request.policy)
     normalized_mode = (request.mode or "").upper()
     reset_flag = False
     if isinstance(request.policy, dict):
@@ -342,20 +452,28 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
     except Exception as exc:
         raise ApplicationError(str(exc), type="IngestionExecutionFailed", non_retryable=True) from exc
 
-    result = resp.get("records")
+    records = resp.get("records")
     stats = resp.get("stats")
-    if result is None:
-        stats = _json_safe(stats or {"note": "ingestion_noop", "unitId": request.unitId})
-        return IngestionUnitResult(newCheckpoint=checkpoint, stats=stats).__dict__
+    new_checkpoint = resp.get("cursor") or resp.get("new_checkpoint") or checkpoint
+    safe_stats = _json_safe(stats or {"note": "ingestion_noop", "unitId": request.unitId})
+    safe_transient = _json_safe(getattr(resp, "transient_state", None) or resp.get("transient_state"))
+    preview_mode = normalized_mode == "PREVIEW"
 
-    records = resp.get("records") or []
-    staging_path, staging_provider = stage_records(records, request.stagingProviderId)
-    records_payload: Optional[List[Dict[str, Any]]] = None
-    if staging_path is None and str(request.dataMode or "").lower() != "cdm":
-        records_payload = records
-    safe_stats = _json_safe(stats)
-    safe_records = _json_safe(records_payload)
-    safe_transient = _json_safe(getattr(resp, "transient_state", None) or getattr(result, "transient_state", None))
+    if records is None:
+        return IngestionUnitResult(newCheckpoint=new_checkpoint, stats=safe_stats, transientState=safe_transient).__dict__
+
+    staging_handles: List[Dict[str, Any]] = []
+    staged_handle = None
+    if not preview_mode:
+        staged_handle = stage_records(records, request.stagingProviderId)
+        if staged_handle:
+            staging_handles.append(staged_handle.__dict__)
+        if staged_handle is None and records:
+            raise ApplicationError(
+                "Staging failed for ingestion records",
+                type="StagingFailed",
+                non_retryable=True,
+            )
     logger.info(
         event="ingestion_complete",
         endpoint_id=request.endpointId,
@@ -363,13 +481,26 @@ def _run_ingestion_unit_sync(request: IngestionUnitRequest) -> Dict[str, Any]:
         template_id=template_id,
         stats=stats,
     )
+    if preview_mode:
+        safe_records = _json_safe(records)
+        return IngestionUnitResult(
+            newCheckpoint=new_checkpoint,
+            stats=safe_stats,
+            records=safe_records,
+            transientState=safe_transient,
+            staging=staging_handles,
+            stagingPath=staged_handle.path if staged_handle else None,
+            stagingProviderId=staged_handle.providerId if staged_handle else request.stagingProviderId,
+        ).__dict__
+
     return IngestionUnitResult(
-        newCheckpoint=None,  # result.cursor,
+        newCheckpoint=new_checkpoint,
         stats=safe_stats,
-        records=safe_records,
+        records=None,
         transientState=safe_transient,
-        stagingPath=staging_path,
-        stagingProviderId=staging_provider,
+        staging=staging_handles,
+        stagingPath=staged_handle.path if staged_handle else None,
+        stagingProviderId=staged_handle.providerId if staged_handle else request.stagingProviderId,
     ).__dict__
 
 
@@ -396,7 +527,7 @@ def _looks_like_sample_connection(connection_url: Optional[str]) -> bool:
 @activity.defn(name="previewDataset")
 async def preview_dataset(request: PreviewRequest) -> Dict[str, Any]:
     # Reuse ingestion runner with preview semantics
-    unit_id = request.unitId #or request.datasetId
+    unit_id = request.unitId  # or request.datasetId
     # if request.schema and request.table:
     #     unit_id = f"{request.schema}.{request.table}"
     endpoint_id = request.endpointId or request.datasetId
@@ -424,11 +555,34 @@ async def preview_dataset(request: PreviewRequest) -> Dict[str, Any]:
     )
     result = await asyncio.to_thread(_run_ingestion_unit_sync, ingestion_request)
     rows = result.get("records") or []
+    records_path = result.get("stagingPath")
+    staging_provider = result.get("stagingProviderId") or getattr(request, "stagingProviderId", None)
+
+    # Avoid exceeding Temporal payload limits by staging large previews even in PREVIEW mode.
+    if records_path is None and rows:
+        max_bytes_env = os.getenv("METADATA_PREVIEW_MAX_BYTES")
+        try:
+            max_bytes = int(max_bytes_env) if max_bytes_env is not None else 500_000
+        except ValueError:
+            max_bytes = 500_000
+        try:
+            serialized = json.dumps(rows, default=str)
+            if len(serialized.encode("utf-8")) > max_bytes:
+                staged_handle = stage_records(rows, staging_provider)
+                if staged_handle:
+                    records_path = staged_handle.path
+                    staging_provider = staged_handle.providerId
+                    # Return a tiny summary so the preview response stays under payload limits.
+                    rows = [{"_preview": "staged", "rowCount": len(rows), "recordsPath": records_path}]
+        except Exception:
+            # Best-effort staging; fall back to returning rows if sizing fails.
+            pass
+
     return {
         "rows": rows,
         "sampledAt": datetime.now(timezone.utc).isoformat(),
-        "recordsPath": result.get("stagingPath"),
-        "stagingProviderId": result.get("stagingProviderId"),
+        "recordsPath": records_path,
+        "stagingProviderId": staging_provider,
     }
 
 

@@ -13,6 +13,7 @@ from ingestion_models.metadata import (
     MetadataTarget,
 )
 from metadata_service.utils import to_serializable
+from metadata_service.runtime import MetadataGateway
 
 if TYPE_CHECKING:  # pragma: no cover
     from ingestion_models.endpoints import MetadataCapableEndpoint

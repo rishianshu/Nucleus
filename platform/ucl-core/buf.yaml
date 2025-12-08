@@ -1,0 +1,13 @@
+# Buf configuration for UCL Proto generation
+version: v1
+name: buf.build/nucleus/ucl-core
+deps: []
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - DEFAULT
+  except:
+    - PACKAGE_VERSION_SUFFIX
+    - RPC_REQUEST_RESPONSE_UNIQUE

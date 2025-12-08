@@ -23,7 +23,7 @@ export async function seedCdmData() {
   }
   const schema = process.env.CDM_WORK_DATABASE_SCHEMA ?? "cdm_work";
   const prefix = process.env.CDM_WORK_DATABASE_TABLE_PREFIX ?? "cdm_";
-  const pool = new Pool({ connectionString: connectionUrl });
+  const pool = new Pool({ connectionString: connectionUrl, max: 5 });
   try {
     await pool.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
     await createTables(pool, schema, prefix);
@@ -85,6 +85,14 @@ async function insertSeedRows(pool: Pool, schema: string, prefix: string) {
   const itemId = "cdm:work:item:seed:ENG-1";
   const commentId = "cdm:work:comment:seed:ENG-1:1";
   const worklogId = "cdm:work:worklog:seed:ENG-1:1";
+
+  // Keep the seed deterministic by clearing any previous CDM work rows that may have been
+  // created by earlier test runs or manual ingestion checks.
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_worklog"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_comment"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_item"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_project"`);
+  await pool.query(`DELETE FROM "${schema}"."${prefix}work_user"`);
 
   await pool.query(
     `INSERT INTO "${schema}"."${prefix}work_project" (cdm_id, source_system, source_project_key, name, description, url, properties)

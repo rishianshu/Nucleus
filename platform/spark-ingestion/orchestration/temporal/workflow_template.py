@@ -13,13 +13,32 @@ import asyncio
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Any
+
+activity: Any
+workflow: Any
+
+@dataclass
+class RetryPolicy:
+    initial_interval: object
+    maximum_attempts: int | None = None
+
 
 try:  # pragma: no cover - runtime-only import
-    from temporalio import activity, workflow
+    from temporalio import activity as _activity, workflow as _workflow
+    activity = _activity
+    workflow = _workflow
 except Exception:  # pragma: no cover - allow docs/tests without Temporal
-    activity = workflow = None  # type: ignore
+    class _WorkflowStub:
+        RetryPolicy = RetryPolicy
 
+        @staticmethod
+        def timedelta(*args, **kwargs):
+            import datetime
+            return datetime.timedelta(*args, **kwargs)
+
+    activity = object()
+    workflow = _WorkflowStub()
 
 @dataclass
 class IngestionPayload:

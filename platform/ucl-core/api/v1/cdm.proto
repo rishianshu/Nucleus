@@ -1,0 +1,182 @@
+syntax = "proto3";
+
+package ucl.cdm.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nucleus/ucl-core/gen/cdm/v1;cdmv1";
+
+// CDM Registry Service
+// Manages Canonical Data Model mappings and transformations
+service CdmRegistryService {
+  // List supported CDM models for a given connector family
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  
+  // Get details of a specific CDM model
+  rpc GetModel(GetModelRequest) returns (GetModelResponse);
+  
+  // Apply CDM transformation to records
+  rpc ApplyCdm(ApplyCdmRequest) returns (ApplyCdmResponse);
+}
+
+message ListModelsRequest {
+  string family = 1; // e.g. "jira", "confluence"
+  string unit_id = 2; // e.g. "jira_issues"
+}
+
+message CdmModelDescriptor {
+  string model_id = 1; // e.g. "cdm.work.item"
+  string display_name = 2;
+  string description = 3;
+  string domain = 4; // "work", "docs", "identity"
+  repeated CdmFieldDescriptor fields = 5;
+}
+
+message CdmFieldDescriptor {
+  string name = 1;
+  string type = 2;
+  bool required = 3;
+  string description = 4;
+}
+
+message ListModelsResponse {
+  repeated CdmModelDescriptor models = 1;
+}
+
+message GetModelRequest {
+  string model_id = 1;
+}
+
+message GetModelResponse {
+  CdmModelDescriptor model = 1;
+}
+
+message ApplyCdmRequest {
+  string family = 1;
+  string unit_id = 2;
+  string cdm_model_id = 3;
+  repeated google.protobuf.Struct records = 4;
+  string dataset_id = 5;
+  string endpoint_id = 6;
+}
+
+message CdmRecord {
+  string cdm_id = 1; // e.g. "cdm:work:item:jira:PROJ-123"
+  string model_id = 2;
+  google.protobuf.Struct data = 3;
+  google.protobuf.Struct source_metadata = 4;
+}
+
+message ApplyCdmResponse {
+  repeated CdmRecord records = 1;
+  int32 mapped_count = 2;
+  int32 skipped_count = 3;
+}
+
+// ============================================================================
+// CDM DOMAIN MODELS (For reference / typed clients)
+// ============================================================================
+
+// Work Domain
+message CdmWorkProject {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_project_key = 3;
+  string name = 4;
+  string description = 5;
+  string url = 6;
+  google.protobuf.Struct properties = 7;
+}
+
+message CdmWorkItem {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_issue_key = 3;
+  string project_cdm_id = 4;
+  string reporter_cdm_id = 5;
+  string assignee_cdm_id = 6;
+  string issue_type = 7;
+  string status = 8;
+  string status_category = 9;
+  string priority = 10;
+  string summary = 11;
+  string description = 12;
+  repeated string labels = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  google.protobuf.Struct properties = 16;
+}
+
+message CdmWorkUser {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_user_id = 3;
+  string display_name = 4;
+  string email = 5;
+  bool active = 6;
+  google.protobuf.Struct properties = 7;
+}
+
+// Docs Domain
+message CdmDocItem {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_page_id = 3;
+  string space_cdm_id = 4;
+  string title = 5;
+  string content_type = 6;
+  string url = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  google.protobuf.Struct properties = 10;
+}
+
+message CdmDocSpace {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_space_key = 3;
+  string name = 4;
+  string description = 5;
+  string url = 6;
+  google.protobuf.Struct properties = 7;
+}
+
+message CdmDocRevision {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_revision_id = 3;
+  string page_cdm_id = 4;
+  string author_cdm_id = 5;
+  int32 version = 6;
+  google.protobuf.Timestamp created_at = 7;
+  string message = 8;
+  google.protobuf.Struct properties = 9;
+}
+
+// Work Domain - Extended
+message CdmWorkComment {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_comment_id = 3;
+  string item_cdm_id = 4;
+  string author_cdm_id = 5;
+  string body = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  string visibility = 9;
+  google.protobuf.Struct properties = 10;
+}
+
+message CdmWorkLog {
+  string cdm_id = 1;
+  string source_system = 2;
+  string source_worklog_id = 3;
+  string item_cdm_id = 4;
+  string author_cdm_id = 5;
+  google.protobuf.Timestamp started_at = 6;
+  int32 time_spent_seconds = 7;
+  string comment = 8;
+  string visibility = 9;
+  google.protobuf.Struct properties = 10;
+}

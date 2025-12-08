@@ -149,6 +149,73 @@ test("cdm sink generates upsert statements for cdm.doc.item", async () => {
   assert.equal((captured[0].params ?? []).length, CDM_MODEL_TABLES["cdm.doc.item"].columns.length);
 });
 
+test("cdm sink generates upsert statements for cdm.doc.access", async () => {
+  const sinkEndpoint: MetadataEndpointDescriptor = {
+    id: "sink-endpoint-3",
+    name: "CDM Sink",
+    verb: "POST",
+    url: "postgres://localhost",
+    config: {
+      templateId: "cdm.jdbc",
+      parameters: {
+        connection_url: "postgres://postgres:postgres@localhost:5432/test",
+        schema: "cdm_docs",
+        table_prefix: "cdm_",
+      },
+    },
+  } as MetadataEndpointDescriptor;
+  const metadataStore = new FakeMetadataStore([sinkEndpoint]) as unknown as MetadataStore;
+  const captured: { sql: string; params?: unknown[] }[] = [];
+  const sink = new CdmJdbcSink({
+    metadataStore,
+    poolFactory: async () => ({
+      query: async (sql: string, params?: unknown[]) => {
+        captured.push({ sql, params });
+      },
+      close: async () => {},
+    }),
+  });
+  const record: NormalizedRecord = {
+    entityType: "cdm.doc.access",
+    logicalId: "cdm:doc:access:confluence:page:123::user@example.com",
+    displayName: "user@example.com -> 123",
+    scope: { orgId: "dev" },
+    provenance: { endpointId: "confluence", vendor: "confluence" },
+    payload: {
+      principal_id: "user@example.com",
+      principal_type: "user",
+      doc_cdm_id: "cdm:doc:item:confluence:123",
+      source_system: "confluence",
+      dataset_id: "confluence.page",
+      endpoint_id: "endpoint-doc",
+      granted_at: new Date().toISOString(),
+      synced_at: new Date().toISOString(),
+      properties: {},
+    },
+  };
+  await sink.begin({
+    endpointId: "confluence",
+    unitId: "confluence.acl",
+    sinkId: "cdm",
+    runId: "run-3",
+    sinkEndpointId: sinkEndpoint.id,
+    cdmModelId: "cdm.doc.access",
+  });
+  await sink.writeBatch({ records: [record] } satisfies NormalizedBatch, {
+    endpointId: "confluence",
+    unitId: "confluence.acl",
+    sinkId: "cdm",
+    runId: "run-3",
+    sinkEndpointId: sinkEndpoint.id,
+    cdmModelId: "cdm.doc.access",
+  });
+  await sink.commit({ endpointId: "confluence", unitId: "confluence.acl", sinkId: "cdm", runId: "run-3" });
+  assert.equal(captured.length, 1);
+  assert.match(captured[0].sql, /INSERT INTO "cdm_docs"\."cdm_doc_access"/);
+  assert.ok(captured[0].params);
+  assert.equal((captured[0].params ?? []).length, CDM_MODEL_TABLES["cdm.doc.access"].columns.length);
+});
+
 function buildCdmWorkItemRecord(): NormalizedRecord {
   return {
     entityType: "cdm.work.item",

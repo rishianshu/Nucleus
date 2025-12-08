@@ -14,10 +14,10 @@ class ConfluenceMetadataNormalizer(MetadataNormalizer):
     def normalize(
         self,
         *,
-        raw: Dict[str, object],
-        environment: Dict[str, object],
-        config: Dict[str, object],
-        endpoint_descriptor: Dict[str, object],
+        raw: Dict[str, Any],
+        environment: Dict[str, Any],
+        config: Dict[str, Any],
+        endpoint_descriptor: Dict[str, Any],
     ) -> CatalogSnapshot:
         datasource_cfg = raw.get("datasource") or {}
         dataset_cfg = raw.get("dataset") or {}
@@ -40,7 +40,7 @@ class ConfluenceMetadataNormalizer(MetadataNormalizer):
             },
         )
         # backward compat for callers expecting schema_fields attribute
-        snapshot.schema_fields = schema_fields  # type: ignore[attr-defined]
+        snapshot.schema_fields = schema_fields
         return snapshot
 
     def _build_datasource(self, cfg: Dict[str, Any], descriptor: Dict[str, Any]) -> DataSourceMetadata:

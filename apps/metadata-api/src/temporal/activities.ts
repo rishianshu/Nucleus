@@ -21,6 +21,8 @@ import { readCheckpoint, updateCheckpoint, writeCheckpoint, type IngestionCheckp
 import { readTransientState, writeTransientState } from "../ingestion/transientState.js";
 import { markUnitState, upsertUnitState } from "../ingestion/stateStore.js";
 import { EndpointTemplate, EndpointBuildResult, EndpointTestResult } from "../types.js";
+import { getOneDriveDelegatedToken } from "../onedriveAuth.js";
+import { upsertJdbcRelations } from "../graph/jdbcRelations.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SCRIPT_PATH = path.resolve(
@@ -176,7 +178,8 @@ type PersistIngestionBatchesInput = {
   unitId: string;
   sinkId: string;
   runId: string;
-  records: NormalizedRecordInput[];
+  records?: NormalizedRecordInput[] | null;
+  staging?: Array<{ path: string; providerId?: string | null }>;
   stats?: Record<string, unknown> | null;
   sinkEndpointId?: string | null;
   dataMode?: string | null;
@@ -442,9 +445,44 @@ export const activities: MetadataActivities = {
     const stagingProviderId = resolveStagingProvider(endpoint);
     const policyOverrides =
       config?.policy && typeof config.policy === "object" ? (config.policy as Record<string, unknown>) : null;
-    const policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
+    let policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
     const sinkEndpointId = config?.sinkEndpointId ?? null;
     const dataMode = typeof config?.mode === "string" ? config.mode : null;
+    const endpointConfig = normalizeRecordPayload(endpoint.config);
+    const templateId = typeof endpointConfig.templateId === "string" ? endpointConfig.templateId : null;
+    const endpointParameters = isRecord(endpointConfig.parameters)
+      ? (endpointConfig.parameters as Record<string, unknown>)
+      : null;
+    const policyParameters = isRecord((policy ?? {}).parameters)
+      ? ((policy as Record<string, unknown>).parameters as Record<string, unknown>)
+      : null;
+    if (endpointParameters || policyParameters) {
+      policy = {
+        ...(policy ?? {}),
+        parameters: { ...(endpointParameters ?? {}), ...(policyParameters ?? {}) },
+      };
+    }
+    if (process.env.METADATA_AUTH_DEBUG === "1") {
+      console.info("[ingestion.policy]", {
+        endpointId,
+        unitId,
+        templateId,
+        policy,
+      });
+    }
+    if (templateId === "http.onedrive") {
+      const policyParameters = normalizeRecordPayload((policy ?? {}).parameters ?? endpointConfig.parameters ?? {});
+      const authMode = resolveOneDriveAuthMode(policyParameters);
+      policyParameters.auth_mode = authMode;
+      if (authMode === "delegated") {
+        const delegatedToken = await getOneDriveDelegatedToken(endpointId);
+        if (delegatedToken?.access_token) {
+          policyParameters.access_token = delegatedToken.access_token;
+          policyParameters.delegated_connected = true;
+        }
+      }
+      policy = { ...(policy ?? {}), parameters: { ...policyParameters } };
+    }
     const cdmModelId = await resolveCdmModelIdForUnit(endpoint, endpointId, unitId);
     const checkpointKey: IngestionCheckpointKey = {
       endpointId,
@@ -559,12 +597,22 @@ export const activities: MetadataActivities = {
     sinkId,
     runId,
     records,
+    staging,
     stats,
     sinkEndpointId,
     dataMode,
     cdmModelId,
   }: PersistIngestionBatchesInput): Promise<void> {
-    if (!records || records.length === 0) {
+    const workingRecords: NormalizedRecordInput[] = Array.isArray(records) ? [...records] : [];
+    if (workingRecords.length === 0 && Array.isArray(staging) && staging.length > 0) {
+      for (const handle of staging) {
+        const loaded = await loadRecordsFromHandle(handle);
+        if (loaded.length > 0) {
+          workingRecords.push(...loaded);
+        }
+      }
+    }
+    if (workingRecords.length === 0) {
       return;
     }
     const sink = getIngestionSink(sinkId);
@@ -581,7 +629,7 @@ export const activities: MetadataActivities = {
       cdmModelId: cdmModelId ?? null,
     };
     await sink.begin(context);
-    const grouped = groupRecordsByCdmModel(records, context.cdmModelId ?? null);
+    const grouped = groupRecordsByCdmModel(workingRecords, context.cdmModelId ?? null);
     for (const group of grouped) {
       const groupContext: IngestionSinkContext = {
         ...context,
@@ -662,6 +710,23 @@ const STAGING_LOADERS: Record<string, (path: string) => Promise<unknown>> = {
 async function readJsonFile(filePath: string): Promise<unknown> {
   const content = await fs.readFile(filePath, "utf-8");
   return JSON.parse(content);
+}
+
+async function loadRecordsFromHandle(handle: { path: string; providerId?: string | null }): Promise<NormalizedRecordInput[]> {
+  if (!handle?.path) {
+    return [];
+  }
+  const provider = handle.providerId ?? DEFAULT_STAGING_PROVIDER;
+  const loader = STAGING_LOADERS[provider];
+  if (!loader) {
+    throw new Error(`Unsupported staging provider '${provider}'`);
+  }
+  try {
+    const content = await loader(handle.path);
+    return Array.isArray(content) ? (content as NormalizedRecordInput[]) : [];
+  } finally {
+    await deleteTempFile(handle.path).catch(() => {});
+  }
 }
 
 function groupRecordsByCdmModel(
@@ -826,6 +891,21 @@ function resolveStagingProvider(endpoint?: { config?: unknown } | null): string 
   return DEFAULT_STAGING_PROVIDER;
 }
 
+function resolveOneDriveAuthMode(parameters?: Record<string, unknown> | null): string {
+  const authBlock =
+    parameters && typeof parameters.auth === "object" && parameters.auth !== null
+      ? (parameters.auth as Record<string, unknown>)
+      : null;
+  const raw =
+    (parameters?.auth_mode as string | undefined) ??
+    (parameters?.authMode as string | undefined) ??
+    (authBlock?.mode as string | undefined);
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return raw.trim().toLowerCase();
+  }
+  return "stub";
+}
+
 export function resolveIngestionPolicy(endpoint?: { config?: unknown } | null): Record<string, unknown> | null {
   const raw = endpoint && typeof endpoint === "object" ? (endpoint as Record<string, unknown>).config : null;
   if (raw && typeof raw === "object" && raw !== null) {
@@ -842,10 +922,23 @@ function mergeIngestionPolicies(
   base: Record<string, unknown> | null,
   overrides: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
-  if (base && overrides) {
-    return { ...base, ...overrides };
+  if (!base && !overrides) {
+    return null;
   }
-  return overrides ?? base;
+  const merged: Record<string, unknown> = { ...(base ?? {}) };
+  if (overrides) {
+    Object.assign(merged, overrides);
+  }
+  const baseParams = isRecord(base?.parameters) ? (base?.parameters as Record<string, unknown>) : null;
+  const overrideParams = isRecord(overrides?.parameters) ? (overrides?.parameters as Record<string, unknown>) : null;
+  if (baseParams || overrideParams) {
+    merged.parameters = { ...(baseParams ?? {}), ...(overrideParams ?? {}) };
+  }
+  return merged;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function buildCheckpointKey({
@@ -933,6 +1026,9 @@ async function syncRecordToGraph(
     },
     context,
   );
+  if (datasetIdentity) {
+    await upsertJdbcRelations(graphStore, datasetIdentity, payload, context);
+  }
 }
 
 function normalizeObject(value: unknown): Record<string, unknown> {

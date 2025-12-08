@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Mapping, TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
-import requests
-
-from endpoint_service.endpoints.confluence import confluence_http as confluence_runtime  # type: ignore
+from endpoint_service.endpoints.confluence import confluence_http as confluence_runtime
 from endpoint_service.endpoints.confluence.confluence_catalog import CONFLUENCE_DATASET_DEFINITIONS
 from endpoint_service.endpoints.confluence.normalizer import ConfluenceMetadataNormalizer
 from endpoint_service.metadata import safe_upper
-from ingestion_models.endpoints import MetadataSubsystem  # type: ignore
+from ingestion_models.endpoints import MetadataSubsystem
 from ingestion_models.metadata import (
     CatalogSnapshot,
     MetadataConfigValidationResult,
@@ -22,6 +20,8 @@ from ingestion_models.metadata import (
     MetadataTarget,
 )
 
+if TYPE_CHECKING:  # pragma: no cover
+    from endpoint_service.endpoints.confluence.confluence_http import ConfluenceEndpoint
 DEFAULT_CONFLUENCE_DATASET = "confluence.page"
 
 
@@ -72,12 +72,14 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem, MetadataProducer):
         target_ns = (request.target.namespace or "").lower()
         if target_ns and target_ns != "confluence":
             return False
-        artifact = request.artifact or {}
-        dataset_cfg = artifact.get("dataset") if isinstance(artifact, dict) else {}
+        artifact: Dict[str, Any] = dict(request.artifact or {})
+        dataset_cfg_raw = artifact.get("dataset") if isinstance(artifact, dict) else {}
+        dataset_cfg: Dict[str, Any] = dataset_cfg_raw if isinstance(dataset_cfg_raw, dict) else {}
         dataset_id = None
         if isinstance(dataset_cfg, dict):
             dataset_id = dataset_cfg.get("entity") or dataset_cfg.get("datasetId")
-            ingestion_cfg = dataset_cfg.get("ingestion") if isinstance(dataset_cfg.get("ingestion"), dict) else {}
+            raw_ingestion = dataset_cfg.get("ingestion")
+            ingestion_cfg: Dict[str, Any] = raw_ingestion if isinstance(raw_ingestion, dict) else {}
             dataset_id = ingestion_cfg.get("unitId") or dataset_id
         if not dataset_id:
             dataset_id = request.target.entity
@@ -117,6 +119,9 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             "supports_preview": True,
         }
 
+    def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+        return {"status": "noop", "checkpoint": checkpoint}
+
     def probe_environment(self, *, config: Dict[str, Any]) -> Dict[str, Any]:
         params = self._resolved_parameters(config)
         base_url = params.get("base_url")
@@ -124,10 +129,14 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             raise ValueError("Confluence base_url is required to probe the environment")
         if confluence_runtime is None:
             raise RuntimeError("endpoint_service endpoints package is required for Confluence metadata probing")
-        session = confluence_runtime._build_confluence_session(params)  # type: ignore[attr-defined]
+        build_session = getattr(confluence_runtime, "_build_confluence_session", None)
+        fetch = getattr(confluence_runtime, "_confluence_get", None)
+        if not callable(build_session) or not callable(fetch):
+            raise RuntimeError("Confluence runtime helpers are unavailable")
+        session = build_session(params)
         try:
-            site_info = confluence_runtime._confluence_get(session, base_url, "/wiki/rest/api/settings/systemInfo")  # type: ignore[attr-defined]
-            user_info = confluence_runtime._confluence_get(session, base_url, "/wiki/rest/api/user/current")  # type: ignore[attr-defined]
+            site_info = fetch(session, base_url, "/wiki/rest/api/settings/systemInfo")
+            user_info = fetch(session, base_url, "/wiki/rest/api/user/current")
             spaces_sample = list(
                 _iter_spaces(
                     session,
@@ -178,10 +187,11 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             "space_keys": params.get("space_keys"),
             "include_archived": params.get("include_archived", False),
         }
+        config_payload: Dict[str, Any] = dict(request.config or {})
         return self._normalizer.normalize(
             raw={"dataset": dataset_cfg, "datasource": datasource_cfg},
             environment=environment,
-            config=request.config or {},
+            config=config_payload,
             endpoint_descriptor={
                 "base_url": params.get("base_url"),
                 "source_id": self.endpoint.table_cfg.get("endpoint_id"),
@@ -228,7 +238,7 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             definition = CONFLUENCE_DATASET_DEFINITIONS.get(dataset_id) or CONFLUENCE_DATASET_DEFINITIONS[DEFAULT_CONFLUENCE_DATASET]
             dataset_cfg = _build_dataset_config(definition, params, dataset_id=dataset_id)
             target = MetadataTarget(
-                source_id=source_id,
+                source_id=source_id or "",
                 namespace="CONFLUENCE",
                 entity=safe_upper(dataset_id.split(".")[-1]),
             )
@@ -245,7 +255,7 @@ class ConfluenceMetadataSubsystem(MetadataSubsystem, MetadataProducer):
             return [{"attachmentId": "att-1", "fileName": "readme.pdf"}][:limit]
         return [{"spaceKey": "ENG", "name": "Engineering"}][:limit]
 
-    def _resolved_parameters(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolved_parameters(self, config: Mapping[str, Any]) -> Dict[str, Any]:
         params = dict(config or {})
         parameters = params.get("parameters") if isinstance(params.get("parameters"), dict) else params
         if not isinstance(parameters, dict):
@@ -292,8 +302,13 @@ def _iter_spaces(session, base_url: str, params: Dict[str, Any], limit: int = 5)
     url = urljoin(base_url, "/wiki/rest/api/space")
     next_start = 0
     fetched = 0
+    if confluence_runtime is None:
+        raise RuntimeError("Confluence runtime helpers are unavailable")
+    fetch = getattr(confluence_runtime, "_confluence_get", None)
+    if not callable(fetch):
+        raise RuntimeError("Confluence runtime helpers are unavailable")
     while url and fetched < limit:
-        resp = confluence_runtime._confluence_get(session, base_url, f"/wiki/rest/api/space?start={next_start}")  # type: ignore[attr-defined]
+        resp = fetch(session, base_url, f"/wiki/rest/api/space?start={next_start}")
         values = resp.get("results") or []
         for value in values:
             yield value
@@ -308,9 +323,10 @@ def _iter_spaces(session, base_url: str, params: Dict[str, Any], limit: int = 5)
 
 
 def _build_dataset_config(definition: Dict[str, Any], params: Dict[str, Any], *, dataset_id: Optional[str] = None) -> Dict[str, Any]:
-    ingestion_meta = definition.get("ingestion") if isinstance(definition.get("ingestion"), dict) else {}
+    raw_ingestion_meta = definition.get("ingestion")
+    ingestion_meta: Dict[str, Any] = raw_ingestion_meta if isinstance(raw_ingestion_meta, dict) else {}
     resolved_id = dataset_id or definition.get("datasetId") or ingestion_meta.get("unit_id")
-    cfg = {
+    cfg: Dict[str, Any] = {
         "schema": "confluence",
         "entity": resolved_id,
         "name": definition.get("name"),

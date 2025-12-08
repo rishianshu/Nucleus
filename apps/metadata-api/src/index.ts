@@ -1,10 +1,12 @@
 import { ApolloServer } from "@apollo/server";
 import { startStandaloneServer } from "@apollo/server/standalone";
-import type { IncomingMessage } from "node:http";
+import http, { type IncomingMessage } from "node:http";
+import { URL } from "node:url";
 import { createResolvers, typeDefs } from "./schema.js";
 import { getMetadataStore, getGraphStore } from "./context.js";
 import { authenticateRequest } from "./auth.js";
 import { registerDefaultIngestionSinks } from "./ingestion/index.js";
+import { completeOneDriveAuthCallback, markOneDriveEndpointDelegatedConnected } from "./onedriveAuth.js";
 
 async function main() {
   registerDefaultIngestionSinks();
@@ -38,6 +40,7 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log(`Metadata API listening at ${url}`);
+  startOneDriveCallbackServer();
 }
 
 void main().catch((error) => {
@@ -52,4 +55,38 @@ function readHeader(req: IncomingMessage, key: string): string | null {
     return null;
   }
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function startOneDriveCallbackServer() {
+  const port = Number(process.env.METADATA_ONEDRIVE_CALLBACK_PORT ?? 4011);
+  const server = http.createServer(async (req, res) => {
+    try {
+      const requestUrl = new URL(req.url ?? "/", `http://localhost:${port}`);
+      if (requestUrl.pathname !== "/auth/onedrive/callback") {
+        res.statusCode = 404;
+        res.end("not_found");
+        return;
+      }
+      const state = requestUrl.searchParams.get("state");
+      const code = requestUrl.searchParams.get("code");
+      const result = await completeOneDriveAuthCallback(state ?? "", code);
+      if (result.ok && result.endpointId) {
+        await markOneDriveEndpointDelegatedConnected(result.endpointId);
+      }
+      res.statusCode = result.ok ? 200 : 400;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end(
+        result.ok
+          ? "<p>OneDrive delegated auth completed. You can close this window.</p>"
+          : "<p>OneDrive auth session is invalid or expired.</p>",
+      );
+    } catch (error) {
+      res.statusCode = 500;
+      res.end("error");
+      console.error("[metadata-api] onedrive callback failed", error);
+    }
+  });
+  server.listen(port, () => {
+    console.info(`[metadata-api] OneDrive auth callback listening on :${port}`);
+  });
 }

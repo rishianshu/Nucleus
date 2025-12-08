@@ -1,0 +1,283 @@
+syntax = "proto3";
+
+package ucl.connector.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/nucleus/ucl-core/gen/connector/v1;connectorv1";
+
+service ConnectorService {
+  // --- Lifecycle & Discovery ---
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+  rpc GetDescriptor(GetDescriptorRequest) returns (GetDescriptorResponse);
+  
+  // --- Data Plane: Source Operations ---
+  rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+  rpc GetStatistics(GetStatisticsRequest) returns (GetStatisticsResponse);
+  rpc PlanSlices(PlanSlicesRequest) returns (PlanSlicesResponse);
+  rpc Read(ReadRequest) returns (stream ReadResponse);
+
+  // --- Data Plane: Sink Operations (NEW) ---
+  rpc WriteRaw(WriteRawRequest) returns (WriteRawResponse);
+  rpc StageSlice(StageSliceRequest) returns (StageSliceResponse);
+  rpc CommitIncremental(CommitIncrementalRequest) returns (CommitIncrementalResponse);
+  rpc Finalize(FinalizeRequest) returns (FinalizeResponse);
+  rpc GetLatestWatermark(GetLatestWatermarkRequest) returns (GetLatestWatermarkResponse);
+
+  // --- Control Plane: Actions ---
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+}
+
+// ============================================================================
+// LIFECYCLE & DISCOVERY MESSAGES
+// ============================================================================
+
+message ValidateConfigRequest {
+  google.protobuf.Struct config = 1;
+}
+message ValidateConfigResponse {
+  bool valid = 1;
+  string message = 2;
+  string detected_version = 3;
+}
+
+message GetCapabilitiesRequest {}
+message GetCapabilitiesResponse {
+  // Detailed capability flags (parity with EndpointCapabilities)
+  bool supports_full = 1;
+  bool supports_incremental = 2;
+  bool supports_count_probe = 3;
+  bool supports_preview = 4;
+  bool supports_write = 5;
+  bool supports_finalize = 6;
+  bool supports_publish = 7;
+  bool supports_watermark = 8;
+  bool supports_staging = 9;
+  bool supports_merge = 10;
+  bool supports_metadata = 11;
+  string incremental_literal = 12; // "timestamp" | "epoch"
+  int32 default_fetchsize = 13;
+}
+
+message GetDescriptorRequest {}
+message GetDescriptorResponse {
+  // Parity with EndpointDescriptor
+  string id = 1;
+  string family = 2;
+  string title = 3;
+  string vendor = 4;
+  string description = 5;
+  repeated string categories = 6;
+  repeated string protocols = 7;
+  int32 default_port = 8;
+  string driver = 9;
+  string docs_url = 10;
+  repeated FieldDescriptor fields = 11;
+  repeated CapabilityDescriptor capabilities = 12;
+  google.protobuf.Struct sample_config = 13;
+}
+
+message FieldDescriptor {
+  string key = 1;
+  string label = 2;
+  string value_type = 3; // "string", "integer", "boolean", "password"
+  bool required = 4;
+  string semantic = 5; // "GENERIC", "HOST", "PORT", "PASSWORD"
+  string description = 6;
+  string placeholder = 7;
+  string default_value = 8;
+  bool advanced = 9;
+  bool sensitive = 10;
+  repeated FieldOption options = 11;
+}
+
+message FieldOption {
+  string label = 1;
+  string value = 2;
+}
+
+message CapabilityDescriptor {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+}
+
+// ============================================================================
+// SOURCE OPERATIONS MESSAGES (Enriched)
+// ============================================================================
+
+message ListDatasetsRequest {
+  google.protobuf.Struct config = 1;
+}
+message DatasetItem {
+  string id = 1;
+  string name = 2;
+  string kind = 3; // "table", "view", "stream", "topic"
+  bool supports_incremental = 4;
+  string cdm_model_id = 5; // e.g. "cdm.work.item"
+  string ingestion_strategy = 6; // "full", "scd1", "cdc"
+  string incremental_column = 7;
+  string incremental_literal = 8; // "timestamp" | "epoch"
+}
+message ListDatasetsResponse {
+  repeated DatasetItem datasets = 1;
+}
+
+message GetSchemaRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+}
+message FieldDefinition {
+  string name = 1;
+  string data_type = 2;
+  bool nullable = 3;
+  int32 precision = 4;
+  int32 scale = 5;
+  int32 length = 6;
+  string comment = 7;
+  int32 position = 8;
+  FieldStatistics statistics = 9;
+}
+message FieldStatistics {
+  int64 null_count = 1;
+  int64 distinct_count = 2;
+  string min_value = 3;
+  string max_value = 4;
+}
+message Constraint {
+  string name = 1;
+  string type = 2; // "primary_key", "foreign_key", "unique", "check"
+  repeated string fields = 3;
+  string referenced_table = 4;
+  repeated string referenced_fields = 5;
+}
+message DatasetStatistics {
+  int64 row_count = 1;
+  int64 size_bytes = 2;
+  int32 partitions = 3;
+  string last_analyzed_at = 4;
+}
+message GetSchemaResponse {
+  repeated FieldDefinition fields = 1;
+  repeated Constraint constraints = 2;
+  DatasetStatistics statistics = 3;
+}
+
+message GetStatisticsRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  repeated string metrics = 3;
+  google.protobuf.Struct filter = 4;
+}
+message GetStatisticsResponse {
+  google.protobuf.Struct stats = 1;
+}
+
+message PlanSlicesRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  string strategy = 3;
+  google.protobuf.Struct bounds = 4;
+}
+message IngestionSlice {
+  string slice_id = 1;
+  google.protobuf.Struct slice_params = 2;
+  int64 estimated_rows = 3;
+}
+message PlanSlicesResponse {
+  repeated IngestionSlice slices = 1;
+  string strategy_used = 2;
+}
+
+message ReadRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  IngestionSlice slice = 3;
+  int64 limit = 4;
+}
+message ReadResponse {
+  google.protobuf.Struct record = 1;
+}
+
+// ============================================================================
+// SINK OPERATIONS MESSAGES (NEW)
+// ============================================================================
+
+message WriteRawRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  string mode = 3; // "append", "overwrite"
+  string load_date = 4;
+  repeated google.protobuf.Struct records = 5;
+}
+message WriteRawResponse {
+  int64 rows_written = 1;
+  string path = 2;
+}
+
+message StageSliceRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  IncrementalContext context = 3;
+  IngestionSlice slice = 4;
+  repeated google.protobuf.Struct records = 5;
+}
+message IncrementalContext {
+  string schema = 1;
+  string table = 2;
+  string load_date = 3;
+  string incremental_column = 4;
+  string incremental_type = 5;
+  repeated string primary_keys = 6;
+  string effective_watermark = 7;
+  string last_watermark = 8;
+}
+message StageSliceResponse {
+  string path = 1;
+  int64 rows = 2;
+  bool skipped = 3;
+}
+
+message CommitIncrementalRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  IncrementalContext context = 3;
+  repeated StageSliceResponse staged_slices = 4;
+}
+message CommitIncrementalResponse {
+  int64 rows = 1;
+  string raw_path = 2;
+  string new_watermark = 3;
+}
+
+message FinalizeRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+  string load_date = 3;
+}
+message FinalizeResponse {
+  string final_path = 1;
+}
+
+message GetLatestWatermarkRequest {
+  google.protobuf.Struct config = 1;
+  string dataset_id = 2;
+}
+message GetLatestWatermarkResponse {
+  string watermark = 1;
+}
+
+// ============================================================================
+// CONTROL PLANE MESSAGES
+// ============================================================================
+
+message ExecuteRequest {
+  google.protobuf.Struct config = 1;
+  string action = 2;
+  google.protobuf.Struct parameters = 3;
+}
+message ExecuteResponse {
+  google.protobuf.Struct result = 1;
+}

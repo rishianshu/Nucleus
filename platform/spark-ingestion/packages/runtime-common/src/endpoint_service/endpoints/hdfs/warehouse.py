@@ -292,16 +292,17 @@ class IcebergHelper:
 
     @staticmethod
     def _partition_clause(partition_col: str, partition_cfg: Optional[Dict[str, Any]]) -> str:
-        spec_entries = []
+        spec_entries: List[Dict[str, Any]] = []
         if partition_cfg and isinstance(partition_cfg, dict):
             spec_entries = partition_cfg.get("spec") or []
         if spec_entries:
-            rendered = [
-                IcebergHelper._render_partition_transform(entry)
+            rendered: List[str] = [
+                r
                 for entry in spec_entries
                 if isinstance(entry, dict)
+                for r in [IcebergHelper._render_partition_transform(entry)]
+                if isinstance(r, str)
             ]
-            rendered = [item for item in rendered if item]
             if rendered:
                 return f" PARTITIONED BY ({', '.join(rendered)})"
         if partition_col:
@@ -616,6 +617,8 @@ class IcebergHelper:
             if not name:
                 continue
             dtype = getattr(field, "dataType", None)
+            if dtype is None:
+                continue
             if hasattr(dtype, "simpleString"):
                 spark_type = dtype.simpleString()
             else:

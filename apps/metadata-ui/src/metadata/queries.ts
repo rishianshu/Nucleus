@@ -14,6 +14,7 @@ export const METADATA_OVERVIEW_QUERY = `
       detectedVersion
       versionHint
       capabilities
+      delegatedConnected
       deletedAt
       deletionReason
       isDeleted
@@ -54,6 +55,7 @@ export const METADATA_ENDPOINTS_PAGED_QUERY = `
       detectedVersion
       versionHint
       capabilities
+      delegatedConnected
       deletedAt
       deletionReason
       isDeleted
@@ -142,6 +144,51 @@ export const METADATA_CATALOG_DATASET_QUERY = `
         name
         type
         description
+      }
+      tables {
+        id
+        name
+        schema
+        columns {
+          id
+          name
+          dataType
+          nullable
+        }
+        primaryKeyColumns {
+          id
+          name
+        }
+        outboundForeignKeys {
+          name
+          toTable {
+            id
+            name
+          }
+          toColumns {
+            id
+            name
+          }
+          fromColumns {
+            id
+            name
+          }
+        }
+        inboundForeignKeys {
+          name
+          fromTable {
+            id
+            name
+          }
+          fromColumns {
+            id
+            name
+          }
+          toColumns {
+            id
+            name
+          }
+        }
       }
       sampleRows
       statistics
@@ -465,6 +512,25 @@ export const UPDATE_METADATA_ENDPOINT_MUTATION = `
       capabilities
       detectedVersion
       versionHint
+    }
+  }
+`;
+
+export const START_ONEDRIVE_AUTH_MUTATION = `
+  mutation StartOneDriveAuth($endpointId: ID!) {
+    startOneDriveAuth(endpointId: $endpointId) {
+      authSessionId
+      authUrl
+      state
+    }
+  }
+`;
+
+export const COMPLETE_ONEDRIVE_AUTH_MUTATION = `
+  mutation CompleteOneDriveAuth($state: String!, $code: String) {
+    completeOneDriveAuth(state: $state, code: $code) {
+      ok
+      endpointId
     }
   }
 `;

@@ -29,7 +29,7 @@ class AdaptivePlanner(Planner):
             return plan
 
         now_lit = self._current_literal(literal)
-        slice_info = self._plan_slices(endpoint, literal, request, incr_col, now_lit)
+        slice_info = self._plan_slices(endpoint, literal, request, incr_col, now_lit, caps)
         plan = plan.with_slices(slice_info["slices"])
         plan.metadata.update(
             {
@@ -54,19 +54,21 @@ class AdaptivePlanner(Planner):
         request: PlannerRequest,
         incr_col: str,
         now_lit: str,
+        caps: EndpointCapabilities,
     ) -> Dict[str, Any]:
         last_wm = request.last_watermark
         slicing_cfg = request.table_cfg.get("slicing", {})
         enabled = slicing_cfg.get("enabled", False)
-        lower = last_wm
+        lower = str(last_wm)
         upper = now_lit
         probe_results: List[Dict[str, Any]] = []
-        total_rows = None
+        total_rows: Optional[int] = None
         if getattr(caps, "supports_count_probe", False):
-            probe = RowCountProbe(lower=lower, upper=upper)
+            probe = RowCountProbe(lower=str(lower), upper=str(upper))
             result = probe.run(endpoint)
             probe_results.append(result)
-            total_rows = result["rows"]
+            rows_val = result.get("rows")
+            total_rows = int(rows_val) if rows_val is not None else None
         if not enabled:
             return {
                 "slices": [{"lower": lower, "upper": upper}],
@@ -115,9 +117,9 @@ class AdaptivePlanner(Planner):
         duration_hours = ((t1 - t0).total_seconds() / 3600.0)
         if duration_hours <= max_dur_h and total_rows <= max_count:
             return [{"lower": lower, "upper": upper}]
-        step = (t1 - t0) / parts
-        bounds = [t0 + i * step for i in range(parts)] + [t1]
-        lits = [b.strftime(fmt) for b in bounds]
+        step_delta = (t1 - t0) / parts
+        time_bounds: List[datetime] = [t0 + i * step_delta for i in range(parts)] + [t1]
+        lits = [b.strftime(fmt) for b in time_bounds]
         return [{"lower": lits[i], "upper": lits[i + 1]} for i in range(parts)]
 
 

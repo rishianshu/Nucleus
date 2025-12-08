@@ -10,6 +10,13 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple, runtime_checkable
 
+from ingestion_models.metadata import (
+    CatalogSnapshot,
+    MetadataConfigValidationResult,
+    MetadataPlanningResult,
+    MetadataRequest,
+)
+
 
 class EndpointRole(Enum):
     SOURCE = auto()
@@ -185,14 +192,16 @@ class DescribedEndpoint(Protocol):
 @runtime_checkable
 class ConfigurableEndpoint(BaseEndpoint, DescribedEndpoint, Protocol):
     """Endpoints that expose both runtime operations and descriptors for configuration."""
-    ...
+    def __init__(self, tool: Any, endpoint_cfg: Dict[str, Any], table_cfg: Dict[str, Any], **kwargs: Any) -> None: ...
 
 
 @runtime_checkable
 class SupportsQueryExecution(Protocol):
     """Endpoints capable of executing logical query plans."""
 
-    def execute_query_plan(self, plan: "QueryPlan") -> "QueryResult": ...
+    def execute_query_plan(
+        self, plan: "QueryPlan", *, fetchsize_override: Optional[int] = None
+    ) -> "QueryResult": ...
 
 
 @runtime_checkable
@@ -204,6 +213,22 @@ class SupportsStreamingQuery(Protocol):
 class SupportsDataFrameQuery(Protocol):
     def dataframe_query_plan(self, plan: "QueryPlan"):
         ...
+
+
+class QueryPlan(Protocol):
+    """Minimal placeholder for logical query plans."""
+    selects: Any
+    source: Any
+    filters: Any
+    group_by: Any
+    having: Any
+    order_by: Any
+    limit: Any
+
+
+class QueryResult(Protocol):
+    """Minimal placeholder for query execution results."""
+    def to_dicts(self) -> List[Dict[str, Any]]: ...
 
 
 @runtime_checkable
@@ -226,7 +251,7 @@ class SourceEndpoint(ConfigurableEndpoint, Protocol):
 
     def read_full(self) -> Any: ...
 
-    def read_slice(self, *, lower: str, upper: Optional[str]) -> Any: ...
+    def read_slice(self, *, lower: Optional[str], upper: Optional[str]) -> Any: ...
 
     def count_between(self, *, lower: str, upper: Optional[str]) -> int: ...
 
@@ -246,8 +271,31 @@ class SinkFinalizeResult:
 
 @dataclass
 class IngestionSlice:
-    lower: str
+    key: str = ""
+    sequence: int = 0
+    params: Dict[str, Any] = field(default_factory=dict)
+    lower: Optional[str] = None
     upper: Optional[str] = None
+
+    def to_params(self) -> Dict[str, Any]:
+        """Return a normalized params payload for this slice, including bounds when present."""
+        payload = dict(self.params or {})
+        if self.lower is not None:
+            payload.setdefault("lower", self.lower)
+        if self.upper is not None:
+            payload.setdefault("upper", self.upper)
+        payload.setdefault("slice_key", self.key or f"slice-{self.sequence}")
+        payload.setdefault("sequence", self.sequence)
+        return payload
+
+
+@dataclass
+class IngestionPlan:
+    endpoint_id: str
+    unit_id: str
+    slices: List[IngestionSlice] = field(default_factory=list)
+    statistics: Dict[str, Any] = field(default_factory=dict)
+    strategy: str = "adaptive"
 
 
 @dataclass(frozen=True)
@@ -314,6 +362,8 @@ class SinkEndpoint(ConfigurableEndpoint, Protocol):
         load_date: str,
         schema: str,
         table: str,
+        rows: Optional[int] = None,
+        **kwargs: Any,
     ) -> SinkWriteResult: ...
 
     def finalize_full(
@@ -384,10 +434,11 @@ class SupportsIncrementalPlanning(Protocol):
     def plan_incremental_slices(
         self,
         *,
-        unit_id: str,
+        unit: EndpointUnitDescriptor,
         checkpoint: Optional[Dict[str, Any]],
-        limit: Optional[int] = None,
-    ) -> List[IngestionSlice]:
+        policy: Optional[Dict[str, Any]] = None,
+        target_slice_size: Optional[int] = None,
+    ) -> IngestionPlan:
         ...
 
 
@@ -429,7 +480,6 @@ class MetadataSubsystem(Protocol):
     ) -> "CatalogSnapshot": ...
 
     def capabilities(self) -> Dict[str, Any]: ...
-    def ingest(self, *, config: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]: ...
     def validate_metadata_config(self, *, parameters: Dict[str, Any]) -> "MetadataConfigValidationResult": ...
     def plan_metadata_jobs(self, *, parameters: Dict[str, Any], request: Dict[str, Any], logger) -> "MetadataPlanningResult": ...
 

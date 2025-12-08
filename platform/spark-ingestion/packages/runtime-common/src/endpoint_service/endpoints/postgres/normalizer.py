@@ -173,6 +173,7 @@ class PostgresMetadataNormalizer(MetadataNormalizer):
                 for field in constraint.get("columns", [])
                 if field.get("column_name")
             ]
+            referenced_fields = constraint.get("referenced_fields") or []
             built.append(
                 DatasetConstraint(
                     name=name,
@@ -180,6 +181,8 @@ class PostgresMetadataNormalizer(MetadataNormalizer):
                     deferrable=constraint.get("is_deferrable"),
                     deferred=constraint.get("initially_deferred"),
                     delete_rule=constraint.get("delete_rule"),
+                    referenced_table=constraint.get("referenced_table"),
+                    referenced_fields=[str(field) for field in referenced_fields if field],
                     referenced_constraint=constraint.get("referenced_constraint"),
                     fields=fields,
                 )

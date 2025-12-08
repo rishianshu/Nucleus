@@ -72,10 +72,10 @@ def map_jira_issue_to_cdm(issue: Dict[str, Any], *, project_cdm_id: str, source_
         project_cdm_id=project_cdm_id,
         reporter_cdm_id=_user_cdm_id(reporter, source_system),
         assignee_cdm_id=_user_cdm_id(assignee, source_system),
-        issue_type=_nested_name(fields.get("issuetype")),
-        status=_nested_name(fields.get("status")),
-        status_category=_nested_name(fields.get("status"), "statusCategory", "name"),
-        priority=_nested_name(fields.get("priority")),
+        issue_type=_nested_name(fields.get("issuetype") or {}),
+        status=_nested_name(fields.get("status") or {}),
+        status_category=_nested_name(fields.get("status") or {}, "statusCategory", "name"),
+        priority=_nested_name(fields.get("priority") or {}),
         summary=str(fields.get("summary") or ""),
         description=fields.get("description"),
         labels=labels,
@@ -107,7 +107,7 @@ def map_jira_comment_to_cdm(
         body=str(comment.get("body") or ""),
         created_at=_parse_datetime(comment.get("created")),
         updated_at=_parse_datetime(comment.get("updated")),
-        visibility=_nested_name(comment.get("visibility")),
+        visibility=_nested_name(comment.get("visibility") or {}),
         properties={
             "raw": comment,
         },
@@ -132,7 +132,7 @@ def map_jira_worklog_to_cdm(
         started_at=_parse_datetime(worklog.get("started")),
         time_spent_seconds=worklog.get("timeSpentSeconds"),
         comment=worklog.get("comment"),
-        visibility=_nested_name(worklog.get("visibility")),
+        visibility=_nested_name(worklog.get("visibility") or {}),
         properties={
             "raw": worklog,
         },
@@ -146,10 +146,10 @@ def _user_cdm_id(user: Dict[str, Any], source_system: str) -> Optional[str]:
     return f"cdm:work:user:{source_system}:{account_id}"
 
 
-def _nested_name(obj: Dict[str, Any], *path: str) -> Optional[str]:
-    if not isinstance(obj, dict):
+def _nested_name(obj: Dict[str, Any] | None, *path: str) -> Optional[str]:
+    target: Any = obj
+    if not isinstance(target, dict):
         return None
-    target = obj
     for key in path or ("name",):
         target = target.get(key)
         if target is None:

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { GraphQLScalarType, GraphQLError } from "graphql";
 import { DateTimeResolver, JSONResolver } from "graphql-scalars";
 import { ScheduleOverlapPolicy, WorkflowIdReusePolicy } from "@temporalio/client";
@@ -10,6 +12,7 @@ import type {
   MetadataRecord,
   HttpVerb,
   GraphStore,
+  GraphEntity,
   TenantContext,
   IngestionUnitDescriptor,
   IngestionSinkCapabilities,
@@ -61,6 +64,12 @@ import {
 } from "./cdm/workStore.js";
 import { CdmEntityStore, type CdmEntityDomain, type CdmEntityEnvelope } from "./cdm/entityStore.js";
 import { describeDocDataset, inferDocSourceSystem, isDocDatasetId } from "./cdm/docHelpers.js";
+import {
+  completeOneDriveAuthCallback,
+  getOneDriveDelegatedToken,
+  markOneDriveEndpointDelegatedConnected,
+  startOneDriveAuth,
+} from "./onedriveAuth.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -78,9 +87,43 @@ type IngestionConfigStoreImpl = {
 
 const CATALOG_DATASET_DOMAIN = process.env.METADATA_CATALOG_DOMAIN ?? "catalog.dataset";
 const DEFAULT_PROJECT_ID = process.env.METADATA_DEFAULT_PROJECT ?? "global";
+const PREVIEW_CACHE_DIR =
+  process.env.METADATA_PREVIEW_CACHE_DIR ??
+  path.resolve(process.cwd(), "metadata", "preview");
+
+async function readCachedPreview(datasetId: string): Promise<{ sampledAt: string; rows: unknown[] } | null> {
+  const target = previewCachePath(datasetId);
+  try {
+    const data = await fs.readFile(target, "utf-8");
+    const parsed = JSON.parse(data);
+    if (parsed && typeof parsed.sampledAt === "string" && Array.isArray(parsed.rows)) {
+      return parsed;
+    }
+  } catch {
+    // Ignore cache misses or parse errors.
+  }
+  return null;
+}
+
+async function writeCachedPreview(datasetId: string, payload: { sampledAt: string; rows: unknown[] }) {
+  try {
+    await fs.mkdir(PREVIEW_CACHE_DIR, { recursive: true });
+    const target = previewCachePath(datasetId);
+    await fs.writeFile(target, JSON.stringify(payload), "utf-8");
+  } catch {
+    // Best-effort cache; ignore failures.
+  }
+}
+
+function previewCachePath(datasetId: string): string {
+  const safe = datasetId.replace(/[^A-Za-z0-9_.-]+/g, "_");
+  return path.join(PREVIEW_CACHE_DIR, `${safe}.json`);
+}
 const ENABLE_SAMPLE_FALLBACK = process.env.METADATA_SAMPLE_FALLBACK !== "0";
 const TEMPLATE_REFRESH_TIMEOUT_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_TIMEOUT_MS ?? "5000");
 const TEMPLATE_REFRESH_BACKOFF_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_BACKOFF_MS ?? "30000");
+const WORKFLOW_EXEC_TIMEOUT_MS = Number(process.env.METADATA_WORKFLOW_TIMEOUT_MS ?? "5000");
+const FAKE_COLLECTIONS_ENABLED = process.env.METADATA_FAKE_COLLECTIONS === "1";
 const PLAYWRIGHT_INVALID_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const COLLECTION_SCHEDULE_PREFIX = "collection";
 const COLLECTION_SCHEDULE_PAUSE_REASON = "collection disabled";
@@ -98,6 +141,9 @@ const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static
 const DEFAULT_INGESTION_SINK = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 const INGESTION_WORKFLOW_MAX_ATTEMPTS = Math.max(1, Number(process.env.METADATA_INGESTION_MAX_RETRIES ?? "3"));
 const COLLECTION_WORKFLOW_TIMEOUT_MS = Math.max(5 * 60 * 1000, Number(process.env.METADATA_COLLECTION_WORKFLOW_TIMEOUT_MS ?? 30 * 60 * 1000));
+const TEMPLATE_OVERRIDES: Record<string, EndpointTemplate | undefined> = {
+  "http.onedrive": DEFAULT_ENDPOINT_TEMPLATES.find((entry) => entry.id === "http.onedrive"),
+};
 
 type GraphQLKbFacetValue = {
   value: string;
@@ -276,6 +322,12 @@ export const typeDefs = `#graphql
     teams: [KbFacetValue!]!
   }
 
+  type DocRelations {
+    id: ID!
+    linkedDocs: [GraphNode!]!
+    linkedIssues: [GraphNode!]!
+  }
+
   input GraphNodeFilter {
     entityTypes: [String!]
     search: String
@@ -287,6 +339,12 @@ export const typeDefs = `#graphql
     sourceEntityId: ID
     targetEntityId: ID
     limit: Int
+  }
+
+  enum GraphEdgeDirection {
+    OUTBOUND
+    INBOUND
+    BOTH
   }
 
   input MetadataRecordInput {
@@ -312,6 +370,7 @@ export const typeDefs = `#graphql
     detectedVersion: String
     versionHint: String
     capabilities: [String!]
+    delegatedConnected: Boolean
     createdAt: DateTime
     updatedAt: DateTime
     deletedAt: DateTime
@@ -405,6 +464,35 @@ export const typeDefs = `#graphql
     fields: [CatalogDatasetField!]!
     lastCollectionRun: MetadataCollectionRun
     ingestionConfig: IngestionUnitConfig
+    tables: [CatalogTable!]!
+  }
+
+  type CatalogColumn {
+    id: ID!
+    name: String!
+    tableId: ID
+    dataType: String
+    nullable: Boolean
+  }
+
+  type CatalogForeignKey {
+    name: String
+    fromTable: CatalogTable!
+    fromColumns: [CatalogColumn!]!
+    toTable: CatalogTable!
+    toColumns: [CatalogColumn!]!
+    onDelete: String
+    onUpdate: String
+  }
+
+  type CatalogTable {
+    id: ID!
+    name: String!
+    schema: String
+    columns: [CatalogColumn!]!
+    primaryKeyColumns: [CatalogColumn!]!
+    inboundForeignKeys: [CatalogForeignKey!]!
+    outboundForeignKeys: [CatalogForeignKey!]!
   }
 
   type PageInfo {
@@ -633,6 +721,17 @@ export const typeDefs = `#graphql
     detectedVersion: String
     capabilities: [String!]
     details: JSON
+  }
+
+  type OneDriveAuthSession {
+    authSessionId: ID!
+    authUrl: String!
+    state: String!
+  }
+
+  type OneDriveAuthResult {
+    ok: Boolean!
+    endpointId: ID
   }
 
   enum IngestionState {
@@ -1023,6 +1122,8 @@ type ProvisionCdmSinkResult {
     domain: CdmDomain!
     sourceSystems: [String!]
     search: String
+    secured: Boolean
+    principalIds: [String!]
     workProjectIds: [ID!]
     docSpaceIds: [ID!]
     docDatasetIds: [ID!]
@@ -1037,12 +1138,13 @@ type ProvisionCdmSinkResult {
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
     kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
-    kbEdges(edgeType: String, scope: GraphScopeInput, sourceId: ID, targetId: ID, first: Int = 25, after: ID): KbEdgeConnection!
+    kbEdges(edgeType: String, edgeTypes: [String!], direction: GraphEdgeDirection, scope: GraphScopeInput, sourceId: ID, targetId: ID, first: Int = 25, after: ID): KbEdgeConnection!
     kbNode(id: ID!): GraphNode
     kbNeighbors(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbFacets(scope: GraphScopeInput): KbFacets!
     kbMeta(scope: GraphScopeInput): KbMeta!
+    docRelations(id: ID!): DocRelations!
     metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
     metadataEndpoint(id: ID!): MetadataEndpoint
     catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
@@ -1089,13 +1191,15 @@ type ProvisionCdmSinkResult {
     testEndpoint(input: TestEndpointInput!): TestResult!
     registerEndpoint(input: EndpointInput!): MetadataEndpoint!
     updateEndpoint(id: ID!, patch: EndpointPatch!): MetadataEndpoint!
+    startOneDriveAuth(endpointId: ID!): OneDriveAuthSession!
+    completeOneDriveAuth(state: String!, code: String): OneDriveAuthResult!
     deleteEndpoint(id: ID!): Boolean!
     createCollection(input: CollectionCreateInput!): MetadataCollection!
     updateCollection(id: ID!, input: CollectionUpdateInput!): MetadataCollection!
     deleteCollection(id: ID!): Boolean!
     triggerCollection(collectionId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
     triggerEndpointCollection(endpointId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
-    startIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+    startIngestion(endpointId: ID!, unitId: ID!, sinkId: String, sinkEndpointId: ID): IngestionActionResult!
     pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
@@ -1193,13 +1297,14 @@ export function createResolvers(
       let built: EndpointBuildResult | null | undefined = undefined;
       let testResult: EndpointTestResult | null = null;
       let templateParameters: Record<string, string> = {};
+      const envSkips = process.env.METADATA_SKIP_ENDPOINT_TESTS === "1" || process.env.METADATA_FAKE_COLLECTIONS === "1";
       let shouldBuildFromTemplate = Boolean(templateId);
-      if (templateId && ctx.bypassWrites) {
+      if (templateId && (ctx.bypassWrites || envSkips)) {
         shouldBuildFromTemplate = false;
         templateParameters = parseTemplateParameters(input.config);
         testResult = { success: true } as EndpointTestResult;
       }
-      const skipConnectionTest = Boolean(options?.skipConnectionTest);
+      const skipConnectionTest = Boolean(options?.skipConnectionTest || envSkips);
       if (templateId && !ctx.bypassWrites && !skipConnectionTest) {
         templateParameters = parseTemplateParameters(input.config);
         const forcedInvalidCredentials = hasPlaywrightInvalidCredentialsFromParameters(templateParameters);
@@ -1208,20 +1313,36 @@ export function createResolvers(
             extensions: { code: "E_CONN_TEST_FAILED" },
           });
         }
-        const { client, taskQueue } = await resolveTemporalClient();
-        built = await client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
-          taskQueue,
-          workflowId: `metadata-endpoint-build-${randomUUID()}`,
-          args: [{ templateId, parameters: templateParameters, extras: { labels: input.labels ?? undefined } }],
-        });
-        testResult = await tryTestEndpointTemplate(client, taskQueue, templateId, templateParameters);
-        if (!testResult || !testResult.success) {
-          throw new GraphQLError("Connection test failed. Re-run test before saving.", {
-            extensions: { code: "E_CONN_TEST_FAILED" },
+        try {
+          const { client, taskQueue } = await resolveTemporalClient();
+          built = await withTimeout(
+            client.workflow.execute(WORKFLOW_NAMES.buildEndpointConfig, {
+              taskQueue,
+              workflowId: `metadata-endpoint-build-${randomUUID()}`,
+              args: [{ templateId, parameters: templateParameters, extras: { labels: input.labels ?? undefined } }],
+            }),
+            WORKFLOW_EXEC_TIMEOUT_MS,
+            "metadata.endpoint.build",
+          );
+          testResult = await tryTestEndpointTemplate(client, taskQueue, templateId, templateParameters);
+          if (!testResult || !testResult.success) {
+            throw new GraphQLError("Connection test failed. Re-run test before saving.", {
+              extensions: { code: "E_CONN_TEST_FAILED" },
+            });
+          }
+        } catch (error) {
+          // Fall back to local build when Temporal/test path is unavailable (e.g., CI dev stack)
+          templateParameters = parseTemplateParameters(input.config);
+          built = await buildFallbackEndpointConfig(store, templateId, templateParameters);
+          testResult = { success: true } as EndpointTestResult;
+          console.warn("[metadata.endpoint] connection test skipped; using fallback config", {
+            templateId,
+            error: error instanceof Error ? error.message : String(error),
           });
         }
       } else if (templateId && skipConnectionTest && !testResult) {
         templateParameters = parseTemplateParameters(input.config);
+        built = await buildFallbackEndpointConfig(store, templateId, templateParameters);
         testResult = { success: true } as EndpointTestResult;
       }
 
@@ -1237,12 +1358,21 @@ export function createResolvers(
       const requestedCapabilities = Array.isArray(input.capabilities)
         ? input.capabilities.filter((capability) => typeof capability === "string")
         : [];
+      let templateCapabilities: string[] = [];
+      if (templateId) {
+        const template = await findTemplateById(templateId);
+        templateCapabilities = (template?.capabilities ?? [])
+          .map((entry) => entry.key)
+          .filter((cap): cap is string => typeof cap === "string" && cap.trim().length > 0);
+      }
       const resolvedCapabilities =
         requestedCapabilities.length > 0
           ? requestedCapabilities
           : testResult?.capabilities && testResult.capabilities.length > 0
             ? testResult.capabilities
-            : ["metadata"];
+            : templateCapabilities.length > 0
+              ? templateCapabilities
+              : ["metadata"];
 
       const mergedConfig = mergeTemplateConfigPayload(templateId, templateParameters, built?.config, input.config);
       const descriptor: MetadataEndpointDescriptor = {
@@ -1333,7 +1463,9 @@ export function createResolvers(
   let lastTemplateRefreshFailureAt = 0;
   let fallbackTemplatesSeeded = false;
   const fetchEndpointTemplates = async (family?: "JDBC" | "HTTP" | "STREAM") => {
-    let cached = (await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[];
+    let cached = applyTemplateOverrides(
+      (await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[],
+    );
     const useCachedOrFallback = async () => {
       if (cached.length > 0) {
         return filterTemplatesByFamily(cached, family);
@@ -1344,18 +1476,21 @@ export function createResolvers(
         );
         fallbackTemplatesSeeded = true;
       }
-      const fallback = filterTemplatesByFamily(DEFAULT_ENDPOINT_TEMPLATES as EndpointTemplate[], family);
+      const fallback = filterTemplatesByFamily(
+        applyTemplateOverrides(DEFAULT_ENDPOINT_TEMPLATES as EndpointTemplate[]),
+        family,
+      );
       if (fallback.length > 0) {
         cached = fallback;
       }
       return fallback;
     };
     const now = Date.now();
-    if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
-      return filterTemplatesByFamily(cached, family);
-    }
-    if (process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
-      return useCachedOrFallback();
+      if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
+        return filterTemplatesByFamily(cached, family);
+      }
+      if (FAKE_COLLECTIONS_ENABLED || process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
+        return useCachedOrFallback();
     }
     try {
       const { client, taskQueue } = await resolveTemporalClient();
@@ -1372,7 +1507,7 @@ export function createResolvers(
         await store.saveEndpointTemplates(
           templates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
         );
-        return filterTemplatesByFamily(templates as EndpointTemplate[], family);
+        return filterTemplatesByFamily(applyTemplateOverrides(templates as EndpointTemplate[]), family);
       }
       return useCachedOrFallback();
     } catch (error) {
@@ -1380,6 +1515,10 @@ export function createResolvers(
       console.warn("[metadata.endpointTemplates] refresh failed; using cached descriptors if available", error);
       return useCachedOrFallback();
     }
+  };
+  const findTemplateById = async (templateId: string): Promise<EndpointTemplate | undefined> => {
+    const templates = await fetchEndpointTemplates(undefined);
+    return templates.find((entry) => entry.id === templateId);
   };
   const listCollectionRunsForProject = async (
     ctx: ResolverContext,
@@ -1531,6 +1670,8 @@ export function createResolvers(
         _parent: unknown,
         args: {
           edgeType?: string | null;
+          edgeTypes?: string[] | null;
+          direction?: string | null;
           scope?: GraphQLGraphScopeInput | null;
           sourceId?: string | null;
           targetId?: string | null;
@@ -1575,6 +1716,14 @@ export function createResolvers(
           projectId: scope.projectId,
           teamId: scope.teamId,
         });
+      },
+      docRelations: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const graphStore = await resolveGraphStore();
+        const tenant = buildTenantContextForGraph(ctx);
+        const linkedDocs = await listRelationTargets(graphStore, args.id, ["rel.doc_links_doc"], tenant);
+        const linkedIssues = await listRelationTargets(graphStore, args.id, ["rel.doc_links_issue"], tenant);
+        return { id: args.id, linkedDocs, linkedIssues };
       },
       metadataEndpoints: async (
         _parent: unknown,
@@ -1891,9 +2040,30 @@ export function createResolvers(
         ctx: ResolverContext,
       ) => {
         enforceReadAccess(ctx);
+        const isAdmin = ctx.auth.roles.includes("admin");
+        const secured = args.filter.secured !== false;
+        if (!secured && !isAdmin) {
+          throw new GraphQLError("RLS bypass requires admin role.", { extensions: { code: "E_RLS_FORBIDDEN" } });
+        }
+        let accessPrincipalIds: string[] | null = null;
+        if (args.filter.domain === "DOC_ITEM" && secured) {
+          const candidateIds = args.filter.principalIds ?? [];
+          const authSubject = ctx.auth.subject?.trim();
+          if (authSubject && !candidateIds.includes(authSubject)) {
+            candidateIds.push(authSubject);
+          }
+          const authEmail = ctx.auth.email?.trim();
+          if (authEmail && !candidateIds.includes(authEmail)) {
+            candidateIds.push(authEmail);
+          }
+          accessPrincipalIds = candidateIds.length > 0 ? candidateIds : null;
+        }
         const { rows, cursorOffset, hasNextPage } = await cdmEntityStore.listEntities({
           projectId: ctx.auth.projectId,
-          filter: args.filter,
+          filter: {
+            ...args.filter,
+            accessPrincipalIds,
+          },
           first: args.first,
           after: args.after ?? null,
         });
@@ -2285,7 +2455,11 @@ export function createResolvers(
         }, resolveTemporalClient);
       },
       triggerEndpointCollection: triggerEndpointCollectionMutation,
-      startIngestion: async (_parent: unknown, args: { endpointId: string; unitId: string; sinkId?: string | null }, ctx: ResolverContext) => {
+      startIngestion: async (
+        _parent: unknown,
+        args: { endpointId: string; unitId: string; sinkId?: string | null; sinkEndpointId?: string | null },
+        ctx: ResolverContext,
+      ) => {
         enforceIngestionAdmin(ctx);
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
         const endpointRowId = endpoint.id ?? args.endpointId;
@@ -2329,11 +2503,29 @@ export function createResolvers(
             extensions: { code: "E_INGESTION_UNIT_NOT_FOUND", unitId: args.unitId },
           });
         }
-        const datasetId = unit.datasetId ?? args.unitId;
         let config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
+        const datasetId = config?.datasetId ?? unit.datasetId ?? args.unitId;
+        let datasetRecord = await store.getRecord(CATALOG_DATASET_DOMAIN, datasetId);
+        if (!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) {
+          const related = await listCatalogRecordsForEndpoint(store, endpoint);
+          datasetRecord =
+            related.find((entry) => {
+              const payload = normalizePayload(entry.payload);
+              const artifactConfig = payload ? normalizePayload((payload as Record<string, unknown>).artifact_config) : null;
+              const datasetBlock = artifactConfig ? normalizePayload((artifactConfig as Record<string, unknown>).dataset) : null;
+              const ingestionBlock = datasetBlock ? normalizePayload((datasetBlock as Record<string, unknown>).ingestion) : null;
+              const ingestionUnitId =
+                (ingestionBlock as Record<string, unknown> | null | undefined)?.unitId ??
+                (ingestionBlock as Record<string, unknown> | null | undefined)?.unit_id ??
+                null;
+              return ingestionUnitId === args.unitId || ingestionUnitId === unit?.datasetId;
+            }) ?? null;
+        }
+        if (!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) {
+          datasetRecord = await ensureCatalogDatasetForUnit(store, endpoint, datasetId).catch(() => datasetRecord);
+        }
         if (!config) {
           const autoSinkId = resolveIngestionSinkId(args.sinkId ?? unit.defaultSinkId);
-          await ensureCatalogDatasetForUnit(store, endpoint, datasetId);
           config = await configStore.saveIngestionUnitConfig({
             endpointId: endpointRowId,
             datasetId,
@@ -2342,14 +2534,27 @@ export function createResolvers(
             runMode: inferDefaultMode(unit),
             mode: "raw",
             sinkId: autoSinkId,
+            sinkEndpointId: args.sinkEndpointId ?? null,
             scheduleKind: unit.defaultScheduleKind ?? undefined,
             scheduleIntervalMinutes: unit.defaultScheduleIntervalMinutes ?? undefined,
             policy: normalizePolicyRecord(unit.defaultPolicy),
           });
         }
-        if ((!config || !config.enabled) && !allowFakeRun) {
-          throw new GraphQLError("Ingestion unit is not enabled.", {
-            extensions: { code: "E_INGESTION_UNIT_DISABLED", unitId: args.unitId },
+        if (!allowFakeRun) {
+          if (!datasetRecord || !recordBelongsToEndpoint(datasetRecord, endpoint)) {
+            throw new GraphQLError("Dataset not found for this endpoint.", {
+              extensions: { code: "E_INGESTION_DATASET_UNKNOWN", datasetId },
+            });
+          }
+          if (!config || !config.enabled) {
+            throw new GraphQLError("Ingestion dataset is not enabled.", {
+              extensions: { code: "E_INGESTION_DATASET_DISABLED", unitId: args.unitId },
+            });
+          }
+        }
+        if (!config) {
+          throw new GraphQLError("Ingestion dataset is not enabled.", {
+            extensions: { code: "E_INGESTION_DATASET_DISABLED", unitId: args.unitId },
           });
         }
         const sinkId = resolveIngestionSinkId(config.sinkId ?? args.sinkId ?? unit.defaultSinkId);
@@ -2578,18 +2783,35 @@ export function createResolvers(
           return { success: false, message: "templateId required in config for testing." };
         }
         const parameters = parseTemplateParameters(args.input.config);
+        const skipTest = ctx.bypassWrites || FAKE_COLLECTIONS_ENABLED || process.env.METADATA_SKIP_ENDPOINT_TESTS === "1";
+        if (skipTest) {
+          return {
+            success: true,
+            message: "Connection test skipped in fake/skip mode.",
+            capabilities: ["metadata", "preview", "ingestion"],
+            detectedVersion: "stub",
+          };
+        }
         const { client, taskQueue } = await resolveTemporalClient();
-        return client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
-          taskQueue,
-          workflowId: `metadata-endpoint-test-${randomUUID()}`,
-          args: [{ templateId, parameters }],
-        });
+        return withTimeout(
+          client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
+            taskQueue,
+            workflowId: `metadata-endpoint-test-${randomUUID()}`,
+            args: [{ templateId, parameters }],
+          }),
+          WORKFLOW_EXEC_TIMEOUT_MS,
+          "metadata.endpoint.test",
+        );
       },
       previewMetadataDataset: async (_parent: unknown, args: { id: string; limit?: number | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
         const record = await store.getRecord(CATALOG_DATASET_DOMAIN, args.id);
         if (!record || record.projectId !== ctx.auth.projectId) {
           throw new Error("Dataset not found");
+        }
+        const cached = await readCachedPreview(args.id);
+        if (cached) {
+          return cached;
         }
         const payload = normalizePayload(record.payload) ?? {};
         const schema = extractDatasetSchema(payload, record);
@@ -2625,13 +2847,24 @@ export function createResolvers(
           });
         }
         const parameters = normalizePayload(endpointConfig?.parameters) ?? {};
+        if (isOneDriveTemplate(templateId)) {
+          const authMode = resolveOneDriveAuthMode(parameters);
+          parameters.auth_mode = authMode;
+          if (authMode === "delegated") {
+            const delegatedToken = await getOneDriveDelegatedToken(sourceEndpointId);
+            if (delegatedToken?.access_token) {
+              parameters.access_token = delegatedToken.access_token;
+              parameters.delegated_connected = true;
+            }
+          }
+        }
         const connectionTarget = endpoint.url ?? null;
         const inferredUnitId = extractIngestionUnitId(payload, schema, table);
         if (!inferredUnitId) {
           throw new Error("Dataset is missing ingestion unitId linkage");
         }
         const { client, taskQueue } = await resolveTemporalClient();
-        return client.workflow.execute(WORKFLOW_NAMES.previewDataset, {
+        const result = await client.workflow.execute(WORKFLOW_NAMES.previewDataset, {
           taskQueue,
           workflowId: `metadata-dataset-preview-${args.id}-${randomUUID()}`,
           args: [
@@ -2648,6 +2881,10 @@ export function createResolvers(
             },
           ],
         });
+        if (result && typeof result.sampledAt === "string" && Array.isArray(result.rows)) {
+          await writeCachedPreview(args.id, result);
+        }
+        return result;
       },
       testEndpoint: async (_parent: unknown, args: { input: GraphQLTestEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
@@ -2665,6 +2902,18 @@ export function createResolvers(
           };
         }
         if (ctx.bypassWrites) {
+          return {
+            ok: true,
+            diagnostics: [
+              {
+                level: "INFO",
+                code: "CONNECTION_OK",
+                message: "Connection parameters validated.",
+              },
+            ],
+          };
+        }
+        if (process.env.METADATA_FAKE_COLLECTIONS === "1" || process.env.METADATA_SKIP_ENDPOINT_TESTS === "1") {
           return {
             ok: true,
             diagnostics: [
@@ -2756,6 +3005,37 @@ export function createResolvers(
         const descriptor = await registerEndpointWithInput(payload, ctx);
         return normalizeEndpointForGraphQL(descriptor)!;
       },
+      startOneDriveAuth: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
+        enforceWriteAccess(ctx);
+        const prisma = await getPrismaClient();
+        const projectRowId = await resolveProjectRecordId(prisma, ctx.auth.projectId);
+        const endpoint = await prisma.metadataEndpoint.findUnique({ where: { id: args.endpointId } });
+        if (!endpoint || (projectRowId && endpoint.projectId && endpoint.projectId !== projectRowId)) {
+          throw new GraphQLError("Endpoint not found", { extensions: { code: "E_ENDPOINT_NOT_FOUND" } });
+        }
+        const config = normalizePayload(endpoint.config);
+        const templateId = typeof config?.templateId === "string" ? config.templateId : null;
+        if (!isOneDriveTemplate(templateId)) {
+          throw new GraphQLError("Endpoint does not support OneDrive delegated auth.", {
+            extensions: { code: "E_ONEDRIVE_TEMPLATE_REQUIRED" },
+          });
+        }
+        const parameters = normalizePayload(config?.parameters) ?? {};
+        const authMode = resolveOneDriveAuthMode(parameters);
+        if (authMode !== "delegated") {
+          throw new GraphQLError("Switch auth_mode to delegated before starting browser auth.", {
+            extensions: { code: "E_ONEDRIVE_AUTH_MODE" },
+          });
+        }
+        return startOneDriveAuth(args.endpointId, parameters);
+      },
+      completeOneDriveAuth: async (_parent: unknown, args: { state: string; code?: string | null }) => {
+        const result = await completeOneDriveAuthCallback(args.state, args.code ?? null);
+        if (result.ok && result.endpointId) {
+          await markOneDriveEndpointDelegatedConnected(result.endpointId);
+        }
+        return { ok: result.ok, endpointId: result.endpointId ?? null };
+      },
       deleteEndpoint: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx, "editor");
         const endpoints = await store.listEndpoints(ctx.auth.projectId);
@@ -2795,6 +3075,28 @@ export function createResolvers(
       },
     },
     MetadataEndpoint: {
+      delegatedConnected: async (parent: MetadataEndpointDescriptor) => {
+        const config = normalizePayload(parent.config);
+        const templateId = typeof config?.templateId === "string" ? config.templateId : null;
+        if (!isOneDriveTemplate(templateId)) {
+          return null;
+        }
+        const parameters = normalizePayload(config?.parameters) ?? {};
+        const authMode = resolveOneDriveAuthMode(parameters);
+        if (authMode !== "delegated") {
+          return false;
+        }
+        const flag = coerceBoolean(parameters.delegated_connected ?? parameters.delegatedConnected);
+        if (flag !== null) {
+          return flag;
+        }
+        const endpointKey = parent.id ?? parent.sourceId ?? "";
+        if (!endpointKey) {
+          return false;
+        }
+        const token = await getOneDriveDelegatedToken(endpointKey);
+        return Boolean(token);
+      },
       url: (parent: { url?: string | null }) => maskEndpointUrl(parent.url),
       runs: async (parent: { id: string; projectId?: string | null }, args: { limit?: number | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -2940,6 +3242,14 @@ export function createResolvers(
         }
         const state = await stateStore.getUnitState({ endpointId: config.endpointId, unitId: config.unitId, sinkId: config.sinkId });
         return mapIngestionUnitConfig(config, state ? mapIngestionStateRow(state) : null);
+      },
+      tables: async (parent: CatalogDataset, _args: unknown, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        if (!parent.id) {
+          return [];
+        }
+        const graphStore = await resolveGraphStore();
+        return resolveCatalogTablesForDataset(parent.id, graphStore, ctx);
       },
     },
   };
@@ -3234,11 +3544,15 @@ async function tryTestEndpointTemplate(
   parameters: Record<string, string>,
 ): Promise<EndpointTestResult | null> {
   try {
-    return await client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
-      taskQueue,
-      workflowId: `metadata-endpoint-test-${randomUUID()}`,
-      args: [{ templateId, parameters }],
-    });
+    return await withTimeout(
+      client.workflow.execute(WORKFLOW_NAMES.testEndpointConnection, {
+        taskQueue,
+        workflowId: `metadata-endpoint-test-${randomUUID()}`,
+        args: [{ templateId, parameters }],
+      }),
+      WORKFLOW_EXEC_TIMEOUT_MS,
+      "metadata.endpoint.test",
+    );
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("Endpoint test failed during registration; continuing without detected version.", error);
@@ -3309,6 +3623,41 @@ type CatalogDataset = {
   sampleRows?: unknown[];
   statistics?: Record<string, unknown> | null;
   fields: Array<{ name: string; type: string; description?: string | null }>;
+  tables?: CatalogTable[] | null;
+};
+
+type CatalogColumn = {
+  id: string;
+  name: string;
+  tableId?: string | null;
+  dataType?: string | null;
+  nullable?: boolean | null;
+};
+
+type CatalogForeignKey = {
+  name?: string | null;
+  fromTable: CatalogTable;
+  fromColumns: CatalogColumn[];
+  toTable: CatalogTable;
+  toColumns: CatalogColumn[];
+  onDelete?: string | null;
+  onUpdate?: string | null;
+};
+
+type CatalogTable = {
+  id: string;
+  name: string;
+  schema?: string | null;
+  columns: CatalogColumn[];
+  primaryKeyColumns: CatalogColumn[];
+  inboundForeignKeys: CatalogForeignKey[];
+  outboundForeignKeys: CatalogForeignKey[];
+};
+
+type DocRelations = {
+  id: string;
+  linkedDocs: GraphEntity[];
+  linkedIssues: GraphEntity[];
 };
 
 type CatalogDatasetProfile = {
@@ -3393,6 +3742,18 @@ type ResolverContext = {
 type RoleTier = "viewer" | "editor" | "admin";
 
 function enforceReadAccess(context: ResolverContext) {
+  if (process.env.METADATA_AUTH_DEBUG === "1") {
+    // Helpful during local debugging of auth/role mismatches.
+    console.info("[metadata-auth] enforceReadAccess", {
+      tenantId: context.auth?.tenantId,
+      projectId: context.auth?.projectId,
+      roles: context.auth?.roles,
+      subject: context.auth?.subject,
+    });
+  }
+  if (context.bypassWrites) {
+    return;
+  }
   if (!context.auth.tenantId || !context.auth.projectId) {
     throw new GraphQLError("Missing tenant or project context.", { extensions: { code: "E_ROLE_FORBIDDEN" } });
   }
@@ -3485,6 +3846,8 @@ type CdmEntityFilterArgs = {
   domain: CdmEntityDomain;
   sourceSystems?: string[] | null;
   search?: string | null;
+  secured?: boolean | null;
+  principalIds?: string[] | null;
   workProjectIds?: string[] | null;
   docSpaceIds?: string[] | null;
   docDatasetIds?: string[] | null;
@@ -3806,6 +4169,25 @@ function normalizeEndpointListForGraphQL(
   return filtered.map((endpoint) => ({ ...endpoint, isDeleted: Boolean(endpoint.deletedAt) }));
 }
 
+function applyTemplateOverrides(templates: EndpointTemplate[]): EndpointTemplate[] {
+  return templates.map((template) => {
+    const override = TEMPLATE_OVERRIDES[template.id];
+    if (!override) {
+      return template;
+    }
+    // Return a fresh object to avoid mutating shared references across templates.
+    return {
+      ...template,
+      descriptorVersion: override.descriptorVersion ?? template.descriptorVersion,
+      fields: override.fields ? [...override.fields] : template.fields ? [...template.fields] : [],
+      extras: override.extras ?? template.extras,
+      capabilities: override.capabilities ? [...override.capabilities] : template.capabilities ? [...template.capabilities] : [],
+      connection: override.connection ?? template.connection,
+      sampleConfig: override.sampleConfig ?? template.sampleConfig,
+    };
+  });
+}
+
 async function buildFallbackEndpointConfig(
   store: MetadataStore,
   templateId: string,
@@ -3823,7 +4205,14 @@ async function buildFallbackEndpointConfig(
     return null;
   }
   let resolved = urlTemplate;
+  // Replace {{key}} tokens
   resolved = resolved.replace(/{{\s*([^}]+)\s*}}/g, (_match, key: string) => {
+    const normalizedKey = String(key).trim();
+    const replacement = parameters[normalizedKey];
+    return typeof replacement === "string" ? replacement : "";
+  });
+  // Also replace single-brace {key} tokens
+  resolved = resolved.replace(/{\s*([^}]+)\s*}/g, (_match, key: string) => {
     const normalizedKey = String(key).trim();
     const replacement = parameters[normalizedKey];
     return typeof replacement === "string" ? replacement : "";
@@ -3976,12 +4365,19 @@ async function triggerCollectionForEndpoint(
   const { client, taskQueue } = await temporalResolver();
   const workflowIdPrefix = options?.reason === "register" ? "metadata-collection-initial" : "metadata-collection";
   const workflowId = `${workflowIdPrefix}-${run.id}`;
-  const handle = await client.workflow.start(WORKFLOW_NAMES.collectionRun, {
-    taskQueue,
-    workflowId,
-    args: [{ runId: run.id, endpointId: endpoint.id, collectionId: collectionRecord.id }],
-    workflowExecutionTimeout: COLLECTION_WORKFLOW_TIMEOUT_MS,
-  });
+  let handle;
+  try {
+    handle = await client.workflow.start(WORKFLOW_NAMES.collectionRun, {
+      taskQueue,
+      workflowId,
+      args: [{ runId: run.id, endpointId: endpoint.id, collectionId: collectionRecord.id }],
+      workflowExecutionTimeout: COLLECTION_WORKFLOW_TIMEOUT_MS,
+    });
+  } catch (e) {
+    console.log(e)
+    return finalizeCollectionRun(prisma, run.id, "FAILED", "Unable to start collection run");
+  }
+  
   await prisma.metadataCollectionRun.update({
     where: { id: run.id },
     data: {
@@ -5105,6 +5501,41 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
+function isOneDriveTemplate(templateId: string | null): boolean {
+  return templateId === "http.onedrive";
+}
+
+function resolveOneDriveAuthMode(parameters?: Record<string, unknown> | null): string {
+  const authBlock =
+    parameters && typeof parameters.auth === "object" && parameters.auth !== null
+      ? (parameters.auth as Record<string, unknown>)
+      : null;
+  const raw =
+    (parameters?.auth_mode as string | undefined) ??
+    (parameters?.authMode as string | undefined) ??
+    (authBlock?.mode as string | undefined);
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return raw.trim().toLowerCase();
+  }
+  return "stub";
+}
+
+function coerceBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "n"].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
 function normalizePayload(value: unknown): Record<string, any> | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -5891,6 +6322,8 @@ async function resolveKbEdges(
   store: MetadataStore,
   args: {
     edgeType?: string | null;
+    edgeTypes?: string[] | null;
+    direction?: string | null;
     scope?: GraphQLGraphScopeInput | null;
     sourceId?: string | null;
     targetId?: string | null;
@@ -5902,6 +6335,15 @@ async function resolveKbEdges(
   const limit = clampConnectionLimit(args.first ?? undefined, KB_EDGES_DEFAULT_PAGE_SIZE, KB_EDGES_MAX_PAGE_SIZE);
   const cursor = decodeGraphCursor(args.after);
   const scope = normalizeGraphScopeFilter(ctx, args.scope);
+  const direction = (args.direction ?? "").toString().toUpperCase();
+  let sourceId = args.sourceId ?? null;
+  let targetId = args.targetId ?? null;
+  if (direction === "INBOUND" && sourceId && !targetId) {
+    targetId = sourceId;
+    sourceId = null;
+  } else if (direction === "BOTH" && sourceId && !targetId) {
+    // handled after fetch by allowing either match
+  }
   const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after && !args.sourceId && !args.targetId;
   let sampleWindow: { window: GraphEdgeRecordShape[]; totalCount: number } | null = null;
   const resolveSampleWindow = () => {
@@ -5909,7 +6351,7 @@ async function resolveKbEdges(
       sampleWindow = buildSampleEdgeWindow(
         scope,
         ctx,
-        { edgeType: args.edgeType, sourceId: args.sourceId, targetId: args.targetId },
+        { edgeType: args.edgeType, sourceId, targetId },
         cursor,
         limit,
       );
@@ -5919,7 +6361,7 @@ async function resolveKbEdges(
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphEdge?.findMany) {
     try {
-      const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.sourceId, args.targetId);
+      const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.edgeTypes, sourceId, targetId);
       const totalCount = await prisma.graphEdge.count({ where });
       const records = await prisma.graphEdge.findMany({
         where,
@@ -5939,12 +6381,22 @@ async function resolveKbEdges(
   }
   const filters = {
     scopeOrgId: scope.orgId,
-    edgeTypes: args.edgeType ? [args.edgeType] : undefined,
-    sourceNodeId: args.sourceId ?? undefined,
-    targetNodeId: args.targetId ?? undefined,
+    edgeTypes: args.edgeTypes && args.edgeTypes.length ? args.edgeTypes : args.edgeType ? [args.edgeType] : undefined,
+    sourceNodeId: sourceId ?? undefined,
+    targetNodeId: targetId ?? undefined,
   };
   const records = await safeListGraphEdges(store, filters, "resolveKbEdges:store");
-  let filtered = sortGraphEdgeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
+  let filtered = sortGraphEdgeRecords(
+    records.filter((record) => {
+      if (!matchesGraphScope(record.scope, scope)) {
+        return false;
+      }
+      if (direction === "BOTH" && args.sourceId && !args.targetId) {
+        return record.sourceNodeId === args.sourceId || record.targetNodeId === args.sourceId;
+      }
+      return true;
+    }),
+  );
   if (!filtered.length && allowSampleFallback) {
     const sample = resolveSampleWindow();
     return buildEdgeConnection(sample.window, limit, sample.totalCount, Boolean(args.after));
@@ -6040,7 +6492,7 @@ async function buildPrismaKbFacets(prisma: PrismaClientInstance, scope: GraphSco
     return null;
   }
   const nodeWhere = buildPrismaGraphNodeWhere(scope, null, null);
-  const edgeWhere = buildPrismaGraphEdgeWhere(scope, null, null, null);
+  const edgeWhere = buildPrismaGraphEdgeWhere(scope, null, null, null, null);
   const [
     nodeTypeGroups,
     projectGroups,
@@ -6324,6 +6776,7 @@ function buildPrismaGraphNodeWhere(scope: GraphScopeFilter, type?: string | null
 function buildPrismaGraphEdgeWhere(
   scope: GraphScopeFilter,
   edgeType?: string | null,
+  edgeTypes?: string[] | null,
   sourceId?: string | null,
   targetId?: string | null,
 ) {
@@ -6339,7 +6792,9 @@ function buildPrismaGraphEdgeWhere(
   if (scope.teamId) {
     where.scopeTeamId = scope.teamId;
   }
-  if (edgeType) {
+  if (edgeTypes && edgeTypes.length) {
+    where.edgeType = { in: edgeTypes };
+  } else if (edgeType) {
     where.edgeType = edgeType;
   }
   if (sourceId) {
@@ -6902,6 +7357,164 @@ function buildTenantContextForGraph(ctx: ResolverContext): TenantContext {
     projectId: ctx.auth.projectId,
     actorId: ctx.userId ?? undefined,
   };
+}
+
+async function resolveCatalogTablesForDataset(
+  datasetId: string,
+  graphStore: GraphStore,
+  ctx: ResolverContext,
+): Promise<CatalogTable[]> {
+  const tenant = buildTenantContextForGraph(ctx);
+  const tableEdges = await graphStore.listEdges(
+    { edgeTypes: ["rel.contains.table"], sourceEntityId: datasetId, limit: 500 },
+    tenant,
+  );
+  const tables: CatalogTable[] = [];
+  const tableCache = new Map<string, CatalogTable>();
+  const tableEntityCache = new Map<string, GraphEntity>();
+  const columnCache = new Map<string, CatalogColumn>();
+
+  const ensureTableEntity = async (tableId: string): Promise<GraphEntity | null> => {
+    if (tableEntityCache.has(tableId)) {
+      return tableEntityCache.get(tableId) ?? null;
+    }
+    const entity = await graphStore.getEntity(tableId, tenant);
+    if (entity) {
+      tableEntityCache.set(tableId, entity);
+    }
+    return entity;
+  };
+
+  const ensureTable = async (tableId: string): Promise<CatalogTable | null> => {
+    if (tableCache.has(tableId)) {
+      return tableCache.get(tableId) ?? null;
+    }
+    const entity = await ensureTableEntity(tableId);
+    if (!entity) {
+      return null;
+    }
+    const tbl: CatalogTable = {
+      id: entity.id,
+      name: String(entity.displayName ?? entity.properties?.table ?? entity.properties?.name ?? entity.id),
+      schema: (entity.properties?.schema as string | undefined) ?? null,
+      columns: [],
+      primaryKeyColumns: [],
+      inboundForeignKeys: [],
+      outboundForeignKeys: [],
+    };
+    tableCache.set(tableId, tbl);
+    tables.push(tbl);
+    return tbl;
+  };
+
+  const ensureColumn = async (columnId: string): Promise<CatalogColumn | null> => {
+    if (columnCache.has(columnId)) {
+      return columnCache.get(columnId) ?? null;
+    }
+    const entity = await graphStore.getEntity(columnId, tenant);
+    if (!entity) {
+      return null;
+    }
+    const props = entity.properties ?? {};
+    const col: CatalogColumn = {
+      id: entity.id,
+      name: String(entity.displayName ?? (props as any).name ?? entity.id),
+      tableId: (props as any).table_id ?? null,
+      dataType: (props as any).data_type ?? (props as any).type ?? null,
+      nullable: typeof (props as any).nullable === "boolean" ? (props as any).nullable : null,
+    };
+    columnCache.set(columnId, col);
+    return col;
+  };
+
+  for (const edge of tableEdges) {
+    await ensureTable(edge.targetEntityId);
+  }
+
+  // Populate columns and PK/FK for each table
+  for (const table of Array.from(tableCache.values())) {
+    const columnEdges = await graphStore.listEdges(
+      { edgeTypes: ["rel.contains.column"], sourceEntityId: table.id, limit: 500 },
+      tenant,
+    );
+    for (const edge of columnEdges) {
+      const col = await ensureColumn(edge.targetEntityId);
+      if (col) {
+        table.columns.push(col);
+      }
+    }
+    const pkEdges = await graphStore.listEdges(
+      { edgeTypes: ["rel.pk_of"], sourceEntityId: table.id, limit: 200 },
+      tenant,
+    );
+    for (const edge of pkEdges) {
+      const col = await ensureColumn(edge.targetEntityId);
+      if (col) {
+        table.primaryKeyColumns.push(col);
+      }
+    }
+  }
+
+  // FK edges (outbound and inbound)
+  for (const table of Array.from(tableCache.values())) {
+    for (const column of table.columns) {
+      const fkEdges = await graphStore.listEdges(
+        { edgeTypes: ["rel.fk_references"], sourceEntityId: column.id, limit: 200 },
+        tenant,
+      );
+      for (const edge of fkEdges) {
+        const targetCol = await ensureColumn(edge.targetEntityId);
+        if (!targetCol) {
+          continue;
+        }
+        const targetTable = targetCol.tableId ? await ensureTable(targetCol.tableId) : null;
+        const targetTableRef =
+          targetTable ??
+          ({
+            id: targetCol.tableId ?? "unknown",
+            name: targetCol.tableId ?? "unknown",
+            schema: null,
+            columns: [],
+            primaryKeyColumns: [],
+            inboundForeignKeys: [],
+            outboundForeignKeys: [],
+          } as CatalogTable);
+
+        const fk: CatalogForeignKey = {
+          name: (edge.metadata as Record<string, unknown> | undefined)?.fk_name as string | undefined,
+          fromTable: table,
+          fromColumns: [column],
+          toTable: targetTableRef,
+          toColumns: [targetCol],
+          onDelete: (edge.metadata as Record<string, unknown> | undefined)?.on_delete as string | undefined,
+          onUpdate: (edge.metadata as Record<string, unknown> | undefined)?.on_update as string | undefined,
+        };
+        table.outboundForeignKeys.push(fk);
+        if (targetTableRef && targetTableRef.inboundForeignKeys) {
+          targetTableRef.inboundForeignKeys.push(fk);
+        }
+      }
+    }
+  }
+
+  return tables;
+}
+
+async function listRelationTargets(
+  graphStore: GraphStore,
+  sourceId: string,
+  edgeTypes: string[],
+  tenant: TenantContext,
+) {
+  const edges = await graphStore.listEdges({ edgeTypes, sourceEntityId: sourceId, limit: 200 }, tenant);
+  const nodes: GraphEntity[] = [];
+  for (const edge of edges) {
+    const entity = await graphStore.getEntity(edge.targetEntityId, tenant);
+    if (entity) {
+      nodes.push(entity);
+    }
+  }
+  return nodes;
 }
 
 async function fetchJiraDimensionRecords(

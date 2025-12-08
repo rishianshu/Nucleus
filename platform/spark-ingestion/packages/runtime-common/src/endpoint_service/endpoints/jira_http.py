@@ -5,9 +5,7 @@ from typing import Any
 from contextlib import contextmanager
 
 _REAL_MODULE: ModuleType = import_module("endpoint_service.endpoints.jira.jira_http")
-
-# Eagerly re-export common symbols for static analyzers
-from endpoint_service.endpoints.jira.jira_http import *  # noqa: F401,F403
+__all__ = getattr(_REAL_MODULE, "__all__", [])
 
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - compatibility shim

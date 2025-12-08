@@ -13,6 +13,7 @@ export type CdmEntityStoreFilter = {
   docDatasetIds?: string[] | null;
   docSourceSystems?: string[] | null;
   docSearch?: string | null;
+  accessPrincipalIds?: string[] | null;
 };
 
 export type CdmEntityEnvelope = {
@@ -65,6 +66,8 @@ export class CdmEntityStore {
     filter: CdmEntityStoreFilter;
     first?: number | null;
     after?: string | null;
+    secured?: boolean | null;
+    accessPrincipalIds?: string[] | null;
   }): Promise<ListResult> {
     if (args.filter.domain === "WORK_ITEM") {
       const { rows, cursorOffset, hasNextPage } = await this.workStore.listWorkItems({
@@ -83,6 +86,8 @@ export class CdmEntityStore {
       const { rows, cursorOffset, hasNextPage } = await this.docStore.listDocItems({
         projectId: args.projectId,
         filter: mapDocFilter(args.filter),
+        secured: args.secured,
+        accessPrincipalIds: args.accessPrincipalIds,
         first: args.first,
         after: args.after ?? null,
       });
@@ -128,6 +133,7 @@ function mapDocFilter(filter: CdmEntityStoreFilter): DocItemFilter {
     spaceCdmIds: filter.docSpaceIds ?? null,
     datasetIds: filter.docDatasetIds ?? null,
     search: filter.docSearch ?? filter.search ?? null,
+    accessPrincipalIds: filter.accessPrincipalIds ?? null,
   };
 }
 

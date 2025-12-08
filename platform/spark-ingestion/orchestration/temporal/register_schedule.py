@@ -16,11 +16,48 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any, cast
+
+client: Any = None
+schedule: Any = None
 
 try:  # pragma: no cover - only used when Temporal SDK available
-    from temporalio import client, schedule
+    from temporalio import client as _client, schedule as _schedule  # type: ignore[attr-defined]
+    client = _client
+    schedule = _schedule
 except Exception:  # pragma: no cover
-    client = schedule = None  # type: ignore
+    client = None
+    schedule = None
+
+if schedule is None:
+    class _Schedule:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            ...
+
+    class _ScheduleSpec:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            ...
+
+    class _ScheduleActionStartWorkflow:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            ...
+
+    class _ScheduleNotFoundError(Exception):
+        ...
+
+    schedule = type(
+        "schedule",
+        (),
+        {
+            "Schedule": _Schedule,
+            "ScheduleSpec": _ScheduleSpec,
+            "ScheduleActionStartWorkflow": _ScheduleActionStartWorkflow,
+            "ScheduleNotFoundError": _ScheduleNotFoundError,
+        },
+    )()
+
+schedule = cast(Any, schedule)
+client = cast(Any, client)
 
 
 def parse_args() -> argparse.Namespace:

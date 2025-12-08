@@ -5,8 +5,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import { usePagedQuery, useToastQueue, useDebouncedValue } from "../metadata/hooks";
 import type { Role } from "../auth/AuthProvider";
-import { KB_NODES_QUERY, KB_NODE_DETAIL_QUERY } from "./queries";
-import type { KbNode, KbScope } from "./types";
+import { KB_NODES_QUERY, KB_NODE_DETAIL_QUERY, KB_SCENE_QUERY } from "./queries";
+import type { KbNode, KbScope, KbScene } from "./types";
 import { useKbFacets } from "./useKbFacets";
 import { KnowledgeBaseGraphView } from "./KnowledgeBaseGraphView";
 import { ViewToggle } from "./ViewToggle";
@@ -40,6 +40,21 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
   const [copyAnnouncement, setCopyAnnouncement] = useState("");
   const copyResetRef = useRef<number | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "graph">("list");
+  const [sceneLoading, setSceneLoading] = useState(false);
+  const [sceneError, setSceneError] = useState<string | null>(null);
+  const [neighborGroups, setNeighborGroups] = useState<{
+    schema: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    work: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    docs: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    drive: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    other: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+  }>({
+    schema: [],
+    work: [],
+    docs: [],
+    drive: [],
+    other: [],
+  });
   const handleSelectNode = (nodeId: string) => {
     setSelectedNodeId(nodeId);
     const next = new URLSearchParams(searchParams);
@@ -61,6 +76,7 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
 
   const {
     getNodeLabel,
+    getEdgeLabel,
     matchNodeSynonym,
     error: metaError,
     isFallback: metaFallback,
@@ -179,6 +195,7 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
   useEffect(() => {
     if (!selectedNodeId) {
       setSelectedNode(null);
+      setNeighborGroups({ schema: [], work: [], docs: [], drive: [], other: [] });
       return;
     }
     let cancelled = false;
@@ -202,11 +219,55 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
       .catch(() => {
         if (!cancelled) {
           setSelectedNode(null);
+          setNeighborGroups({ schema: [], work: [], docs: [], drive: [], other: [] });
         }
       });
     return () => {
       cancelled = true;
     };
+  }, [authToken, metadataEndpoint, selectedNodeId]);
+
+  useEffect(() => {
+    const fetchScene = async (nodeId: string) => {
+      setSceneLoading(true);
+      setSceneError(null);
+      try {
+        const payload = await fetchMetadataGraphQL<{ kbScene: KbScene }>(
+          metadataEndpoint!,
+          KB_SCENE_QUERY,
+          { id: nodeId, edgeTypes: null, depth: 1, limit: 200 },
+          undefined,
+          { token: authToken ?? undefined },
+        );
+        const scene = payload.kbScene;
+        const nodeMap = new Map(scene.nodes.map((n) => [n.id, n]));
+        const grouped: typeof neighborGroups = { schema: [], work: [], docs: [], drive: [], other: [] };
+        scene.edges.forEach((edge) => {
+          const sourceIsSelected = edge.sourceEntityId === nodeId;
+          const targetIsSelected = edge.targetEntityId === nodeId;
+          if (!sourceIsSelected && !targetIsSelected) {
+            return;
+          }
+          const neighborId = sourceIsSelected ? edge.targetEntityId : edge.sourceEntityId;
+          const neighborNode = nodeMap.get(neighborId);
+          if (!neighborNode) {
+            return;
+          }
+          const direction = sourceIsSelected ? "out" : "in";
+          const bucket = pickRelationBucket(edge.edgeType);
+          grouped[bucket].push({ node: neighborNode, edgeType: edge.edgeType, direction, metadata: (edge as any).metadata ?? null });
+        });
+        setNeighborGroups(grouped);
+      } catch (err) {
+        setSceneError(err instanceof Error ? err.message : String(err));
+        setNeighborGroups({ schema: [], work: [], docs: [], drive: [], other: [] });
+      } finally {
+        setSceneLoading(false);
+      }
+    };
+    if (metadataEndpoint && selectedNodeId) {
+      void fetchScene(selectedNodeId);
+    }
   }, [authToken, metadataEndpoint, selectedNodeId]);
 
   if (!metadataEndpoint) {
@@ -410,6 +471,10 @@ export function NodesExplorer({ metadataEndpoint, authToken }: NodesExplorerProp
         {selectedNode ? (
           <NodeDetail
             node={selectedNode}
+            neighbors={neighborGroups}
+            sceneLoading={sceneLoading}
+            sceneError={sceneError}
+            getEdgeLabel={getEdgeLabel}
             onOpenScenes={() => navigate(`/kb/scenes?node=${selectedNode.id}`)}
             onOpenProvenance={() => navigate(`/kb/provenance?node=${selectedNode.id}`)}
             onOpenExplorer={() => navigate(`/kb/explorer/nodes?node=${selectedNode.id}`)}
@@ -438,6 +503,22 @@ function ScopeChips({ scope }: { scope: KbScope }) {
       ))}
     </div>
   );
+}
+
+function pickRelationBucket(edgeType: string): "schema" | "work" | "docs" | "drive" | "other" {
+  if (edgeType.startsWith("rel.contains") || edgeType === "rel.pk_of" || edgeType === "rel.fk_references") {
+    return "schema";
+  }
+  if (edgeType === "rel.work_links_work") {
+    return "work";
+  }
+  if (edgeType === "rel.doc_contains_attachment" || edgeType.startsWith("rel.doc_links")) {
+    return "docs";
+  }
+  if (edgeType.startsWith("rel.drive_")) {
+    return "drive";
+  }
+  return "other";
 }
 
 function ScopeInput({
@@ -483,6 +564,10 @@ function ScopeInput({
 
 function NodeDetail({
   node,
+  neighbors,
+  sceneLoading,
+  sceneError,
+  getEdgeLabel,
   onOpenScenes,
   onOpenProvenance,
   onOpenExplorer,
@@ -490,6 +575,16 @@ function NodeDetail({
   isCopied = false,
 }: {
   node: KbNode;
+  neighbors: {
+    schema: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    work: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    docs: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    drive: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+    other: Array<{ node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null }>;
+  };
+  sceneLoading: boolean;
+  sceneError: string | null;
+  getEdgeLabel: (edgeType: string) => string;
   onOpenScenes: () => void;
   onOpenProvenance: () => void;
   onOpenExplorer: () => void;
@@ -502,6 +597,20 @@ function NodeDetail({
         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Node</p>
         <p className="text-lg font-semibold text-slate-900 dark:text-white">{node.displayName}</p>
         <p className="text-xs text-slate-500 dark:text-slate-400">{node.entityType}</p>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Relations</p>
+        {sceneLoading ? <p className="text-xs text-slate-500">Loading relations…</p> : null}
+        {sceneError ? <p className="text-xs text-rose-500">{sceneError}</p> : null}
+        {!sceneLoading && !sceneError ? (
+          <div className="mt-2 space-y-3">
+            <NeighborSection title="Schema" neighbors={neighbors.schema} getEdgeLabel={getEdgeLabel} />
+            <NeighborSection title="Work links" neighbors={neighbors.work} getEdgeLabel={getEdgeLabel} />
+            <NeighborSection title="Docs" neighbors={neighbors.docs} getEdgeLabel={getEdgeLabel} />
+            <NeighborSection title="Drive" neighbors={neighbors.drive} getEdgeLabel={getEdgeLabel} />
+            <NeighborSection title="Other" neighbors={neighbors.other} getEdgeLabel={getEdgeLabel} />
+          </div>
+        ) : null}
       </div>
       <div>
         <div className="flex items-center justify-between">
@@ -562,6 +671,99 @@ function NodeDetail({
       </div>
     </div>
   );
+}
+
+type NeighborEntry = { node: KbNode; edgeType: string; direction: "in" | "out"; metadata?: Record<string, unknown> | null };
+
+function NeighborSection({
+  title,
+  neighbors,
+  getEdgeLabel,
+}: {
+  title: string;
+  neighbors: NeighborEntry[];
+  getEdgeLabel: (edgeType: string) => string;
+}) {
+  if (!neighbors.length) {
+    return (
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500">{title}</p>
+        <p className="text-xs text-slate-500">No relations yet.</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-500">{title}</p>
+        <span className="text-[10px] uppercase tracking-[0.3em] text-slate-400">{neighbors.length}</span>
+      </div>
+      <div className="mt-2 space-y-2">
+        {neighbors.map((neighbor, index) => {
+          const metaBadges = buildNeighborMetadataTags(neighbor.edgeType, neighbor.metadata);
+          return (
+            <div
+              key={`${neighbor.node.id}-${neighbor.edgeType}-${neighbor.direction}-${index}`}
+              className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {neighbor.node.displayName ?? neighbor.node.id}
+                  </p>
+                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">{neighbor.node.entityType}</p>
+                </div>
+                <div className="flex flex-wrap gap-1 text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                  <span className="rounded-full border border-slate-300 px-2 py-0.5 dark:border-slate-700">
+                    {neighbor.direction === "out" ? "Outbound" : "Inbound"}
+                  </span>
+                  <span className="rounded-full border border-slate-300 px-2 py-0.5 dark:border-slate-700">
+                    {getEdgeLabel(neighbor.edgeType)}
+                  </span>
+                  {metaBadges.map((badge) => (
+                    <span key={badge} className="rounded-full border border-slate-300 px-2 py-0.5 dark:border-slate-700">
+                      {badge}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function buildNeighborMetadataTags(edgeType: string, metadata?: Record<string, unknown> | null): string[] {
+  if (!metadata) {
+    return [];
+  }
+  const tags: string[] = [];
+  const linkType = (metadata.link_type ?? (metadata as any).linkType) as string | undefined;
+  if (linkType && typeof linkType === "string") {
+    tags.push(`link:${linkType}`);
+  }
+  const attachmentId = (metadata.attachment_id ?? (metadata as any).attachmentId) as string | undefined;
+  if (attachmentId && typeof attachmentId === "string") {
+    tags.push(`attachment:${attachmentId}`);
+  }
+  const role = metadata.role as string | undefined;
+  if (role && typeof role === "string") {
+    tags.push(`role:${role}`);
+  }
+  const inherited = metadata.inherited;
+  if (typeof inherited === "boolean") {
+    tags.push(inherited ? "inherited" : "direct");
+  }
+  const isFolder = (metadata.is_folder ?? (metadata as any).isFolder) as boolean | undefined;
+  if (typeof isFolder === "boolean") {
+    tags.push(isFolder ? "folder" : "file");
+  }
+  if (tags.length === 0 && metadata.source_system && typeof metadata.source_system === "string") {
+    tags.push(metadata.source_system);
+  }
+  return tags;
 }
 
 function SkeletonRows({ columns, count }: { columns: number; count: number }) {

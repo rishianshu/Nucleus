@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ingestion-strategy-unification-v1 (in-progress @ 2025-12-01T13:20Z)
+kb-relations-ui-surfacing-v1 (success @ 2025-12-08T04:59Z)
 
 ## Last Run
-- slug: ingestion-strategy-unification-v1
-- status: in-progress
-- duration: started 2025-12-01T13:20Z
-- tests: not yet run
-- commits: pending
+- slug: kb-relations-ui-surfacing-v1
+- status: success
+- duration: ~2d (active work ~10h)
+- tests: pnpm ci-check (Playwright + mypy) green
+- commits: local changes (not committed)
 - decisions: 0
-- next_step: follow RUNCARD RESUME protocol, review PLAN/TODO, then resume implementation loop
+- next_step: none; slug complete
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,28 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-08T04:59Z run success (kb-relations-ui-surfacing-v1, KB relation filters/direction + Catalog FK/related tables; ci-check green)
+- 2025-12-07T14:38Z run started (kb-relations-ui-surfacing-v1, boot + context sync)
+- 2025-12-07T05:10Z run restarted (kb-relations-and-lineage-v1, START_PROMPT re-issued)
+- 2025-12-06T20:22Z run success (docs-access-graph-and-rls-v1, real Confluence ACL ingested into cdm_work; follow-up doc filed)
+- 2025-12-06T14:46Z run success (docs-access-graph-and-rls-v1, ACL/RLS scaffolding added; tests/builds green)
+- 2025-12-06T09:26Z run started (docs-access-graph-and-rls-v1, boot + context sync)
+- 2025-12-06T09:07Z run success (onedrive-delegated-auth-v1, wizard requirements doc added)
+- 2025-12-06T07:18Z run success (onedrive-delegated-auth-v1, delegated auth uses endpoint client/tenant; UI blocks stub client; api/ui builds)
+- 2025-12-06T07:10Z run resumed (onedrive-delegated-auth-v1, delegated auth stub-client fix)
+- 2025-12-06T07:01Z run success (onedrive-delegated-auth-v1, OneDrive base_url default added to avoid missing endpoint URL; api/ui builds)
+- 2025-12-06T06:53Z run success (onedrive-delegated-auth-v1, OneDrive field ordering/help + delegated save-before-test; api/ui builds)
+- 2025-12-06T06:46Z run resumed (onedrive-delegated-auth-v1, endpoint-specific form UX work)
+- 2025-12-06T06:21Z run success (onedrive-delegated-auth-v1, delegated form hides client creds; api/ui builds)
+- 2025-12-06T06:02Z run resumed (onedrive-delegated-auth-v1, delegated UI polish + verification)
+- 2025-12-06T04:34Z run success (onedrive-delegated-auth-v1, delegated auth wiring + ci-check green)
+- 2025-12-06T03:15Z run started (onedrive-delegated-auth-v1, boot + context sync)
+- 2025-12-06T03:33Z run success (semantic-onedrive-source-v1, METADATA_FAKE_COLLECTIONS=1 pnpm ci-check + mypy green after endpoint workflow/mypy fixes)
+- 2025-12-05T14:22Z run heartbeat (semantic-onedrive-source-v1, onedrive metadata/ingestion stub wired; targeted pytest+tsx green)
+- 2025-12-05T11:32Z run resumed (semantic-onedrive-source-v1, stub Graph harness plan adopted)
+- 2025-12-05T11:27Z run blocked (semantic-onedrive-source-v1, missing OneDrive Graph credentials/root)
+- 2025-12-05T11:23Z run started (semantic-onedrive-source-v1, boot + context sync)
+- 2025-12-04T09:45Z run success (ingestion-strategy-unification-v1, staging handles + adaptive planners + metadata-first invariants; pnpm ci-check green)
 - 2025-12-01T13:20Z run started (ingestion-strategy-unification-v1, boot + artifact sync)
 - 2025-12-01T04:21Z run started (cdm-docs-explorer-v1, boot + artifact sync)
 - 2025-11-30T19:05Z run success (cdm-work-multi-entity-v1, multi-entity Work Explorer + Playwright green; ci-check deferred)
@@ -76,4 +98,5 @@ LATER:
 - 2025-11-18T14:38Z run success (catalog-view-and-ux-v1, metadata-auth Playwright green)
 - 2025-11-16T17:45Z run blocked (metadata-identity-hardening, metadata-auth needs reporting `/api/graphql`)
 - 2025-11-16T17:25Z run success (collection-lifecycle, canonical dataset identity + collection UI/tests complete)
-2025-12-01T13:05Z run success (cdm-docs-explorer-v1, docs sink provision + JSON/tag handling stabilized; ingestion verified)
+- 2025-12-01T13:05Z run success (cdm-docs-explorer-v1, docs sink provision + JSON/tag handling stabilized; ingestion verified)
+- 2025-12-03T13:29Z run resumed (ingestion-strategy-unification-v1, boot heartbeat + context sync)

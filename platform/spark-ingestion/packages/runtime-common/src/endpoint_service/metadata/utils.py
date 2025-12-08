@@ -56,7 +56,11 @@ def collect_rows(rows: Any) -> list[dict[str, Any]]:
             normalized.append(dict(row._asdict()))
             continue
         if hasattr(row, "asDict"):
-            normalized.append(dict(row.asDict()))  # type: ignore[attr-defined]
+            as_dict = getattr(row, "asDict")
+            try:
+                normalized.append(dict(as_dict()))
+            except Exception:
+                normalized.append({"value": row})
             continue
         # Fallback: try attribute dict
         if hasattr(row, "__dict__"):
@@ -81,6 +85,8 @@ def to_serializable(value: Any) -> Any:
     if isinstance(value, date):
         return value.isoformat()
     if dataclasses.is_dataclass(value):
+        if isinstance(value, type):
+            return str(value)
         return to_serializable(dataclasses.asdict(value))
     if isinstance(value, Mapping):
         return {k: to_serializable(v) for k, v in value.items()}

@@ -6,6 +6,7 @@ export type DocItemFilter = {
   spaceCdmIds?: string[] | null;
   datasetIds?: string[] | null;
   search?: string | null;
+  accessPrincipalIds?: string[] | null;
 };
 
 export type CdmDocItemRow = {
@@ -50,11 +51,21 @@ export class CdmDocStore {
     filter?: DocItemFilter | null;
     first?: number | null;
     after?: string | null;
+    secured?: boolean | null;
+    accessPrincipalIds?: string[] | null;
   }): Promise<{ rows: CdmDocItemRow[]; cursorOffset: number; hasNextPage: boolean }> {
     const { pool, config } = await this.ensurePool(args.projectId);
     const limit = Math.min(Math.max(args.first ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const offset = args.after ? decodeCursor(args.after) : 0;
-    const { whereClause, params } = buildDocItemWhereClause(args.filter, "item");
+    const shouldSecure = args.secured !== false;
+    const accessPrincipalIds = shouldSecure
+      ? args.accessPrincipalIds ?? args.filter?.accessPrincipalIds ?? null
+      : null;
+    const { whereClause, params, accessJoin } = buildDocItemWhereClause(
+      { ...(args.filter ?? {}), accessPrincipalIds },
+      config,
+      "item",
+    );
     const query = `SELECT item.cdm_id,
         item.source_system,
         item.source_item_id,
@@ -77,14 +88,24 @@ export class CdmDocStore {
         (item.properties -> '_metadata' ->> 'sourceEndpointId') AS endpoint_id
       FROM ${docItemTable(config)} AS item
       LEFT JOIN ${docSpaceTable(config)} AS space ON space.cdm_id = item.space_cdm_id
+      ${accessJoin ?? ""}
       ${whereClause}
       ORDER BY item.updated_at DESC NULLS LAST, item.cdm_id ASC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const queryParams = [...params, limit + 1, offset];
-    const result = await pool.query(query, queryParams);
-    const rows = result.rows.slice(0, limit) as CdmDocItemRow[];
-    const hasNextPage = result.rows.length > limit;
-    return { rows, cursorOffset: offset, hasNextPage };
+    try {
+      const result = await pool.query(query, queryParams);
+      const rows = result.rows.slice(0, limit) as CdmDocItemRow[];
+      const hasNextPage = result.rows.length > limit;
+      return { rows, cursorOffset: offset, hasNextPage };
+    } catch (error) {
+      if (args.filter?.accessPrincipalIds && args.filter.accessPrincipalIds.length > 0) {
+        // If access filter requested but access table is missing, fail closed.
+        console.warn("[cdm-doc] access filter failed; returning empty set", { error });
+        return { rows: [], cursorOffset: offset, hasNextPage: false };
+      }
+      throw error;
+    }
   }
 
   async getDocItem(args: { projectId?: string | null; cdmId: string }): Promise<CdmDocItemRow | null> {
@@ -132,12 +153,13 @@ export class CdmDocStore {
   }
 }
 
-function buildDocItemWhereClause(filter?: DocItemFilter | null, alias = "item") {
+function buildDocItemWhereClause(filter?: DocItemFilter | null, config?: SinkConnectionConfig, alias = "item") {
   if (!filter) {
-    return { whereClause: "", params: [] as unknown[] };
+    return { whereClause: "", params: [] as unknown[], accessJoin: "" };
   }
   const conditions: string[] = [];
   const params: unknown[] = [];
+  let accessJoin = "";
   if (filter.sourceSystems && filter.sourceSystems.length > 0) {
     params.push(filter.sourceSystems);
     conditions.push(`${alias}.source_system = ANY($${params.length})`);
@@ -155,10 +177,14 @@ function buildDocItemWhereClause(filter?: DocItemFilter | null, alias = "item") 
     const column = `${alias}.title ILIKE $${params.length} OR ${alias}.url ILIKE $${params.length}`;
     conditions.push(`(${column})`);
   }
-  if (conditions.length === 0) {
-    return { whereClause: "", params };
+  if (filter.accessPrincipalIds && filter.accessPrincipalIds.length > 0) {
+    params.push(filter.accessPrincipalIds);
+    accessJoin = `INNER JOIN ${docAccessTable(config)} AS access ON access.doc_cdm_id = ${alias}.cdm_id AND access.principal_id = ANY($${params.length})`;
   }
-  return { whereClause: `WHERE ${conditions.join(" AND ")}`, params };
+  if (conditions.length === 0) {
+    return { whereClause: "", params, accessJoin };
+  }
+  return { whereClause: `WHERE ${conditions.join(" AND ")}`, params, accessJoin };
 }
 
 function docItemTable(config: SinkConnectionConfig) {
@@ -167,6 +193,12 @@ function docItemTable(config: SinkConnectionConfig) {
 
 function docSpaceTable(config: SinkConnectionConfig) {
   return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}doc_space`)}`;
+}
+
+function docAccessTable(config?: SinkConnectionConfig) {
+  const schema = config?.schema ?? "cdm_docs";
+  const prefix = config?.tablePrefix ?? "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}doc_access`)}`;
 }
 
 function quoteIdent(input: string) {

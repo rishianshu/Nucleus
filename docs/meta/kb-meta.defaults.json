@@ -27,6 +27,42 @@
       "icon": "LuBookOpen",
       "fieldsDisplay": ["displayName", "canonicalPath"],
       "actions": ["openDoc"]
+    },
+    {
+      "value": "catalog.table",
+      "label": "Tables",
+      "description": "Physical or logical tables/views within a dataset.",
+      "synonyms": ["table", "tables", "view", "views"],
+      "icon": "LuTable",
+      "fieldsDisplay": ["displayName", "canonicalPath", "sourceSystem"],
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "catalog.column",
+      "label": "Columns",
+      "description": "Columns of a table, including type and nullability.",
+      "synonyms": ["column", "columns", "field", "fields"],
+      "icon": "LuColumns",
+      "fieldsDisplay": ["displayName", "canonicalPath", "sourceSystem"],
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "principal.user",
+      "label": "User",
+      "description": "Identity for an end user from a source system or IdP.",
+      "synonyms": ["user", "person", "account"],
+      "icon": "LuUser",
+      "fieldsDisplay": ["displayName", "email", "sourceSystem"],
+      "actions": ["openPrincipal"]
+    },
+    {
+      "value": "principal.group",
+      "label": "Group",
+      "description": "Group or team principal sourced from Confluence, OneDrive, or IdP.",
+      "synonyms": ["group", "team"],
+      "icon": "LuUsers",
+      "fieldsDisplay": ["displayName", "sourceSystem"],
+      "actions": ["openPrincipal"]
     }
   ],
   "edgeTypes": [
@@ -45,6 +81,207 @@
       "synonyms": ["depends", "dependency", "lineage"],
       "icon": "LuGitBranch",
       "actions": ["openLineage"]
+    },
+    {
+      "value": "HAS_MEMBER",
+      "label": "Has member",
+      "description": "Group membership: group → user edge.",
+      "synonyms": ["member", "membership"],
+      "icon": "LuUsers",
+      "actions": []
+    },
+    {
+      "value": "CAN_VIEW_DOC",
+      "label": "Can view doc",
+      "description": "Access edge linking a principal (user/group) to a document.",
+      "synonyms": ["access", "view", "read"],
+      "icon": "LuFileCheck2",
+      "actions": ["openDoc"]
+    },
+    {
+      "value": "CONTAINS_TABLE",
+      "label": "Contains table",
+      "description": "Dataset contains a table/view.",
+      "synonyms": ["contains table", "table membership"],
+      "icon": "LuLayoutList",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "CONTAINS_COLUMN",
+      "label": "Contains column",
+      "description": "Table contains a column.",
+      "synonyms": ["contains column", "column membership"],
+      "icon": "LuList",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "HAS_PRIMARY_KEY",
+      "label": "Has primary key",
+      "description": "Table has a primary key column.",
+      "synonyms": ["primary key", "pk"],
+      "icon": "LuKey",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "REFERENCES_COLUMN",
+      "label": "References column",
+      "description": "Foreign key column references a primary key column.",
+      "synonyms": ["foreign key", "references", "fk"],
+      "icon": "LuCornerDownRight",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "rel.contains.table",
+      "label": "Contains table (rel)",
+      "description": "Dataset contains a table/view (relation-kind).",
+      "synonyms": ["contains table", "table membership"],
+      "icon": "LuLayoutList",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "rel.contains.column",
+      "label": "Contains column (rel)",
+      "description": "Table contains a column (relation-kind).",
+      "synonyms": ["contains column", "column membership"],
+      "icon": "LuList",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "rel.pk_of",
+      "label": "Primary key (rel)",
+      "description": "Table has a primary key column (relation-kind).",
+      "synonyms": ["primary key", "pk"],
+      "icon": "LuKey",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "rel.fk_references",
+      "label": "Foreign key (rel)",
+      "description": "Foreign key references a primary key column (relation-kind).",
+      "synonyms": ["foreign key", "references", "fk"],
+      "icon": "LuCornerDownRight",
+      "actions": ["openDataset", "openLineage"]
+    },
+    {
+      "value": "rel.doc_links_issue",
+      "label": "Doc links issue",
+      "description": "Document links to a work item.",
+      "synonyms": ["doc links issue", "doc→issue"],
+      "icon": "LuLink",
+      "actions": ["openDoc", "openWork"]
+    },
+    {
+      "value": "rel.doc_links_doc",
+      "label": "Doc links doc",
+      "description": "Document links another document.",
+      "synonyms": ["doc links doc", "doc→doc"],
+      "icon": "LuLink2",
+      "actions": ["openDoc"]
+    },
+    {
+      "value": "rel.work_links_work",
+      "label": "Work links work",
+      "description": "Work item links another work item.",
+      "synonyms": ["issue links", "work links"],
+      "icon": "LuGitBranch",
+      "actions": ["openWork"]
+    },
+    {
+      "value": "rel.doc_contains_attachment",
+      "label": "Doc contains attachment",
+      "description": "Document contains an attachment or file.",
+      "synonyms": ["attachment", "file"],
+      "icon": "LuPaperclip",
+      "actions": ["openDoc"]
+    },
+    {
+      "value": "rel.drive_contains_item",
+      "label": "Drive contains item",
+      "description": "Drive/folder contains a file or subfolder.",
+      "synonyms": ["drive contains", "folder contains"],
+      "icon": "LuFolder",
+      "actions": ["openDataset", "openDoc"]
+    },
+    {
+      "value": "rel.drive_shares_with",
+      "label": "Drive shares with",
+      "description": "Drive item shared with a principal.",
+      "synonyms": ["share", "shared with"],
+      "icon": "LuShare2",
+      "actions": ["openPrincipal"]
+    }
+  ],
+  "relationKinds": [
+    {
+      "id": "rel.contains.table",
+      "label": "Dataset contains table",
+      "description": "Dataset contains a table or view.",
+      "fromTypes": ["catalog.dataset"],
+      "toTypes": ["catalog.table"]
+    },
+    {
+      "id": "rel.contains.column",
+      "label": "Table contains column",
+      "description": "Table contains a column.",
+      "fromTypes": ["catalog.table"],
+      "toTypes": ["catalog.column"]
+    },
+    {
+      "id": "rel.pk_of",
+      "label": "Primary key column",
+      "description": "Table has a primary key column.",
+      "fromTypes": ["catalog.table"],
+      "toTypes": ["catalog.column"]
+    },
+    {
+      "id": "rel.fk_references",
+      "label": "Foreign key",
+      "description": "Foreign key column references a primary key column.",
+      "fromTypes": ["catalog.column"],
+      "toTypes": ["catalog.column"]
+    },
+    {
+      "id": "rel.doc_links_issue",
+      "label": "Doc links issue",
+      "description": "Document links to a work item (issue/task).",
+      "fromTypes": ["doc.item", "doc.page"],
+      "toTypes": ["work.item"]
+    },
+    {
+      "id": "rel.doc_links_doc",
+      "label": "Doc links doc",
+      "description": "Document links to another document.",
+      "fromTypes": ["doc.item", "doc.page"],
+      "toTypes": ["doc.item", "doc.page"],
+      "symmetric": true
+    },
+    {
+      "id": "rel.work_links_work",
+      "label": "Work links work",
+      "description": "Work item links to another work item (blocks, duplicates, etc.).",
+      "fromTypes": ["work.item"],
+      "toTypes": ["work.item"]
+    },
+    {
+      "id": "rel.doc_contains_attachment",
+      "label": "Doc contains attachment",
+      "description": "Document/page contains an attachment.",
+      "fromTypes": ["doc.item", "doc.page"],
+      "toTypes": ["doc.attachment", "doc.file"]
+    },
+    {
+      "id": "rel.drive_contains_item",
+      "label": "Drive contains item",
+      "description": "Drive/folder contains a file or subfolder.",
+      "fromTypes": ["drive", "drive.folder"],
+      "toTypes": ["drive.folder", "drive.file", "doc.file"]
+    },
+    {
+      "id": "rel.drive_shares_with",
+      "label": "Drive shares with",
+      "description": "Drive item shared with a principal.",
+      "fromTypes": ["drive.file", "doc.file"],
+      "toTypes": ["principal.user", "principal.group"]
     }
   ]
 }

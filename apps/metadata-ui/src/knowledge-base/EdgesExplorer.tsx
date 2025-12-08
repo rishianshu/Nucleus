@@ -24,6 +24,8 @@ type ScopeFilters = {
 
 export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProps) {
   const [edgeType, setEdgeType] = useState("");
+  const [edgeTypes, setEdgeTypes] = useState<string[]>([]);
+  const [direction, setDirection] = useState<"" | "OUTBOUND" | "INBOUND" | "BOTH">("");
   const [scopeFilters, setScopeFilters] = useState<ScopeFilters>({});
   const [sourceId, setSourceId] = useState("");
   const [targetId, setTargetId] = useState("");
@@ -52,11 +54,13 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
     const targetValue = targetId.trim();
     return {
       edgeType: edgeType || null,
+      edgeTypes: edgeTypes.length ? edgeTypes : null,
+      direction: direction || null,
       scope: scopeArgument,
       sourceId: sourceValue.length ? sourceValue : null,
       targetId: targetValue.length ? targetValue : null,
     };
-  }, [edgeType, scopeArgument, sourceId, targetId]);
+  }, [edgeType, edgeTypes, direction, scopeArgument, sourceId, targetId]);
 
   const { facets, loading: facetsLoading, error: facetsError, refresh: refreshFacets } = useKbFacets(
     metadataEndpoint,
@@ -180,20 +184,42 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
         </div>
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col">
-            <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Edge type</label>
-            <select
-              value={edgeType}
-              onChange={(event) => setEdgeType(event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-              data-testid="kb-edge-type-filter"
+            <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Relation kinds</label>
+            <div className="mt-1 flex max-w-xs flex-wrap gap-2">
+              {(facets?.edgeTypes ?? []).map((facet) => {
+                const checked = edgeTypes.includes(facet.value);
+                return (
+                  <label key={facet.value} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-900/30 dark:border-slate-600 dark:bg-slate-800"
+                      checked={checked}
+                      onChange={(event) => {
+                        setEdgeType(""); // prefer multi-select over single select
+                        setEdgeTypes((prev) =>
+                          event.target.checked ? [...prev, facet.value] : prev.filter((value) => value !== facet.value),
+                        );
+                      }}
+                      data-testid={`kb-edge-kind-${facet.value}`}
+                    />
+                    <span>
+                      {getEdgeLabel(facet.value)} {typeof facet.count === "number" ? `(${facet.count})` : ""}
+                    </span>
+                  </label>
+                );
+              })}
+              {(facets?.edgeTypes ?? []).length === 0 ? <span className="text-xs text-slate-500">No relation kinds loaded.</span> : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEdgeTypes([]);
+                setEdgeType("");
+              }}
+              className="mt-2 self-start text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 underline"
             >
-              <option value="">All</option>
-              {(facets?.edgeTypes ?? []).map((facet) => (
-                <option key={facet.value} value={facet.value}>
-                  {getEdgeLabel(facet.value)} ({facet.count})
-                </option>
-              ))}
-            </select>
+              Clear
+            </button>
           </div>
           <ScopeInput
             label="Project"
@@ -215,6 +241,19 @@ export function EdgesExplorer({ metadataEndpoint, authToken }: EdgesExplorerProp
           />
           <TextInput label="Source node" value={sourceId} onChange={setSourceId} placeholder="Node ID" />
           <TextInput label="Target node" value={targetId} onChange={setTargetId} placeholder="Node ID" />
+          <div className="flex flex-col">
+            <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Direction</label>
+            <select
+              value={direction}
+              onChange={(event) => setDirection(event.target.value as typeof direction)}
+              className="mt-1 w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="">Any</option>
+              <option value="OUTBOUND">Outbound</option>
+              <option value="INBOUND">Inbound</option>
+              <option value="BOTH">Both</option>
+            </select>
+          </div>
         <button
           type="button"
           onClick={() => pagedQuery.refresh()}

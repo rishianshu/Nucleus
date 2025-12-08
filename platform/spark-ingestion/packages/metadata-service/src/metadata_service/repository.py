@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from ingestion_models.metadata import MetadataQuery, MetadataRecord, MetadataRepository, MetadataTarget
 from metadata_service.utils import to_serializable
@@ -12,7 +12,7 @@ from metadata_service.utils import to_serializable
 class JsonFileMetadataRepository(MetadataRepository):
     """Simple repository backed by MetadataCacheManager artifacts (read-only view)."""
 
-    def __init__(self, cache_manager) -> None:
+    def __init__(self, cache_manager: Any) -> None:
         self.cache = cache_manager
 
     def store(self, record: MetadataRecord) -> MetadataRecord:  # pragma: no cover - unused
@@ -74,11 +74,11 @@ class JsonFileMetadataRepository(MetadataRepository):
 
     # ------------------------------------------------------------------ helpers --
     def _load_latest(self, target: MetadataTarget):
-        key = self.cache._key(target)  # type: ignore[attr-defined]
-        entry = self.cache._index.get(key)  # type: ignore[attr-defined]
+        key = self.cache._key(target)
+        entry = self.cache._index.get(key)
         if not entry:
             return None
-        path = self.cache._fs.join(self.cache.source_root, entry["path"])  # type: ignore[attr-defined]
+        path = self.cache._fs.join(self.cache.source_root, entry["path"])
         if not self.cache._fs.exists(path):
             return None
         try:
@@ -99,7 +99,7 @@ class JsonFileMetadataRepository(MetadataRepository):
 class CacheMetadataRepository(MetadataRepository):
     """Repository that persists records through MetadataCacheManager."""
 
-    def __init__(self, cache_manager) -> None:
+    def __init__(self, cache_manager: Any) -> None:
         self.cache = cache_manager
         self._reader = JsonFileMetadataRepository(cache_manager)
 

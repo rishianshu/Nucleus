@@ -71,6 +71,7 @@ class IngestionUnitResult:
     transientState: Optional[Dict[str, Any]] = None
     stagingPath: Optional[str] = None
     stagingProviderId: Optional[str] = None
+    staging: List[Dict[str, Any]] = field(default_factory=list)
 
 
 __all__ = [

@@ -29,6 +29,7 @@ import {
   DELETE_METADATA_ENDPOINT_MUTATION,
   TEST_METADATA_ENDPOINT_MUTATION,
   TRIGGER_ENDPOINT_COLLECTION_MUTATION,
+  START_ONEDRIVE_AUTH_MUTATION,
 } from "./queries";
 import type {
   CatalogDataset,
@@ -303,6 +304,8 @@ export function MetadataWorkspace({
   const [pendingTriggerEndpointId, setPendingTriggerEndpointId] = useState<string | null>(null);
   const [metadataTesting, setMetadataTesting] = useState(false);
   const [metadataTestResult, setMetadataTestResult] = useState<MetadataEndpointTestResult | null>(null);
+  const [metadataOneDriveAuthUrl, setMetadataOneDriveAuthUrl] = useState<string | null>(null);
+  const [metadataOneDriveAuthError, setMetadataOneDriveAuthError] = useState<string | null>(null);
   const [metadataDeletingEndpointId, setMetadataDeletingEndpointId] = useState<string | null>(null);
   const [metadataCatalogPreviewRows, setMetadataCatalogPreviewRows] = useState<Record<string, DatasetPreviewResult>>({});
   const [metadataCatalogPreviewErrors, setMetadataCatalogPreviewErrors] = useState<Record<string, string>>({});
@@ -1003,7 +1006,11 @@ export function MetadataWorkspace({
       if (override) {
         const overrideTime = new Date(override.requestedAt).getTime();
         const candidateTime = candidate?.requestedAt ? new Date(candidate.requestedAt).getTime() : 0;
-        if (!candidate || overrideTime >= candidateTime) {
+        const overrideIsRunning = override.status === "RUNNING" || override.status === "QUEUED";
+        const candidateIsTerminal = candidate && candidate.status !== "RUNNING" && candidate.status !== "QUEUED";
+        if (overrideIsRunning && candidateIsTerminal) {
+          // Prefer a completed run over a stale running override.
+        } else if (!candidate || overrideTime >= candidateTime) {
           candidate = override;
         }
       }
@@ -1264,10 +1271,15 @@ export function MetadataWorkspace({
       : metadataRegistering
         ? "Registering…"
         : "Register endpoint";
+  const currentAuthMode =
+    (metadataTemplateValues.auth_mode ?? metadataTemplateValues.authMode ?? "").toLowerCase();
+  const allowSaveWithoutTest = selectedTemplate?.id === "http.onedrive" && currentAuthMode === "delegated";
   const submitDisabled =
     !canModifyEndpoints ||
     metadataRegistering ||
-    (metadataFormMode === "edit" ? requiresRetest : !metadataTestResult?.ok);
+    (metadataFormMode === "edit"
+      ? !allowSaveWithoutTest && requiresRetest
+      : !allowSaveWithoutTest && !metadataTestResult?.ok);
   const showRetestWarning = metadataFormMode === "edit" && requiresRetest;
 
   useEffect(() => {
@@ -1291,7 +1303,7 @@ export function MetadataWorkspace({
     }
     setMetadataTemplateValues((prev) => {
       const next = selectedTemplate.fields.reduce<Record<string, string>>((acc, field) => {
-        acc[field.key] = prev[field.key] ?? "";
+        acc[field.key] = prev[field.key] ?? field.defaultValue ?? "";
         return acc;
       }, {});
       const prevKeys = Object.keys(prev);
@@ -1301,6 +1313,21 @@ export function MetadataWorkspace({
       return sameValues ? prev : next;
     });
   }, [selectedTemplate]);
+
+  useEffect(() => {
+    if (!selectedTemplate || metadataFormMode !== "register") {
+      return;
+    }
+    const templateDefaults = Array.isArray(selectedTemplate.defaultLabels)
+      ? selectedTemplate.defaultLabels.join(", ")
+      : "";
+    setMetadataEndpointLabels(templateDefaults);
+  }, [metadataFormMode, selectedTemplate]);
+
+  useEffect(() => {
+    setMetadataOneDriveAuthUrl(null);
+    setMetadataOneDriveAuthError(null);
+  }, [metadataEditingEndpointId, selectedTemplateId, metadataTemplateValues.auth_mode, metadataTemplateValues.authMode]);
 
   const sortedMetadataRuns = useMemo(() => {
     return [...metadataRuns].sort(
@@ -1711,6 +1738,56 @@ export function MetadataWorkspace({
     }
   }, [authToken, metadataEndpoint, metadataEndpointDescription, metadataEndpointLabels, metadataEndpointName, metadataTemplateValues, selectedTemplate]);
 
+  const handleStartOneDriveAuth = useCallback(async () => {
+    if (!selectedTemplate || selectedTemplate.id !== "http.onedrive") {
+      setMetadataOneDriveAuthError("Select the OneDrive template to start delegated auth.");
+      return;
+    }
+    if ((metadataTemplateValues.auth_mode ?? metadataTemplateValues.authMode) !== "delegated") {
+      setMetadataOneDriveAuthError("Set auth_mode to delegated before connecting.");
+      return;
+    }
+    const clientId =
+      (metadataTemplateValues.client_id ?? metadataTemplateValues.clientId ?? "").trim().toLowerCase();
+    if (!clientId || clientId.includes("stub")) {
+      setMetadataOneDriveAuthError(
+        "Provide a real Azure AD app client_id (not stub-client-id) for delegated OneDrive authentication.",
+      );
+      return;
+    }
+    if (!metadataEndpoint || !authToken) {
+      setMetadataOneDriveAuthError("Configure the metadata API endpoint before starting delegated auth.");
+      return;
+    }
+    if (!metadataEditingEndpointId) {
+      setMetadataOneDriveAuthError("Save the endpoint first, then start delegated auth.");
+      return;
+    }
+    try {
+      setMetadataOneDriveAuthError(null);
+      const payload = await fetchMetadataGraphQL<{
+        startOneDriveAuth: { authSessionId: string; authUrl: string; state: string };
+      }>(
+        metadataEndpoint,
+        START_ONEDRIVE_AUTH_MUTATION,
+        { endpointId: metadataEditingEndpointId },
+        undefined,
+        { token: authToken ?? undefined },
+      );
+      const authSession = payload.startOneDriveAuth;
+      setMetadataOneDriveAuthUrl(authSession?.authUrl ?? null);
+      if (authSession?.authUrl) {
+        try {
+          window.open(authSession.authUrl, "_blank", "noopener,noreferrer");
+        } catch {
+          // ignore window open failures (e.g., headless tests)
+        }
+      }
+    } catch (error) {
+      setMetadataOneDriveAuthError(error instanceof Error ? error.message : String(error));
+    }
+  }, [authToken, metadataEditingEndpointId, metadataEndpoint, metadataTemplateValues, selectedTemplate]);
+
   const triggerCollectionAction = useAsyncAction(
     async (endpointId: string) => {
       if (!metadataEndpoint) {
@@ -1767,8 +1844,23 @@ export function MetadataWorkspace({
         undefined,
         { token: authToken ?? undefined },
       );
+      const triggeredRun = payload.triggerEndpointCollection ?? null;
+      if (triggeredRun) {
+        setMetadataRunStatusOverrides((prev) => ({
+          ...prev,
+          [endpointId]: {
+            ...prev[endpointId],
+            ...triggeredRun,
+            requestedAt: prev[endpointId]?.requestedAt ?? new Date().toISOString(),
+            endpoint: { id: endpointId, name: targetEndpoint.name },
+          },
+        }));
+      }
       refreshMetadataWorkspace();
-      const runId = payload.triggerEndpointCollection?.id ?? null;
+      const runId = triggeredRun?.id ?? null;
+      if (triggeredRun?.status && triggeredRun.status !== "QUEUED" && triggeredRun.status !== "RUNNING") {
+        return;
+      }
       if (runId) {
         void pollCollectionRunCompletion(endpointId, runId);
       }
@@ -2769,7 +2861,7 @@ export function MetadataWorkspace({
               <p className="whitespace-pre-wrap">{selectedTemplate.agentPrompt ?? "Collect credentials and scope for this endpoint."}</p>
               {selectedTemplate.capabilities?.length ? (
                 <ul className="list-disc space-y-1 pl-4">
-                  {selectedTemplate.capabilities?.map((capability) => (
+                  {Array.from(new Map(selectedTemplate.capabilities.map((capability) => [capability.key, capability])).values()).map((capability) => (
                     <li key={capability.key}>{capability.label}</li>
                   ))}
                 </ul>
@@ -2859,7 +2951,26 @@ export function MetadataWorkspace({
                   />
                 </label>
                 <div className="space-y-3">
-                  {selectedTemplate.fields.map((field) => {
+                  {(selectedTemplate.id === "http.onedrive"
+                    ? [...selectedTemplate.fields].sort((a, b) => {
+                        const onedriveFieldOrder: Record<string, number> = {
+                          auth_mode: 10,
+                          drive_id: 20,
+                          root_path: 30,
+                          include_file_types: 40,
+                          exclude_patterns: 50,
+                          base_url: 60,
+                          tenant_id: 70,
+                          client_id: 80,
+                          client_secret: 90,
+                          delegated_connected: 100,
+                        };
+                        const aScore = onedriveFieldOrder[a.key] ?? 1000;
+                        const bScore = onedriveFieldOrder[b.key] ?? 1000;
+                        return aScore - bScore;
+                      })
+                    : selectedTemplate.fields
+                  ).map((field) => {
                     if (!isFieldVisible(field)) {
                       return null;
                     }
@@ -2953,6 +3064,51 @@ export function MetadataWorkspace({
                     );
                   })}
                     </div>
+                    {selectedTemplate?.id === "http.onedrive" &&
+                    (metadataTemplateValues.auth_mode ?? metadataTemplateValues.authMode) === "delegated" ? (
+                      <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900/40">
+                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Delegated auth</p>
+                        <p className="text-sm text-slate-700 dark:text-slate-200">
+                          Status: {metadataEditingEndpoint?.delegatedConnected ? "Connected" : "Not connected yet"}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Client credential fields are hidden in delegated mode; save (test optional here) and click Connect to launch the browser sign-in.
+                        </p>
+                        {metadataOneDriveAuthError ? (
+                          <p className="text-xs text-rose-600" data-testid="metadata-onedrive-auth-error">
+                            {metadataOneDriveAuthError}
+                          </p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={handleStartOneDriveAuth}
+                            className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] transition ${
+                              metadataEditingEndpointId
+                                ? "border-slate-300 text-slate-700 hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+                                : "border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-500"
+                            }`}
+                          >
+                            {metadataOneDriveAuthUrl ? "Re-open auth" : "Connect OneDrive"}
+                          </button>
+                          {metadataOneDriveAuthUrl ? (
+                            <a
+                              href={metadataOneDriveAuthUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-full border border-emerald-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700 transition hover:border-emerald-700 hover:text-emerald-900 dark:border-emerald-500/50 dark:text-emerald-200"
+                            >
+                              Open auth link
+                            </a>
+                          ) : null}
+                        </div>
+                        {!metadataEditingEndpointId ? (
+                          <p className="text-xs text-slate-500">
+                            Save the endpoint first, then click Connect to launch the delegated sign-in.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-3">
                       <button
                         type="button"
@@ -3125,21 +3281,43 @@ export function MetadataWorkspace({
             ? "Dataset previews disabled: this endpoint is missing the \"preview\" capability."
             : null;
           const isTriggerPending = pendingTriggerEndpointId === endpoint.id;
-          return (
-            <article
-              key={endpoint.id}
-              data-testid="metadata-endpoint-card"
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex-1">
-                  <p className="text-lg font-semibold text-slate-900 dark:text-slate-50">{endpoint.name}</p>
-                  <p className="text-sm text-slate-600 dark:text-slate-300">{endpoint.description ?? endpoint.url}</p>
-                  {endpoint.detectedVersion ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Detected version · {endpoint.detectedVersion}</p>
-                  ) : endpoint.versionHint ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Version hint · {endpoint.versionHint}</p>
-                  ) : null}
+        return (
+          <article
+            key={endpoint.id}
+            data-testid="metadata-endpoint-card"
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex-1">
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-50">{endpoint.name}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{endpoint.description ?? endpoint.url}</p>
+                {endpoint.config && typeof endpoint.config === "object" ? (
+                  (() => {
+                    const parameters =
+                      (endpoint.config as Record<string, unknown>).parameters && typeof (endpoint.config as Record<string, unknown>).parameters === "object"
+                        ? ((endpoint.config as Record<string, unknown>).parameters as Record<string, unknown>)
+                        : null;
+                    const authMode =
+                      typeof parameters?.auth_mode === "string"
+                        ? parameters.auth_mode
+                        : typeof parameters?.authMode === "string"
+                          ? parameters.authMode
+                          : null;
+                    if (authMode && authMode.toLowerCase() === "delegated") {
+                      return (
+                        <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 px-2 py-0.5 text-[11px] uppercase tracking-[0.3em] text-emerald-700 dark:border-emerald-500/50 dark:text-emerald-200">
+                          Delegated {endpoint.delegatedConnected ? "connected" : "pending"}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()
+                ) : null}
+                {endpoint.detectedVersion ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Detected version · {endpoint.detectedVersion}</p>
+                ) : endpoint.versionHint ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Version hint · {endpoint.versionHint}</p>
+                ) : null}
                 </div>
                 {renderEndpointCardStatus(latestRun)}
                 <button
@@ -3181,7 +3359,7 @@ export function MetadataWorkspace({
               ) : null}
               {endpoint.capabilities?.length ? (
                 <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">
-                  {endpoint.capabilities.map((capability) => (
+                  {Array.from(new Set(endpoint.capabilities)).map((capability) => (
                     <span key={capability} className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-600">
                       {capability}
                     </span>
@@ -3691,7 +3869,7 @@ export function MetadataWorkspace({
   const detailHasRunningRun = detailRuns.some((run) => run.status === "RUNNING");
   const showDetailMutationError = metadataView === "overview" && Boolean(metadataMutationError);
   const toastPortal = toastQueue.toasts.length ? (
-    <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-end px-4 sm:px-6">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex justify-end px-4 sm:px-6">
       <div className="flex w-full max-w-sm flex-col gap-2">
         {toastQueue.toasts.map((toast) => {
           const tone = toastToneStyles[toast.intent];
@@ -3923,6 +4101,83 @@ export function MetadataWorkspace({
                 <span>Schema · {metadataDatasetDetail.schema ?? "—"}</span>
               </div>
               <IngestionSummaryCard dataset={metadataDatasetDetail} className="mt-4" />
+              {metadataDatasetDetail.tables && metadataDatasetDetail.tables.length > 0 ? (
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/30">
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                    Schema relations ({metadataDatasetDetail.tables.length} tables)
+                  </p>
+                  <div className="space-y-3">
+                    {metadataDatasetDetail.tables.slice(0, 6).map((table) => (
+                      <div key={table.id} className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {table.schema ? `${table.schema}.` : ""}
+                            {table.name}
+                          </p>
+                          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">
+                            {table.columns?.length ?? 0} cols
+                          </p>
+                        </div>
+                        {table.primaryKeyColumns && table.primaryKeyColumns.length > 0 ? (
+                          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                            PK: {table.primaryKeyColumns.map((col) => col.name).join(", ")}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">PK: none detected</p>
+                        )}
+                        {table.outboundForeignKeys && table.outboundForeignKeys.length > 0 ? (
+                          <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">FK →</p>
+                            <ul className="list-disc space-y-1 pl-4">
+                              {table.outboundForeignKeys.slice(0, 3).map((fk, idx) => (
+                                <li key={`${fk.name ?? "fk"}-${idx}`}>
+                                  {(fk.fromColumns ?? []).map((c) => c.name).join(", ") || "column"} →{" "}
+                                  {fk.toTable?.name ?? "table"}
+                                  {fk.toColumns && fk.toColumns.length > 0 ? ` (${fk.toColumns.map((c) => c.name).join(",")})` : ""}
+                                </li>
+                              ))}
+                              {table.outboundForeignKeys.length > 3 ? <li className="text-slate-500">…more</li> : null}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No outbound FKs</p>
+                        )}
+                        {table.inboundForeignKeys && table.inboundForeignKeys.length > 0 ? (
+                          <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">FK ←</p>
+                            <ul className="list-disc space-y-1 pl-4">
+                              {table.inboundForeignKeys.slice(0, 3).map((fk, idx) => (
+                                <li key={`${fk.name ?? "fk-in"}-${idx}`}>
+                                  {fk.fromTable?.name ?? "table"}
+                                  {fk.fromColumns && fk.fromColumns.length > 0 ? ` (${fk.fromColumns.map((c) => c.name).join(",")})` : ""} →{" "}
+                                  {(fk.toColumns ?? []).map((c) => c.name).join(", ") || "column"}
+                                </li>
+                              ))}
+                              {table.inboundForeignKeys.length > 3 ? <li className="text-slate-500">…more</li> : null}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No inbound FKs</p>
+                        )}
+                        <p className="mt-1 text-[11px] uppercase tracking-[0.25em] text-slate-500">
+                          Related tables:{" "}
+                          {Array.from(
+                            new Set(
+                              [
+                                ...(table.outboundForeignKeys ?? []).map((fk) => fk.toTable?.name ?? null),
+                                ...(table.inboundForeignKeys ?? []).map((fk) => fk.fromTable?.name ?? null),
+                              ].filter(Boolean) as string[],
+                            ),
+                          ).join(", ") || "—"}
+                        </p>
+                      </div>
+                    ))}
+                    {metadataDatasetDetail.tables.length > 6 ? (
+                      <p className="text-[11px] uppercase tracking-[0.25em] text-slate-500">Showing first 6 tables</p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Fields ({metadataDatasetDetailFields.length})</p>
                 <div className="mt-2 space-y-2">
@@ -4086,7 +4341,7 @@ export function MetadataWorkspace({
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Capabilities</p>
                   <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">
-                    {metadataEndpointDetail.capabilities.map((capability) => (
+                    {Array.from(new Set(metadataEndpointDetail.capabilities)).map((capability) => (
                       <span key={capability} className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
                         {capability}
                       </span>

@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type, cast
 
 from pathlib import Path
 
@@ -14,7 +14,16 @@ SPARK_ROOT = SCRIPT_DIR.parent
 RUNTIME_COMMON_SRC = SPARK_ROOT / "packages" / "runtime-common" / "src"
 sys.path.insert(0, str(RUNTIME_COMMON_SRC))
 
-from metadata_service.endpoints.registry import collect_endpoint_descriptors, get_endpoint_class  # type: ignore  # noqa: E402
+from metadata_service.endpoints.registry import collect_endpoint_descriptors, get_endpoint_class  # noqa: E402
+from ingestion_models.endpoints import ConfigurableEndpoint  # noqa: E402
+
+
+def _asdict_safe(obj: Any) -> Dict[str, Any]:
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    if isinstance(obj, dict):
+        return obj
+    return {}
 
 
 def main() -> None:
@@ -45,15 +54,16 @@ def main() -> None:
     endpoint_class = get_endpoint_class(args.template)
     if not endpoint_class:
         raise SystemExit(f"Unknown endpoint template: {args.template}")
+    endpoint_ctor = cast(Type[ConfigurableEndpoint], endpoint_class)
 
     if args.command == "build":
-        result = endpoint_class.build_connection(parameters)
-        print(json.dumps(serialize_connection_result(result)))
+        conn_result = endpoint_ctor.build_connection(parameters)
+        print(json.dumps(serialize_connection_result(conn_result)))
         return
 
     if args.command == "test":
-        result = endpoint_class.test_connection(parameters)
-        print(json.dumps(serialize_test_result(result)))
+        test_result = endpoint_ctor.test_connection(parameters)
+        print(json.dumps(serialize_test_result(test_result)))
         return
 
     raise SystemExit(f"Unsupported command: {args.command}")
@@ -139,11 +149,8 @@ def serialize_capability(capability) -> Dict[str, Any]:
 def serialize_connection(connection) -> Optional[Dict[str, Any]]:
     if not connection:
         return None
-    if is_dataclass(connection):
-        data = asdict(connection)
-    elif isinstance(connection, dict):
-        data = connection
-    else:
+    data = _asdict_safe(connection)
+    if not data:
         data = {
             "url_template": getattr(connection, "url_template", None),
             "default_verb": getattr(connection, "default_verb", None),
@@ -155,7 +162,7 @@ def serialize_connection(connection) -> Optional[Dict[str, Any]]:
 
 
 def serialize_connection_result(result) -> Dict[str, Any]:
-    data = asdict(result)
+    data = _asdict_safe(result)
     data["labels"] = list(data.get("labels") or [])
     return data
 
@@ -198,7 +205,7 @@ def serialize_probing_plan(plan) -> Optional[Dict[str, Any]]:
 
 
 def serialize_test_result(result) -> Dict[str, Any]:
-    data = asdict(result)
+    data = _asdict_safe(result)
     return {
         "success": data.get("success"),
         "message": data.get("message"),

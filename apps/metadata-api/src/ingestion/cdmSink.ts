@@ -119,6 +119,21 @@ export const CDM_MODEL_TABLES = {
       jsonColumn("properties", "JSONB", () => ({})),
     ],
   },
+  "cdm.doc.access": {
+    suffix: "doc_access",
+    columns: [
+      logicalIdColumn(),
+      column("principal_id", "TEXT"),
+      column("principal_type", "TEXT"),
+      column("doc_cdm_id", "TEXT"),
+      column("source_system", "TEXT"),
+      column("dataset_id", "TEXT"),
+      column("endpoint_id", "TEXT"),
+      timestampColumn("granted_at"),
+      timestampColumn("synced_at"),
+      jsonColumn("properties", "JSONB", () => ({})),
+    ],
+  },
   "cdm.doc.revision": {
     suffix: "doc_revision",
     columns: [
@@ -163,6 +178,17 @@ function column(name: string, type = "TEXT"): ColumnDefinition {
     name,
     type,
     extract: (payload) => normalizePrimitive(payload[name]),
+  };
+}
+
+function logicalIdColumn(name = "cdm_id"): ColumnDefinition {
+  return {
+    name,
+    type: "TEXT",
+    extract: (payload, record) =>
+      normalizePrimitive(payload[name]) ??
+      normalizePrimitive((record as unknown as { logicalId?: string }).logicalId) ??
+      normalizePrimitive((record as unknown as { id?: string }).id),
   };
 }
 

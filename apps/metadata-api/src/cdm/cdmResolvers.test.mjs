@@ -176,3 +176,57 @@ test("cdm docs dataset query filters doc configs", async () => {
   assert.equal(datasets[0]?.datasetId, "confluence.page");
   assert.equal(datasets[0]?.sourceSystem, "confluence");
 });
+
+test("cdm docs entities honor secured principal injection", async () => {
+  let capturedAccessIds = null;
+  const docStore = {
+    listDocItems: async (args) => {
+      capturedAccessIds = args.accessPrincipalIds;
+      const allowed = Array.isArray(args.accessPrincipalIds) && args.accessPrincipalIds.includes("user-allowed");
+      return allowed ? { rows: [sampleDocItem], cursorOffset: 0, hasNextPage: false } : { rows: [], cursorOffset: 0, hasNextPage: false };
+    },
+    getDocItem: async () => sampleDocItem,
+  };
+  const cdmEntityStore = new CdmEntityStore({
+    workStore: fakeCdmStore,
+    docStore,
+  });
+  const resolvers = createResolvers({}, { cdmEntityStore });
+  const securedContext = {
+    ...context,
+    auth: { ...context.auth, subject: "user-allowed", email: "user-allowed@example.com", roles: ["viewer"] },
+  };
+  const docsConnection = await resolvers.Query.cdmEntities(
+    null,
+    { filter: { domain: "DOC_ITEM", docDatasetIds: ["confluence.page"] }, first: 10 },
+    securedContext,
+  );
+  assert.ok(Array.isArray(capturedAccessIds));
+  assert.ok(capturedAccessIds.includes("user-allowed"), "subject should be injected into accessPrincipalIds");
+  assert.equal(docsConnection.edges.length, 1);
+});
+
+test("cdm docs secured=false requires admin", async () => {
+  const cdmEntityStore = new CdmEntityStore({
+    workStore: fakeCdmStore,
+    docStore: fakeDocStore,
+  });
+  const resolvers = createResolvers({}, { cdmEntityStore });
+  await assert.rejects(
+    () =>
+      resolvers.Query.cdmEntities(
+        null,
+        { filter: { domain: "DOC_ITEM", secured: false }, first: 5 },
+        { ...context, auth: { ...context.auth, roles: ["viewer"] } },
+      ),
+    /RLS bypass requires admin role/,
+  );
+  // Admin can bypass
+  const adminContext = { ...context, auth: { ...context.auth, roles: ["admin"] } };
+  const docsConnection = await resolvers.Query.cdmEntities(
+    null,
+    { filter: { domain: "DOC_ITEM", secured: false }, first: 5 },
+    adminContext,
+  );
+  assert.equal(docsConnection.edges.length, 1);
+});

@@ -64,7 +64,7 @@ class PostgresEndpoint(JdbcEndpoint, IngestionCapableEndpoint):
     ) -> None:
         super().__init__(tool, jdbc_cfg, table_cfg, metadata_access=metadata_access, emitter=emitter)
         self._caps.supports_metadata = True
-        self._metadata = PostgresMetadataSubsystem(self)  # type: ignore[call-arg]
+        self._metadata = PostgresMetadataSubsystem(self)
 
     def _literal(self, value: str) -> str:
         safe = value.replace("'", "''")

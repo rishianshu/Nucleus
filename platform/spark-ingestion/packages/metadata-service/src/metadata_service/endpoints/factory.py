@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional, cast
 
-from endpoint_service.query.plan import QueryPlan, QueryResult, SelectItem
+from endpoint_service.query.plan import QueryPlan as QueryPlanModel, QueryResult as QueryResultModel, SelectItem
 
-from ingestion_models.endpoints import SinkEndpoint, SourceEndpoint, SupportsQueryExecution
+from ingestion_models.endpoints import (
+    SinkEndpoint,
+    SourceEndpoint,
+    SupportsQueryExecution,
+    QueryPlan as QueryPlanContract,
+    QueryResult as QueryResultContract,
+)
 from metadata_service.endpoints.registry import build_endpoint
 from endpoint_service.endpoints.hdfs import HdfsParquetEndpoint
 
@@ -14,7 +20,7 @@ class HiveQueryEndpoint(SupportsQueryExecution):
         self.spark = spark
         self.table_name = table_name
 
-    def execute_query_plan(self, plan: QueryPlan) -> QueryResult:
+    def execute_query_plan(self, plan: QueryPlanContract, *, fetchsize_override: Optional[int] = None) -> QueryResultContract:
         selects = plan.selects or (SelectItem(expression="*"),)
         select_clause = ", ".join(sel.render() for sel in selects)
         where_clause = ""
@@ -34,7 +40,7 @@ class HiveQueryEndpoint(SupportsQueryExecution):
             limit_clause = f" LIMIT {int(plan.limit)}"
         sql = f"SELECT {select_clause} FROM {self.table_name}{where_clause}{group_clause}{having_clause}{order_clause}{limit_clause}"
         rows = [row.asDict(recursive=True) for row in self.spark.sql(sql).collect()]
-        return QueryResult.from_records(rows)
+        return QueryResultModel.from_records(rows)
 
 
 class EndpointFactory:
@@ -54,7 +60,7 @@ class EndpointFactory:
         dialect = (jdbc_cfg.get("dialect") or table_cfg.get("dialect") or "generic").lower()
         template_id = f"jdbc.{dialect}"
         endpoint_cfg = jdbc_cfg if isinstance(jdbc_cfg, dict) else {}
-        endpoint = build_endpoint(template_id, tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
+        endpoint = cast(SourceEndpoint, build_endpoint(template_id, tool=tool, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg))
         if metadata is not None:
             setattr(endpoint, "metadata_access", metadata)
         if emitter is not None:
@@ -73,7 +79,8 @@ class EndpointFactory:
         endpoint_cfg = cfg.get("hdfs", {}) if isinstance(cfg, dict) else {}
         table_cfg = dict(table_cfg)
         table_cfg.setdefault("runtime", cfg.get("runtime") if isinstance(cfg, dict) else None)
-        return build_endpoint("hdfs.parquet", tool=spark, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg)
+        endpoint = cast(SinkEndpoint, build_endpoint("hdfs.parquet", tool=spark, endpoint_cfg=endpoint_cfg, table_cfg=table_cfg))
+        return endpoint
 
     @staticmethod
     def build_query_endpoint(
@@ -95,14 +102,14 @@ class EndpointFactory:
                     table_name = f"{db}.{tbl}" if db else tbl
                     return HiveQueryEndpoint(spark, table_name)
             if prefer_sink:
-                endpoint = EndpointFactory.build_sink(tool, cfg, table_cfg)
-                if isinstance(endpoint, SupportsQueryExecution):
-                    return endpoint
+                sink_endpoint = EndpointFactory.build_sink(tool, cfg, table_cfg)
+                if isinstance(sink_endpoint, SupportsQueryExecution):
+                    return sink_endpoint
         try:
-            endpoint = EndpointFactory.build_source(cfg, table_cfg, tool, metadata=metadata, emitter=emitter)
+            source_endpoint = EndpointFactory.build_source(cfg, table_cfg, tool, metadata=metadata, emitter=emitter)
         except Exception:
             return None
-        return endpoint if isinstance(endpoint, SupportsQueryExecution) else None
+        return source_endpoint if isinstance(source_endpoint, SupportsQueryExecution) else None
 
     @staticmethod
     def build_endpoints(

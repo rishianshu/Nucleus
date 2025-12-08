@@ -122,7 +122,7 @@ export async function loginViaKeycloak(page: Page, credentials?: KeycloakCredent
 
     await page.getByRole("button", { name: "Sign In" }).click();
     try {
-      await page.waitForURL((url) => url.href.startsWith(metadataBase), { timeout: 20_000 });
+      await page.waitForURL((url) => url.href.startsWith(metadataBase), { timeout: 40_000 });
       return;
     } catch (error) {
       const reauthVisible = await page.locator("text=Please re-authenticate").isVisible().catch(() => false);

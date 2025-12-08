@@ -228,6 +228,100 @@ test("kbNodes and kbEdges expose scope-aware data with pagination and scenes", a
   assert.equal(scene.summary.truncated, false);
 });
 
+test("kbEdges supports edgeTypes filters, direction, and limits", async (t) => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-kb-edge-filters-"));
+  t.after(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+  const store = new FileMetadataStore({ rootDir });
+  const graphStore = createGraphStore({ metadataStore: store });
+  const resolvers = createResolvers(store, { graphStore });
+  const ctx = buildResolverContext();
+  const tenantContext = { tenantId: ctx.auth.tenantId, projectId: ctx.auth.projectId, actorId: ctx.userId ?? undefined };
+
+  const a = await graphStore.upsertEntity(
+    {
+      entityType: "work.item",
+      displayName: "A",
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  const b = await graphStore.upsertEntity(
+    {
+      entityType: "work.item",
+      displayName: "B",
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  const attachment = await graphStore.upsertEntity(
+    {
+      entityType: "doc.attachment",
+      displayName: "Attachment",
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+
+  await graphStore.upsertEdge(
+    {
+      edgeType: "rel.work_links_work",
+      sourceEntityId: a.id,
+      targetEntityId: b.id,
+      metadata: { link_type: "blocks" },
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  await graphStore.upsertEdge(
+    {
+      edgeType: "rel.work_links_work",
+      sourceEntityId: b.id,
+      targetEntityId: a.id,
+      metadata: { link_type: "relates" },
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+  await graphStore.upsertEdge(
+    {
+      edgeType: "rel.doc_contains_attachment",
+      sourceEntityId: b.id,
+      targetEntityId: attachment.id,
+      metadata: { attachment_id: "att-1" },
+      scope: { orgId: ctx.auth.tenantId, projectId: ctx.auth.projectId },
+    },
+    tenantContext,
+  );
+
+  const filtered = await (resolvers.Query.kbEdges as any)(
+    null,
+    { edgeTypes: ["rel.doc_contains_attachment"], first: 5 },
+    ctx as any,
+  );
+  assert.equal(filtered.totalCount, 1);
+  assert.equal(filtered.edges[0].node.edgeType, "rel.doc_contains_attachment");
+
+  const inbound = await (resolvers.Query.kbEdges as any)(
+    null,
+    { edgeTypes: ["rel.work_links_work"], direction: "INBOUND", sourceId: b.id, first: 10 },
+    ctx as any,
+  );
+  assert.equal(inbound.totalCount, 1);
+  assert.equal(inbound.edges[0].node.targetEntityId, b.id);
+
+  const both = await (resolvers.Query.kbEdges as any)(
+    null,
+    { edgeTypes: ["rel.work_links_work"], direction: "BOTH", sourceId: b.id, first: 10 },
+    ctx as any,
+  );
+  assert.equal(both.totalCount, 2);
+
+  const limited = await (resolvers.Query.kbEdges as any)(null, { first: 1 }, ctx as any);
+  assert.ok(limited.edges.length <= 1);
+});
+
 test("kbNodes and kbEdges fall back to sample graph data when store is empty", async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "metadata-kb-sample-"));
   t.after(async () => {

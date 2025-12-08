@@ -42,7 +42,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Any, Iterable, List, Tuple, cast
 
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.utils import AnalysisException
@@ -107,8 +107,11 @@ def build_table_path(warehouse: str, namespace: str, identifier: str) -> str:
 
 
 def path_exists(spark: SparkSession, path: str) -> bool:
-    jvm = spark.sparkContext._jvm
-    jsc = spark._jsc
+    sc = spark.sparkContext
+    if sc is None:
+        raise RuntimeError("Spark context is required to check path existence")
+    jvm = cast(Any, sc)._jvm
+    jsc = cast(Any, spark)._jsc
     conf = jsc.hadoopConfiguration()
     h_path = jvm.org.apache.hadoop.fs.Path(path)
     fs = h_path.getFileSystem(conf)
