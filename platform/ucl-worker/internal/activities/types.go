@@ -65,6 +65,7 @@ type IngestionRequest struct {
 	EndpointID            string         `json:"endpointId"`
 	UnitID                string         `json:"unitId"`
 	SinkID                string         `json:"sinkId,omitempty"`
+	SinkEndpointID        string         `json:"sinkEndpointId,omitempty"` // Added: matches Python
 	Checkpoint            map[string]any `json:"checkpoint,omitempty"`
 	StagingProviderID     string         `json:"stagingProviderId,omitempty"`
 	Policy                map[string]any `json:"policy,omitempty"`

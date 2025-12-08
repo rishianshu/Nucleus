@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,9 +152,10 @@ func (a *Activities) PreviewDataset(ctx context.Context, req PreviewRequest) (*P
 
 	sampledAt := time.Now().UTC().Format(time.RFC3339)
 
-	// Check if response is too large
+	// P3 Fix: Check if response is too large (configurable via UCL_MAX_PAYLOAD_BYTES env var)
 	data, _ := json.Marshal(rows)
-	if len(data) > staging.MaxPayloadBytes {
+	maxPayloadBytes := getMaxPayloadBytes()
+	if len(data) > maxPayloadBytes {
 		handle, err := staging.StageRecords(rows, req.StagingProviderID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to stage preview: %w", err)
@@ -189,6 +192,12 @@ func (a *Activities) PlanIngestionUnit(ctx context.Context, req IngestionRequest
 
 	params := bridge.ResolveParameters(req.Policy)
 
+	// P2 Fix: Extract target_slice_size from policy
+	targetSliceSize := resolveTargetSliceSize(req.Policy)
+	if targetSliceSize > 0 {
+		logger.Info("using target slice size", "targetSliceSize", targetSliceSize)
+	}
+
 	// Try to get SliceCapable endpoint
 	sliceCapable, err := bridge.GetSliceCapableEndpoint(templateID, params)
 	if err != nil {
@@ -199,6 +208,9 @@ func (a *Activities) PlanIngestionUnit(ctx context.Context, req IngestionRequest
 				{SliceKey: "full", Sequence: 0},
 			},
 			Strategy: "full",
+			PlanMetadata: map[string]any{
+				"reason": "endpoint_not_slice_capable",
+			},
 		}, nil
 	}
 
@@ -220,10 +232,12 @@ func (a *Activities) PlanIngestionUnit(ctx context.Context, req IngestionRequest
 		strategy = string(endpoint.StrategyIncremental)
 	}
 
+	// P2 Fix: Pass target slice size to plan request
 	plan, err := sliceCapable.PlanSlices(ctx, &endpoint.PlanRequest{
-		DatasetID:  req.UnitID,
-		Strategy:   strategy,
-		Checkpoint: checkpoint,
+		DatasetID:       req.UnitID,
+		Strategy:        strategy,
+		Checkpoint:      checkpoint,
+		TargetSliceSize: targetSliceSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to plan slices: %w", err)
@@ -237,12 +251,25 @@ func (a *Activities) PlanIngestionUnit(ctx context.Context, req IngestionRequest
 			Sequence: i,
 			Lower:    s.Lower,
 			Upper:    s.Upper,
+			Params:   s.Params,
 		})
 	}
 
+	// P2 Fix: Include plan metadata
+	planMetadata := map[string]any{
+		"datasetId":       req.UnitID,
+		"templateId":      templateID,
+		"sliceCount":      len(slices),
+		"targetSliceSize": targetSliceSize,
+	}
+	if plan.Statistics != nil {
+		planMetadata["statistics"] = plan.Statistics
+	}
+
 	return &PlanResult{
-		Slices:   slices,
-		Strategy: string(strategy),
+		Slices:       slices,
+		Strategy:     string(strategy),
+		PlanMetadata: planMetadata,
 	}, nil
 }
 
@@ -253,7 +280,7 @@ func (a *Activities) PlanIngestionUnit(ctx context.Context, req IngestionRequest
 // RunIngestionUnit executes ingestion for a unit/slice.
 func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest) (*IngestionResult, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("running ingestion", "unitId", req.UnitID, "mode", req.Mode)
+	logger.Info("running ingestion", "unitId", req.UnitID, "mode", req.Mode, "dataMode", req.DataMode)
 
 	templateID := bridge.ResolveTemplateID(req.Policy)
 	if templateID == "" {
@@ -268,7 +295,27 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		return nil, fmt.Errorf("failed to create endpoint: %w", err)
 	}
 
+	// P1 Fix: Handle dataMode for checkpoint reset
+	// dataMode "reset" means ignore existing checkpoint and start fresh
+	checkpoint := req.Checkpoint
+	if strings.EqualFold(req.DataMode, "reset") || strings.EqualFold(req.DataMode, "full") {
+		logger.Info("dataMode requires checkpoint reset", "dataMode", req.DataMode)
+		checkpoint = nil
+	}
+
 	var iter endpoint.Iterator[endpoint.Record]
+
+	// Build read request with filter support (P1 Fix)
+	readReq := &endpoint.ReadRequest{
+		DatasetID:  req.UnitID,
+		Checkpoint: checkpoint,
+	}
+
+	// P1 Fix: Pass filter to ReadRequest if supported
+	if req.Filter != nil {
+		readReq.Filter = req.Filter
+		logger.Info("applying filter", "filter", req.Filter)
+	}
 
 	// Check if we have a slice to execute
 	if req.Slice != nil {
@@ -283,15 +330,17 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 			Upper:   getStringFromMap(req.Slice, "upper", ""),
 		}
 
-		iter, err = sliceCapable.ReadSlice(ctx, &endpoint.SliceReadRequest{
-			DatasetID: req.UnitID,
-			Slice:     slice,
-		})
+		sliceReq := &endpoint.SliceReadRequest{
+			DatasetID:  req.UnitID,
+			Slice:      slice,
+			Checkpoint: checkpoint,
+			Filter:     req.Filter,
+		}
+
+		iter, err = sliceCapable.ReadSlice(ctx, sliceReq)
 	} else {
 		// Full read
-		iter, err = ep.Read(ctx, &endpoint.ReadRequest{
-			DatasetID: req.UnitID,
-		})
+		iter, err = ep.Read(ctx, readReq)
 	}
 
 	if err != nil {
@@ -299,51 +348,113 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 	}
 	defer iter.Close()
 
-	// Collect records
-	records := make([]map[string]any, 0)
+	// CODEX FIX: Stream records in chunks to avoid buffering entire dataset in memory
+	const chunkSize = 10000 // Stage every 10k records
+
+	var stagingHandles []StagingHandle
+	var stagingPath string
+	var stagingProviderID string
 	var recordCount int64
+	var records []map[string]any
+	isPreviewMode := strings.ToUpper(req.Mode) == "PREVIEW"
 
 	for iter.Next() {
-		records = append(records, iter.Value())
+		record := iter.Value()
+		records = append(records, record)
 		recordCount++
+
+		// In non-preview mode, stage records in chunks to limit memory usage
+		if !isPreviewMode && len(records) >= chunkSize {
+			handle, err := staging.StageRecords(records, req.StagingProviderID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to stage records chunk: %w", err)
+			}
+			stagingHandles = append(stagingHandles, StagingHandle{
+				Path:       handle.Path,
+				ProviderID: handle.ProviderID,
+			})
+			if stagingPath == "" {
+				stagingPath = handle.Path
+				stagingProviderID = handle.ProviderID
+			}
+			// Clear records slice but keep capacity for reuse
+			records = records[:0]
+		}
 	}
 
 	if err := iter.Err(); err != nil {
 		return nil, fmt.Errorf("iteration error: %w", err)
 	}
 
-	// Stage records
-	var stagingHandles []StagingHandle
-	var stagingPath string
-	var stagingProviderID string
-
-	if len(records) > 0 && strings.ToUpper(req.Mode) != "PREVIEW" {
+	// Stage any remaining records
+	if len(records) > 0 && !isPreviewMode {
 		handle, err := staging.StageRecords(records, req.StagingProviderID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to stage records: %w", err)
+			return nil, fmt.Errorf("failed to stage final records: %w", err)
 		}
 		stagingHandles = append(stagingHandles, StagingHandle{
 			Path:       handle.Path,
 			ProviderID: handle.ProviderID,
 		})
-		stagingPath = handle.Path
-		stagingProviderID = handle.ProviderID
+		if stagingPath == "" {
+			stagingPath = handle.Path
+			stagingProviderID = handle.ProviderID
+		}
 	}
 
-	// Build stats
+	// Build stats with more detail
 	stats := map[string]any{
 		"recordCount": recordCount,
 		"unitId":      req.UnitID,
 		"templateId":  templateID,
+		"dataMode":    req.DataMode,
+		"mode":        req.Mode,
 	}
 
-	// Build checkpoint
-	newCheckpoint := req.Checkpoint
-	if newCheckpoint == nil {
-		newCheckpoint = map[string]any{}
+	// CODEX FIX: Build checkpoint with fallback to preserve incoming metadata
+	// Start with incoming checkpoint to preserve prior metadata (per Python behavior)
+	newCheckpoint := make(map[string]any)
+	if req.Checkpoint != nil {
+		// Copy incoming checkpoint as base (fallback behavior like Python)
+		for k, v := range req.Checkpoint {
+			newCheckpoint[k] = v
+		}
 	}
+	
+	// Override with iterator checkpoint if available (newer data takes precedence)
+	if cp, ok := iter.(interface{ Checkpoint() *endpoint.Checkpoint }); ok {
+		if iterCheckpoint := cp.Checkpoint(); iterCheckpoint != nil {
+			newCheckpoint["watermark"] = iterCheckpoint.Watermark
+			for k, v := range iterCheckpoint.Metadata {
+				newCheckpoint[k] = v
+			}
+		}
+	}
+	
+	// Always update these fields
 	newCheckpoint["lastRunAt"] = time.Now().UTC().Format(time.RFC3339)
 	newCheckpoint["recordCount"] = recordCount
+	if req.DataMode != "" {
+		newCheckpoint["dataMode"] = req.DataMode
+	}
+
+	// CODEX FIX: Forward transientState to result with run metadata
+	// Python forwards transient_state from runner; we mirror input and add run details
+	var resultTransientState map[string]any
+	if req.TransientState != nil {
+		resultTransientState = make(map[string]any)
+		for k, v := range req.TransientState {
+			resultTransientState[k] = v
+		}
+	} else {
+		// Create new transient state if none provided
+		resultTransientState = make(map[string]any)
+	}
+	// Add run metadata to transient state (like Python runner would)
+	resultTransientState["lastProcessedAt"] = time.Now().UTC().Format(time.RFC3339)
+	resultTransientState["recordsProcessed"] = recordCount
+	resultTransientState["templateId"] = templateID
+	resultTransientState["mode"] = req.Mode
 
 	result := &IngestionResult{
 		NewCheckpoint:     newCheckpoint,
@@ -351,6 +462,7 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		Staging:           stagingHandles,
 		StagingPath:       stagingPath,
 		StagingProviderID: stagingProviderID,
+		TransientState:    resultTransientState, // P1 Fix: Forward transientState
 	}
 
 	// Include records only in PREVIEW mode
@@ -358,7 +470,7 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		result.Records = records
 	}
 
-	logger.Info("ingestion complete", "records", recordCount)
+	logger.Info("ingestion complete", "records", recordCount, "hasTransientState", resultTransientState != nil)
 
 	return result, nil
 }
@@ -394,3 +506,39 @@ func getStringFromMap(m map[string]any, key, defaultVal string) string {
 	}
 	return defaultVal
 }
+
+// P2 Fix: Resolve target_slice_size from policy
+func resolveTargetSliceSize(policy map[string]any) int64 {
+	if policy == nil {
+		return 0
+	}
+	// Try various key formats
+	for _, key := range []string{"target_slice_size", "targetSliceSize", "target_rows_per_slice", "targetRowsPerSlice"} {
+		if v, ok := policy[key]; ok {
+			switch val := v.(type) {
+			case int:
+				return int64(val)
+			case int64:
+				return val
+			case float64:
+				return int64(val)
+			}
+		}
+	}
+	// Try nested in parameters
+	if params, ok := policy["parameters"].(map[string]any); ok {
+		return resolveTargetSliceSize(params)
+	}
+	return 0
+}
+
+// P3 Fix: Get max payload bytes from env or default
+func getMaxPayloadBytes() int {
+	if envVal := os.Getenv("UCL_MAX_PAYLOAD_BYTES"); envVal != "" {
+		if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
+			return val
+		}
+	}
+	return staging.MaxPayloadBytes
+}
+

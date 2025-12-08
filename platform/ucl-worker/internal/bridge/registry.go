@@ -12,12 +12,13 @@ import (
 // TemplateMapping maps Python templateId to UCL endpoint ID
 var TemplateMapping = map[string]string{
 	// JDBC connectors
-	"jdbc.generic":    "jdbc.generic",
+	// Note: Only registered connectors are mapped (see ucl-core/internal/connector/jdbc/register.go)
 	"jdbc.postgres":   "jdbc.postgres",
 	"jdbc.postgresql": "jdbc.postgres",
-	"jdbc.mysql":      "jdbc.mysql",
-	"jdbc.mssql":      "jdbc.mssql",
 	"jdbc.oracle":     "jdbc.oracle",
+	"jdbc.mssql":      "jdbc.sqlserver", // CODEX FIX: mssql maps to sqlserver
+	"jdbc.sqlserver":  "jdbc.sqlserver",
+	// TODO: Add jdbc.mysql and jdbc.generic when registered
 
 	// HTTP connectors
 	"http.rest":       "http.rest",
