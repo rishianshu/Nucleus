@@ -59,11 +59,66 @@ type PythonMetadataActivities = {
 };
 
 const PYTHON_ACTIVITY_TASK_QUEUE = "metadata-python";
+const GO_ACTIVITY_TASK_QUEUE = "metadata-go";
 
 const pythonActivities = proxyActivities<PythonMetadataActivities>({
   taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
   scheduleToCloseTimeout: "2 hours",
 });
+
+// Go activities (Sprint 8: Shadow Mode)
+// These mirror Python activities and run on the Go worker
+type GoMetadataActivities = {
+  CollectCatalogSnapshots(request: CollectionJobRequest): Promise<CollectionJobResult>;
+  PreviewDataset(input: {
+    datasetId: string;
+    schema: string;
+    table: string;
+    limit?: number;
+    connectionUrl: string;
+    templateId: string;
+    parameters: Record<string, unknown>;
+    endpointId: string;
+    unitId: string;
+    stagingProviderId?: string | null;
+  }): Promise<{ rows: unknown[]; sampledAt: string; recordsPath?: string | null; stagingProviderId?: string | null }>;
+  PlanIngestionUnit(input: PythonIngestionRequest): Promise<{
+    slices?: Array<Record<string, unknown>>;
+    plan_metadata?: Record<string, unknown>;
+    strategy?: string | null;
+  }>;
+  RunIngestionUnit(input: PythonIngestionRequest): Promise<PythonIngestionResult>;
+};
+
+const goActivities = proxyActivities<GoMetadataActivities>({
+  taskQueue: GO_ACTIVITY_TASK_QUEUE,
+  scheduleToCloseTimeout: "2 hours",
+});
+
+// Shadow mode flag - when true, runs Go activities in parallel for comparison
+const GO_SHADOW_MODE = process.env.GO_SHADOW_MODE === "true";
+
+// Helper to run shadow comparison without blocking main flow
+async function runGoShadow<T>(
+  activityName: string,
+  goFn: () => Promise<T>,
+  pyStats?: Record<string, unknown> | null
+): Promise<void> {
+  if (!GO_SHADOW_MODE) return;
+  try {
+    const goResult = await goFn();
+    log.info("shadow-compare", {
+      activity: activityName,
+      pyStats: pyStats ?? null,
+      goResult: goResult ?? null,
+    });
+  } catch (error) {
+    log.warn("shadow-go-error", {
+      activity: activityName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 type PythonIngestionRequest = {
   endpointId: string;
@@ -344,6 +399,15 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
   if (planStrategy) {
     aggregatedStats = aggregatedStats ?? {};
     aggregatedStats.strategy = planStrategy;
+  }
+
+  // Sprint 8: Shadow mode - run Go activity in parallel for comparison
+  if (GO_SHADOW_MODE) {
+    void runGoShadow(
+      "RunIngestionUnit",
+      () => goActivities.RunIngestionUnit(baseRequest),
+      aggregatedStats
+    );
   }
 
   const fallbackRecords = sliceResults[0]?.records ?? null;
