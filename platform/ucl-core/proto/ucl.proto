@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package ucl.v1;
+
+option go_package = "github.com/nucleus/ucl-core/internal/proto/uclpb";
+
+// UCLService provides the Universal Connectivity Layer API.
+// This replaces the Python CLI (endpoint_registry_cli.py) with gRPC.
+service UCLService {
+  // ListEndpointTemplates returns available endpoint templates.
+  rpc ListEndpointTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
+  
+  // BuildEndpointConfig creates an endpoint configuration from a template.
+  rpc BuildEndpointConfig(BuildConfigRequest) returns (BuildConfigResponse);
+  
+  // TestEndpointConnection tests connectivity to an endpoint.
+  rpc TestEndpointConnection(TestConnectionRequest) returns (TestConnectionResponse);
+  
+  // ValidateConfig validates an endpoint configuration.
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  
+  // ListDatasets returns available datasets for an endpoint.
+  rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+  
+  // GetSchema returns the schema for a dataset.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+}
+
+// ===== Templates =====
+
+message ListTemplatesRequest {
+  // Optional filter by endpoint family (JDBC, HTTP, STREAM)
+  string family = 1;
+}
+
+message ListTemplatesResponse {
+  repeated EndpointTemplate templates = 1;
+}
+
+message EndpointTemplate {
+  string id = 1;
+  string family = 2;
+  string display_name = 3;
+  string vendor = 4;
+  string description = 5;
+  repeated FieldDescriptor fields = 6;
+  repeated string categories = 7;
+}
+
+message FieldDescriptor {
+  string name = 1;
+  string type = 2;  // string, number, boolean, secret
+  string label = 3;
+  string description = 4;
+  bool required = 5;
+  string default_value = 6;
+  repeated string options = 7;  // For enum fields
+}
+
+// ===== Config =====
+
+message BuildConfigRequest {
+  string template_id = 1;
+  map<string, string> parameters = 2;
+  repeated string labels = 3;
+}
+
+message BuildConfigResponse {
+  bool success = 1;
+  map<string, string> config = 2;
+  string connection_url = 3;
+  string error = 4;
+}
+
+// ===== Connection Test =====
+
+message TestConnectionRequest {
+  string template_id = 1;
+  map<string, string> parameters = 2;
+}
+
+message TestConnectionResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  int64 latency_ms = 4;
+}
+
+// ===== Validation =====
+
+message ValidateConfigRequest {
+  string endpoint_id = 1;
+  map<string, string> config = 2;
+}
+
+message ValidateConfigResponse {
+  bool valid = 1;
+  repeated string errors = 2;
+  repeated string warnings = 3;
+}
+
+// ===== Datasets =====
+
+message ListDatasetsRequest {
+  string endpoint_id = 1;
+  map<string, string> config = 2;
+}
+
+message ListDatasetsResponse {
+  repeated Dataset datasets = 1;
+}
+
+message Dataset {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  bool supports_incremental = 4;
+  map<string, string> metadata = 5;
+}
+
+// ===== Schema =====
+
+message GetSchemaRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+  map<string, string> config = 3;
+}
+
+message GetSchemaResponse {
+  repeated SchemaField fields = 1;
+}
+
+message SchemaField {
+  string name = 1;
+  string type = 2;
+  bool nullable = 3;
+  bool is_primary_key = 4;
+  string description = 5;
+}
