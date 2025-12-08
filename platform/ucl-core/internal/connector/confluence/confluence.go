@@ -37,7 +37,7 @@ func New(cfg *Config) (*Confluence, error) {
 func (c *Confluence) GetDescriptor() *endpoint.Descriptor {
 	return &endpoint.Descriptor{
 		ID:          "http.confluence",
-		Family:      "http.rest",
+		Family:      "http",
 		Title:       "Confluence Cloud",
 		Vendor:      "Atlassian",
 		Description: "Confluence Cloud REST API connector for spaces, pages, and attachments",
@@ -57,7 +57,7 @@ func (c *Confluence) GetDescriptor() *endpoint.Descriptor {
 func (c *Confluence) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
 		SupportsFull:        true,
-		SupportsIncremental: true,
+		SupportsIncremental: false, // Version-based incremental not yet implemented
 		SupportsMetadata:    true,
 		SupportsPreview:     true,
 	}
