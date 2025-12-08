@@ -3064,5 +3064,73 @@
     },
     "version": "5488232610d643fb99408ee8eab3cd38",
     "updatedAt": "2025-12-07T13:41:07.570Z"
+  },
+  "ingest::global-playwright-jira-temporal-miwkjo6y-a8dc2127f5c84a0aa925615bf1d73be7::endpoint::fc65f62f632c418ea59e0006dc76fb74::unit::jira.projects::sink::kb": {
+    "value": {
+      "cursor": {
+        "lastRunAt": "2025-12-08T08:35:22.504562"
+      },
+      "lastRunId": "7fab6108-e1a4-40a9-b969-b97a693963ae",
+      "stats": {
+        "planMetadata": {
+          "cursor": {},
+          "projects": [
+            "ENG"
+          ],
+          "target_slice_size": null
+        },
+        "slices": [
+          {
+            "completedAt": "2025-12-08T03:05:22.482781+00:00",
+            "endpointId": "fc65f62f632c418ea59e0006dc76fb74",
+            "planMetadata": {
+              "cursor": {},
+              "projects": [
+                "<cycle>"
+              ],
+              "target_slice_size": null
+            },
+            "plannedSlices": "<cycle>",
+            "projectsSynced": 1,
+            "recordCount": "<cycle>",
+            "slice": {
+              "lower": "2025-11-08T03:05:22.484623+00:00",
+              "project": "ENG",
+              "sequence": 0,
+              "slice_key": "jira.projects:ENG:0",
+              "upper": "2025-12-08T03:05:22.484616+00:00"
+            },
+            "sliceIndex": 0,
+            "sliceKey": "<cycle>",
+            "slices": [
+              {
+                "projectsSynced": "<cycle>",
+                "recordCount": "<cycle>",
+                "slice": "<cycle>",
+                "sliceIndex": "<cycle>",
+                "sliceKey": "<cycle>",
+                "unitId": "<cycle>"
+              }
+            ],
+            "strategy": "jira-project-window",
+            "unitId": "jira.projects"
+          }
+        ],
+        "strategy": "jira-project-window"
+      },
+      "lastUpdatedAt": "2025-12-08T03:05:22.642Z"
+    },
+    "version": "15b0ac275e4e4cc5b894ea0aa7ac31fb",
+    "updatedAt": "2025-12-08T03:05:22.643Z"
+  },
+  "ingest_state::endpoint::fc65f62f632c418ea59e0006dc76fb74::unit::jira.projects::sink::kb": {
+    "value": {
+      "state": {
+        "projects": {}
+      },
+      "lastUpdatedAt": "2025-12-08T03:05:22.645Z"
+    },
+    "version": "d079c13448624588aaef179c0ea79ef4",
+    "updatedAt": "2025-12-08T03:05:22.645Z"
   }
 }

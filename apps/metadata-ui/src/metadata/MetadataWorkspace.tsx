@@ -4142,6 +4142,34 @@ export function MetadataWorkspace({
                         ) : (
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No outbound FKs</p>
                         )}
+                        {table.inboundForeignKeys && table.inboundForeignKeys.length > 0 ? (
+                          <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">FK ←</p>
+                            <ul className="list-disc space-y-1 pl-4">
+                              {table.inboundForeignKeys.slice(0, 3).map((fk, idx) => (
+                                <li key={`${fk.name ?? "fk-in"}-${idx}`}>
+                                  {fk.fromTable?.name ?? "table"}
+                                  {fk.fromColumns && fk.fromColumns.length > 0 ? ` (${fk.fromColumns.map((c) => c.name).join(",")})` : ""} →{" "}
+                                  {(fk.toColumns ?? []).map((c) => c.name).join(", ") || "column"}
+                                </li>
+                              ))}
+                              {table.inboundForeignKeys.length > 3 ? <li className="text-slate-500">…more</li> : null}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No inbound FKs</p>
+                        )}
+                        <p className="mt-1 text-[11px] uppercase tracking-[0.25em] text-slate-500">
+                          Related tables:{" "}
+                          {Array.from(
+                            new Set(
+                              [
+                                ...(table.outboundForeignKeys ?? []).map((fk) => fk.toTable?.name ?? null),
+                                ...(table.inboundForeignKeys ?? []).map((fk) => fk.fromTable?.name ?? null),
+                              ].filter(Boolean) as string[],
+                            ),
+                          ).join(", ") || "—"}
+                        </p>
                       </div>
                     ))}
                     {metadataDatasetDetail.tables.length > 6 ? (

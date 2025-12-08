@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-kb-relations-and-lineage-v1 (success @ 2025-12-07T13:59Z)
+kb-relations-ui-surfacing-v1 (success @ 2025-12-08T04:59Z)
 
 ## Last Run
-- slug: kb-relations-and-lineage-v1
+- slug: kb-relations-ui-surfacing-v1
 - status: success
-- duration: resumed 2025-12-07T05:10Z → 2025-12-07T13:59Z
-- tests: pnpm ci-check green (metadata-auth + lifecycle Playwright) + mypy green
-- commits: none
-- decisions: 0 (no new decisions added this run)
-- next_step: optional follow-up to surface new semantic relations (drive_shares_with, UI views) in future slug
+- duration: ~2d (active work ~10h)
+- tests: pnpm ci-check (Playwright + mypy) green
+- commits: local changes (not committed)
+- decisions: 0
+- next_step: none; slug complete
 
 ## Global Queue
 TODAY:
@@ -20,8 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-08T04:59Z run success (kb-relations-ui-surfacing-v1, KB relation filters/direction + Catalog FK/related tables; ci-check green)
+- 2025-12-07T14:38Z run started (kb-relations-ui-surfacing-v1, boot + context sync)
 - 2025-12-07T05:10Z run restarted (kb-relations-and-lineage-v1, START_PROMPT re-issued)
-- 2025-12-07T03:39Z run started (kb-relations-and-lineage-v1, boot + context sync)
 - 2025-12-06T20:22Z run success (docs-access-graph-and-rls-v1, real Confluence ACL ingested into cdm_work; follow-up doc filed)
 - 2025-12-06T14:46Z run success (docs-access-graph-and-rls-v1, ACL/RLS scaffolding added; tests/builds green)
 - 2025-12-06T09:26Z run started (docs-access-graph-and-rls-v1, boot + context sync)

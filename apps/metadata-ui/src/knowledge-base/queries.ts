@@ -39,8 +39,8 @@ export const KB_NODES_QUERY = `
 `;
 
 export const KB_EDGES_QUERY = `
-  query KbEdges($edgeType: String, $scope: GraphScopeInput, $sourceId: ID, $targetId: ID, $first: Int!, $after: ID) {
-    kbEdges(edgeType: $edgeType, scope: $scope, sourceId: $sourceId, targetId: $targetId, first: $first, after: $after) {
+  query KbEdges($edgeType: String, $edgeTypes: [String!], $direction: GraphEdgeDirection, $scope: GraphScopeInput, $sourceId: ID, $targetId: ID, $first: Int!, $after: ID) {
+    kbEdges(edgeType: $edgeType, edgeTypes: $edgeTypes, direction: $direction, scope: $scope, sourceId: $sourceId, targetId: $targetId, first: $first, after: $after) {
       edges {
         cursor
         node {
@@ -49,6 +49,7 @@ export const KB_EDGES_QUERY = `
           sourceEntityId
           targetEntityId
           confidence
+          metadata
           updatedAt
           scope {
             orgId
@@ -178,6 +179,7 @@ export const KB_SCENE_QUERY = `
         edgeType
         sourceEntityId
         targetEntityId
+        metadata
         identity {
           logicalKey
         }

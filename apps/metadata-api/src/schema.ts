@@ -341,6 +341,12 @@ export const typeDefs = `#graphql
     limit: Int
   }
 
+  enum GraphEdgeDirection {
+    OUTBOUND
+    INBOUND
+    BOTH
+  }
+
   input MetadataRecordInput {
     id: ID
     projectId: String!
@@ -1132,7 +1138,7 @@ type ProvisionCdmSinkResult {
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
     kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
-    kbEdges(edgeType: String, scope: GraphScopeInput, sourceId: ID, targetId: ID, first: Int = 25, after: ID): KbEdgeConnection!
+    kbEdges(edgeType: String, edgeTypes: [String!], direction: GraphEdgeDirection, scope: GraphScopeInput, sourceId: ID, targetId: ID, first: Int = 25, after: ID): KbEdgeConnection!
     kbNode(id: ID!): GraphNode
     kbNeighbors(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
     kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
@@ -1664,6 +1670,8 @@ export function createResolvers(
         _parent: unknown,
         args: {
           edgeType?: string | null;
+          edgeTypes?: string[] | null;
+          direction?: string | null;
           scope?: GraphQLGraphScopeInput | null;
           sourceId?: string | null;
           targetId?: string | null;
@@ -6314,6 +6322,8 @@ async function resolveKbEdges(
   store: MetadataStore,
   args: {
     edgeType?: string | null;
+    edgeTypes?: string[] | null;
+    direction?: string | null;
     scope?: GraphQLGraphScopeInput | null;
     sourceId?: string | null;
     targetId?: string | null;
@@ -6325,6 +6335,15 @@ async function resolveKbEdges(
   const limit = clampConnectionLimit(args.first ?? undefined, KB_EDGES_DEFAULT_PAGE_SIZE, KB_EDGES_MAX_PAGE_SIZE);
   const cursor = decodeGraphCursor(args.after);
   const scope = normalizeGraphScopeFilter(ctx, args.scope);
+  const direction = (args.direction ?? "").toString().toUpperCase();
+  let sourceId = args.sourceId ?? null;
+  let targetId = args.targetId ?? null;
+  if (direction === "INBOUND" && sourceId && !targetId) {
+    targetId = sourceId;
+    sourceId = null;
+  } else if (direction === "BOTH" && sourceId && !targetId) {
+    // handled after fetch by allowing either match
+  }
   const allowSampleFallback = ENABLE_SAMPLE_FALLBACK && !args.after && !args.sourceId && !args.targetId;
   let sampleWindow: { window: GraphEdgeRecordShape[]; totalCount: number } | null = null;
   const resolveSampleWindow = () => {
@@ -6332,7 +6351,7 @@ async function resolveKbEdges(
       sampleWindow = buildSampleEdgeWindow(
         scope,
         ctx,
-        { edgeType: args.edgeType, sourceId: args.sourceId, targetId: args.targetId },
+        { edgeType: args.edgeType, sourceId, targetId },
         cursor,
         limit,
       );
@@ -6342,7 +6361,7 @@ async function resolveKbEdges(
   const prisma = await tryGetPrismaGraphClient();
   if (prisma?.graphEdge?.findMany) {
     try {
-      const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.sourceId, args.targetId);
+      const where = buildPrismaGraphEdgeWhere(scope, args.edgeType, args.edgeTypes, sourceId, targetId);
       const totalCount = await prisma.graphEdge.count({ where });
       const records = await prisma.graphEdge.findMany({
         where,
@@ -6362,12 +6381,22 @@ async function resolveKbEdges(
   }
   const filters = {
     scopeOrgId: scope.orgId,
-    edgeTypes: args.edgeType ? [args.edgeType] : undefined,
-    sourceNodeId: args.sourceId ?? undefined,
-    targetNodeId: args.targetId ?? undefined,
+    edgeTypes: args.edgeTypes && args.edgeTypes.length ? args.edgeTypes : args.edgeType ? [args.edgeType] : undefined,
+    sourceNodeId: sourceId ?? undefined,
+    targetNodeId: targetId ?? undefined,
   };
   const records = await safeListGraphEdges(store, filters, "resolveKbEdges:store");
-  let filtered = sortGraphEdgeRecords(records.filter((record) => matchesGraphScope(record.scope, scope)));
+  let filtered = sortGraphEdgeRecords(
+    records.filter((record) => {
+      if (!matchesGraphScope(record.scope, scope)) {
+        return false;
+      }
+      if (direction === "BOTH" && args.sourceId && !args.targetId) {
+        return record.sourceNodeId === args.sourceId || record.targetNodeId === args.sourceId;
+      }
+      return true;
+    }),
+  );
   if (!filtered.length && allowSampleFallback) {
     const sample = resolveSampleWindow();
     return buildEdgeConnection(sample.window, limit, sample.totalCount, Boolean(args.after));
@@ -6463,7 +6492,7 @@ async function buildPrismaKbFacets(prisma: PrismaClientInstance, scope: GraphSco
     return null;
   }
   const nodeWhere = buildPrismaGraphNodeWhere(scope, null, null);
-  const edgeWhere = buildPrismaGraphEdgeWhere(scope, null, null, null);
+  const edgeWhere = buildPrismaGraphEdgeWhere(scope, null, null, null, null);
   const [
     nodeTypeGroups,
     projectGroups,
@@ -6747,6 +6776,7 @@ function buildPrismaGraphNodeWhere(scope: GraphScopeFilter, type?: string | null
 function buildPrismaGraphEdgeWhere(
   scope: GraphScopeFilter,
   edgeType?: string | null,
+  edgeTypes?: string[] | null,
   sourceId?: string | null,
   targetId?: string | null,
 ) {
@@ -6762,7 +6792,9 @@ function buildPrismaGraphEdgeWhere(
   if (scope.teamId) {
     where.scopeTeamId = scope.teamId;
   }
-  if (edgeType) {
+  if (edgeTypes && edgeTypes.length) {
+    where.edgeType = { in: edgeTypes };
+  } else if (edgeType) {
     where.edgeType = edgeType;
   }
   if (sourceId) {
