@@ -54,6 +54,7 @@ type Capabilities struct {
 type Dataset struct {
 	ID                  string
 	Name                string
+	Description         string // CODEX FIX: Added to align with proto
 	Kind                string // "table", "view", "stream", "topic"
 	SupportsIncremental bool
 	CdmModelID          string // e.g., "cdm.work.item"
@@ -61,6 +62,7 @@ type Dataset struct {
 	IncrementalColumn   string
 	IncrementalLiteral  string // "timestamp", "epoch"
 	PrimaryKeys         []string
+	Metadata            map[string]string // CODEX FIX: Added to align with proto
 }
 
 // SemanticUnit extends Dataset with semantic source metadata.
