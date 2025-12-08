@@ -163,14 +163,55 @@ type FinalizeResult struct {
 // --- Action Types ---
 
 type ActionDescriptor struct {
-	ID          string
+	ID           string             // Unique action ID
+	Name         string             // Human-readable name
+	Description  string             // What the action does
+	Category     string             // "create", "update", "delete", "execute"
+	RequiresAuth bool               // Whether action requires authenticated user
+	Tags         []string           // Action tags for filtering
+	Parameters   []*FieldDescriptor // Deprecated: use ActionSchema.InputFields
+}
+
+type ActionSchema struct {
+	ActionID     string
+	InputFields  []*ActionField
+	OutputFields []*ActionField
+}
+
+type ActionField struct {
 	Name        string
+	Label       string
+	DataType    string
+	Required    bool
+	Default     any
 	Description string
-	Parameters  []*FieldDescriptor
+	Enum        []string
+}
+
+type ActionRequest struct {
+	ActionID   string
+	Parameters map[string]any
+	DryRun     bool
+	Context    *ActionContext
+}
+
+type ActionContext struct {
+	UserID    string
+	RequestID string
+	Timeout   int
+	Metadata  map[string]any
 }
 
 type ActionResult struct {
-	Success bool
+	Success  bool
+	Message  string
+	Data     map[string]any
+	Errors   []ActionError
+	Warnings []string
+}
+
+type ActionError struct {
+	Code    string
+	Field   string
 	Message string
-	Data    map[string]any
 }

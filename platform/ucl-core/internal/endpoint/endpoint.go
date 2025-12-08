@@ -65,10 +65,13 @@ type ActionEndpoint interface {
 	Endpoint
 
 	// ListActions returns available actions for this endpoint.
-	ListActions() []*ActionDescriptor
+	ListActions(ctx context.Context) ([]*ActionDescriptor, error)
 
-	// Execute runs an action with the given parameters.
-	Execute(ctx context.Context, action string, params map[string]any) (*ActionResult, error)
+	// GetActionSchema returns the input/output schema for an action.
+	GetActionSchema(ctx context.Context, actionID string) (*ActionSchema, error)
+
+	// ExecuteAction runs an action with the given parameters.
+	ExecuteAction(ctx context.Context, req *ActionRequest) (*ActionResult, error)
 }
 
 // DataEndpoint supports both source and sink operations.

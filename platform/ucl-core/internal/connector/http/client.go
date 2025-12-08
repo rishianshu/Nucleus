@@ -253,6 +253,27 @@ func (c *Client) Post(ctx context.Context, path string, body any) (*Response, er
 	})
 }
 
+// Put performs a PUT request with JSON body.
+func (c *Client) Put(ctx context.Context, path string, body any) (*Response, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal body: %w", err)
+		}
+		bodyReader = strings.NewReader(string(data))
+	}
+
+	return c.Do(ctx, &Request{
+		Method: http.MethodPut,
+		Path:   path,
+		Body:   bodyReader,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+	})
+}
+
 // =============================================================================
 // ERRORS
 // =============================================================================
