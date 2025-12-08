@@ -86,7 +86,7 @@ func (o *OneDrive) GetDescriptor() *endpoint.Descriptor {
 func (o *OneDrive) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
 		SupportsFull:        true,
-		SupportsIncremental: true,
+		SupportsIncremental: false, // Delta tokens not yet implemented
 		SupportsCountProbe:  false,
 		SupportsPreview:     true,
 		SupportsMetadata:    true,

@@ -83,12 +83,11 @@ func (j *Jira) ValidateConfig(ctx context.Context, config map[string]any) (*endp
 func (j *Jira) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
 		SupportsFull:        true,
-		SupportsIncremental: true,
+		SupportsIncremental: false, // JQL watermark filtering not yet implemented
 		SupportsCountProbe:  true,
 		SupportsPreview:     true,
 		SupportsMetadata:    true,
 		SupportsWrite:       false,
-		IncrementalLiteral:  "timestamp",
 		DefaultFetchSize:    j.config.FetchSize,
 	}
 }
@@ -97,7 +96,7 @@ func (j *Jira) GetCapabilities() *endpoint.Capabilities {
 func (j *Jira) GetDescriptor() *endpoint.Descriptor {
 	return &endpoint.Descriptor{
 		ID:          "http.jira",
-		Family:      "http.rest",
+		Family:      "http",
 		Title:       "Jira Cloud",
 		Vendor:      "Atlassian",
 		Description: "Jira Cloud REST API connector for projects, issues, and work tracking",

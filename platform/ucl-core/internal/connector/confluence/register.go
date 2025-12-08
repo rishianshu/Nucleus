@@ -41,6 +41,9 @@ func init() {
 	endpoint.RegisterCDMMapper("confluence.attachment", func(record endpoint.Record) (any, error) {
 		return mapper.MapRecord("confluence.attachment", record), nil
 	})
+	endpoint.RegisterCDMMapper("confluence.acl", func(record endpoint.Record) (any, error) {
+		return mapper.MapRecord("confluence.acl", record), nil
+	})
 }
 
 // --- Config Helpers ---

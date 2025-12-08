@@ -22,6 +22,12 @@ var jiraActions = []*endpoint.ActionDescriptor{
 		Category:    "create",
 	},
 	{
+		ID:          "jira.update_issue",
+		Name:        "Update Issue",
+		Description: "Update fields on an existing issue",
+		Category:    "update",
+	},
+	{
 		ID:          "jira.transition_issue",
 		Name:        "Transition Issue",
 		Description: "Change the status of an issue via workflow transition",
@@ -76,6 +82,20 @@ var actionSchemas = map[string]*endpoint.ActionSchema{
 			{Name: "self", Label: "Self URL", DataType: "string", Description: "API URL of comment"},
 		},
 	},
+	"jira.update_issue": {
+		ActionID: "jira.update_issue",
+		InputFields: []*endpoint.ActionField{
+			{Name: "issueKey", Label: "Issue Key", DataType: "string", Required: true, Description: "Issue key (e.g., ENG-123)"},
+			{Name: "summary", Label: "Summary", DataType: "string", Required: false, Description: "New summary/title"},
+			{Name: "description", Label: "Description", DataType: "string", Required: false, Description: "New description"},
+			{Name: "assignee", Label: "Assignee", DataType: "string", Required: false, Description: "Assignee account ID"},
+			{Name: "priority", Label: "Priority", DataType: "string", Required: false, Description: "Priority name"},
+			{Name: "labels", Label: "Labels", DataType: "array", Required: false, Description: "Issue labels"},
+		},
+		OutputFields: []*endpoint.ActionField{
+			{Name: "success", Label: "Success", DataType: "boolean", Description: "Whether update succeeded"},
+		},
+	},
 }
 
 func init() {
@@ -104,7 +124,7 @@ func (j *Jira) GetActionSchema(ctx context.Context, actionID string) (*endpoint.
 func (j *Jira) ExecuteAction(ctx context.Context, req *endpoint.ActionRequest) (*endpoint.ActionResult, error) {
 	// Validate ActionID first
 	switch req.ActionID {
-	case "jira.create_issue", "jira.transition_issue", "jira.add_comment":
+	case "jira.create_issue", "jira.update_issue", "jira.transition_issue", "jira.add_comment":
 		// Valid action
 	default:
 		return &endpoint.ActionResult{
@@ -124,6 +144,8 @@ func (j *Jira) ExecuteAction(ctx context.Context, req *endpoint.ActionRequest) (
 	switch req.ActionID {
 	case "jira.create_issue":
 		return j.createIssue(ctx, req.Parameters)
+	case "jira.update_issue":
+		return j.updateIssue(ctx, req.Parameters)
 	case "jira.transition_issue":
 		return j.transitionIssue(ctx, req.Parameters)
 	case "jira.add_comment":
@@ -336,6 +358,98 @@ func (j *Jira) addComment(ctx context.Context, params map[string]any) (*endpoint
 		Data: map[string]any{
 			"commentId": result.ID,
 			"self":      result.Self,
+		},
+	}, nil
+}
+
+func (j *Jira) updateIssue(ctx context.Context, params map[string]any) (*endpoint.ActionResult, error) {
+	issueKey, _ := params["issueKey"].(string)
+	if issueKey == "" {
+		return &endpoint.ActionResult{
+			Success: false,
+			Message: "issueKey is required",
+			Errors:  []endpoint.ActionError{{Code: "MISSING_FIELD", Message: "issueKey"}},
+		}, nil
+	}
+
+	// Build update payload - only include non-empty fields
+	fields := make(map[string]any)
+
+	if summary, ok := params["summary"].(string); ok && summary != "" {
+		fields["summary"] = summary
+	}
+
+	if description, ok := params["description"].(string); ok && description != "" {
+		fields["description"] = map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []map[string]any{
+				{
+					"type": "paragraph",
+					"content": []map[string]any{
+						{"type": "text", "text": description},
+					},
+				},
+			},
+		}
+	}
+
+	if assignee, ok := params["assignee"].(string); ok && assignee != "" {
+		fields["assignee"] = map[string]any{"accountId": assignee}
+	}
+
+	if priority, ok := params["priority"].(string); ok && priority != "" {
+		fields["priority"] = map[string]any{"name": priority}
+	}
+
+	// Handle labels
+	if labelsRaw, ok := params["labels"]; ok {
+		switch v := labelsRaw.(type) {
+		case []string:
+			if len(v) > 0 {
+				fields["labels"] = v
+			}
+		case []any:
+			if len(v) > 0 {
+				labels := make([]string, 0, len(v))
+				for _, l := range v {
+					if s, ok := l.(string); ok {
+						labels = append(labels, s)
+					}
+				}
+				if len(labels) > 0 {
+					fields["labels"] = labels
+				}
+			}
+		}
+	}
+
+	if len(fields) == 0 {
+		return &endpoint.ActionResult{
+			Success: false,
+			Message: "At least one field must be specified to update",
+			Errors:  []endpoint.ActionError{{Code: "NO_FIELDS", Message: "no fields to update"}},
+		}, nil
+	}
+
+	payload := map[string]any{"fields": fields}
+
+	// Make API call - PUT /rest/api/3/issue/{issueIdOrKey}
+	path := fmt.Sprintf("/rest/api/3/issue/%s", issueKey)
+	_, err := j.Client.Put(ctx, path, payload)
+	if err != nil {
+		return &endpoint.ActionResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to update issue: %v", err),
+			Errors:  []endpoint.ActionError{{Code: "API_ERROR", Message: err.Error()}},
+		}, nil
+	}
+
+	return &endpoint.ActionResult{
+		Success: true,
+		Message: fmt.Sprintf("Updated issue %s", issueKey),
+		Data: map[string]any{
+			"success": true,
 		},
 	}, nil
 }
