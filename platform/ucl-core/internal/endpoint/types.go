@@ -128,9 +128,11 @@ type DatasetStatistics struct {
 // --- Read Types ---
 
 type ReadRequest struct {
-	DatasetID string
-	Limit     int64
-	Slice     *IngestionSlice
+	DatasetID  string
+	Limit      int64
+	Slice      *IngestionSlice
+	Checkpoint map[string]any // P1: pass checkpoint for incremental reads
+	Filter     map[string]any // P1: filters from endpoint config (e.g., project filter)
 }
 
 type IngestionSlice struct {

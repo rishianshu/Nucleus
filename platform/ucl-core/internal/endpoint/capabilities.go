@@ -81,8 +81,10 @@ type IngestionPlan struct {
 }
 
 type SliceReadRequest struct {
-	DatasetID string
-	Slice     *IngestionSlice
+	DatasetID  string
+	Slice      *IngestionSlice
+	Checkpoint map[string]any // P1: pass checkpoint for incremental reads
+	Filter     map[string]any // P1: filters from endpoint config
 }
 
 type StageRequest struct {
