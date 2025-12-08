@@ -83,7 +83,7 @@ func (j *Jira) ValidateConfig(ctx context.Context, config map[string]any) (*endp
 func (j *Jira) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
 		SupportsFull:        true,
-		SupportsIncremental: false, // JQL watermark filtering not yet implemented
+		SupportsIncremental: true, // JQL `updated >= watermark` filtering enabled
 		SupportsCountProbe:  true,
 		SupportsPreview:     true,
 		SupportsMetadata:    true,

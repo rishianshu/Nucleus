@@ -86,6 +86,24 @@ type ListResponse struct {
 	NextLink string      `json:"@odata.nextLink"`
 }
 
+// DeltaResponse is the response from delta query endpoint.
+type DeltaResponse struct {
+	Value     []DeltaDriveItem `json:"value"`
+	NextLink  string           `json:"@odata.nextLink"`
+	DeltaLink string           `json:"@odata.deltaLink"`
+}
+
+// DeltaDriveItem extends DriveItem with delete marker for delta queries.
+type DeltaDriveItem struct {
+	DriveItem
+	Deleted *DeletedFacet `json:"deleted,omitempty"`
+}
+
+// DeletedFacet indicates an item was deleted.
+type DeletedFacet struct {
+	State string `json:"state"`
+}
+
 // TokenResponse is the OAuth token response.
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`

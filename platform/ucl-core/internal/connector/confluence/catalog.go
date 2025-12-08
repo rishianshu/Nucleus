@@ -98,7 +98,7 @@ var DatasetDefinitions = map[string]*DatasetDefinition{
 			{Name: "url", DataType: "STRING", Nullable: true},
 			{Name: "_raw", DataType: "JSON", Nullable: true},
 		},
-		SupportsIncremental: false, // Version-based incremental not yet implemented
+		SupportsIncremental: true, // expand=history.lastUpdated
 		IncrementalField:    "updatedAt",
 		APIKeys:             []string{"content_search", "content_detail"},
 	},
@@ -119,7 +119,7 @@ var DatasetDefinitions = map[string]*DatasetDefinition{
 			{Name: "createdBy", DataType: "STRING", Nullable: true},
 			{Name: "_raw", DataType: "JSON", Nullable: true},
 		},
-		SupportsIncremental: false, // Version-based incremental not yet implemented
+		SupportsIncremental: true, // expand=history.lastUpdated
 		IncrementalField:    "createdAt",
 		APIKeys:             []string{"attachment_list"},
 	},
@@ -136,7 +136,7 @@ var DatasetDefinitions = map[string]*DatasetDefinition{
 			{Name: "accessMode", DataType: "STRING", Nullable: true},
 			{Name: "grantedAt", DataType: "TIMESTAMP", Nullable: true},
 		},
-		SupportsIncremental: false, // Version-based incremental not yet implemented
+		SupportsIncremental: true, // Client-side filtering
 		APIKeys:             []string{},
 	},
 }
