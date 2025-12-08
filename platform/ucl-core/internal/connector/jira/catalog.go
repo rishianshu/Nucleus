@@ -171,7 +171,7 @@ var DatasetDefinitions = map[string]DatasetDefinition{
 			{Name: "createdAt", DataType: "TIMESTAMP", Nullable: true},
 		},
 		APIKeys:             []string{"issue_search", "issue_detail", "field_catalog"},
-		SupportsIncremental: false, // JQL watermark filtering not yet implemented
+		SupportsIncremental: true, // JQL `updated >= watermark`
 		IncrementalCursor:   "fields.updated",
 		Handler:             "issues",
 		CdmModelID:          cdm.ModelWorkItem,
@@ -249,7 +249,7 @@ var DatasetDefinitions = map[string]DatasetDefinition{
 			{Name: "updatedAt", DataType: "TIMESTAMP", Nullable: true},
 		},
 		APIKeys:             []string{"issue_comments"},
-		SupportsIncremental: false, // JQL watermark filtering not yet implemented
+		SupportsIncremental: true, // JQL `updated >= watermark`
 		IncrementalCursor:   "updated",
 		Handler:             "comments",
 		CdmModelID:          cdm.ModelWorkComment,
@@ -267,7 +267,7 @@ var DatasetDefinitions = map[string]DatasetDefinition{
 			{Name: "updatedAt", DataType: "TIMESTAMP", Nullable: true},
 		},
 		APIKeys:             []string{"issue_worklogs"},
-		SupportsIncremental: false, // JQL watermark filtering not yet implemented
+		SupportsIncremental: true, // JQL `updated >= watermark`
 		IncrementalCursor:   "started",
 		Handler:             "worklogs",
 		CdmModelID:          cdm.ModelWorkLog,

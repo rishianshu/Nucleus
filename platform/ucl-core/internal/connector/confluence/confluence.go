@@ -57,7 +57,7 @@ func (c *Confluence) GetDescriptor() *endpoint.Descriptor {
 func (c *Confluence) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
 		SupportsFull:        true,
-		SupportsIncremental: false, // Version-based incremental not yet implemented
+		SupportsIncremental: true, // Uses expand=history.lastUpdated with client-side filtering
 		SupportsMetadata:    true,
 		SupportsPreview:     true,
 	}

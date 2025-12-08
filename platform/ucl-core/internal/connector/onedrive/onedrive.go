@@ -86,7 +86,7 @@ func (o *OneDrive) GetDescriptor() *endpoint.Descriptor {
 func (o *OneDrive) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
 		SupportsFull:        true,
-		SupportsIncremental: false, // Delta tokens not yet implemented
+		SupportsIncremental: true, // Delta tokens via /delta endpoint
 		SupportsCountProbe:  false,
 		SupportsPreview:     true,
 		SupportsMetadata:    true,
@@ -460,3 +460,284 @@ func (it *onedriveIterator) buildFolderRecord(item DriveItem, path string) endpo
 		"webUrl":       item.WebURL,
 	}
 }
+
+// =============================================================================
+// SLICE CAPABLE - Incremental Delta Support
+// =============================================================================
+
+// GetCheckpoint returns the current checkpoint for a dataset.
+func (o *OneDrive) GetCheckpoint(ctx context.Context, datasetID string) (*endpoint.Checkpoint, error) {
+	// For full sync, we'd normally fetch from metadata store
+	// For now, return empty checkpoint indicating "start fresh"
+	return &endpoint.Checkpoint{
+		Watermark: "",
+		Metadata: map[string]any{
+			"deltaLink": "",
+		},
+	}, nil
+}
+
+// PlanSlices creates an ingestion plan using delta tokens if available.
+func (o *OneDrive) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) (*endpoint.IngestionPlan, error) {
+	deltaLink := ""
+	if req.Checkpoint != nil && req.Checkpoint.Metadata != nil {
+		if dl, ok := req.Checkpoint.Metadata["deltaLink"].(string); ok {
+			deltaLink = dl
+		}
+	}
+
+	return &endpoint.IngestionPlan{
+		DatasetID: req.DatasetID,
+		Strategy:  req.Strategy,
+		Slices: []*endpoint.IngestionSlice{
+			{
+				SliceID:  "delta",
+				Sequence: 0,
+				Lower:    deltaLink, // deltaLink stored in Lower for now
+				Upper:    "",
+			},
+		},
+	}, nil
+}
+
+// ReadSlice reads a slice of data using delta query.
+func (o *OneDrive) ReadSlice(ctx context.Context, req *endpoint.SliceReadRequest) (endpoint.Iterator[endpoint.Record], error) {
+	if err := o.ensureAccessToken(ctx); err != nil {
+		return nil, err
+	}
+
+	deltaLink := ""
+	if req.Slice != nil {
+		deltaLink = req.Slice.Lower
+	}
+
+	foldersOnly := req.DatasetID == "onedrive.folder"
+	return o.readDelta(ctx, deltaLink, foldersOnly)
+}
+
+// readDelta fetches items using the delta endpoint.
+func (o *OneDrive) readDelta(ctx context.Context, deltaLink string, foldersOnly bool) (endpoint.Iterator[endpoint.Record], error) {
+	return &deltaIterator{
+		onedrive:    o,
+		ctx:         ctx,
+		foldersOnly: foldersOnly,
+		nextLink:    deltaLink,
+		items:       make([]DeltaDriveItem, 0),
+	}, nil
+}
+
+// fetchDelta calls the Graph API delta endpoint.
+func (o *OneDrive) fetchDelta(ctx context.Context, link string) (*DeltaResponse, error) {
+	var apiPath string
+	if link != "" {
+		// Use the provided link directly (nextLink or deltaLink)
+		apiPath = link
+	} else {
+		// Initial delta request
+		if o.Config.DriveID != "" {
+			apiPath = fmt.Sprintf("/drives/%s/root/delta", o.Config.DriveID)
+		} else {
+			apiPath = "/me/drive/root/delta"
+		}
+	}
+
+	// For external URLs (nextLink/deltaLink), use full URL
+	var body []byte
+	var err error
+	if strings.HasPrefix(apiPath, "http") {
+		body, err = o.graphRequestURL(ctx, apiPath)
+	} else {
+		body, err = o.graphRequest(ctx, apiPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var resp DeltaResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
+// graphRequestURL makes a request to a full URL (for nextLink/deltaLink).
+func (o *OneDrive) graphRequestURL(ctx context.Context, fullURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+o.accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusGone {
+		// Token expired, need full resync
+		return nil, fmt.Errorf("delta token expired (HTTP 410), full resync required")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("graph API error: %s", string(body))
+	}
+
+	return body, nil
+}
+
+// =============================================================================
+// DELTA ITERATOR
+// =============================================================================
+
+type deltaIterator struct {
+	onedrive    *OneDrive
+	ctx         context.Context
+	foldersOnly bool
+	nextLink    string
+	deltaLink   string // Final deltaLink for checkpoint
+	items       []DeltaDriveItem
+	index       int
+	current     endpoint.Record
+	err         error
+	done        bool
+}
+
+func (it *deltaIterator) Next() bool {
+	for {
+		// Check buffered items
+		if it.index < len(it.items) {
+			item := it.items[it.index]
+			it.index++
+
+			// Skip deleted items (just record them for now)
+			if item.Deleted != nil {
+				continue
+			}
+
+			// Apply folder filter
+			isFolder := item.Folder != nil
+			if it.foldersOnly && !isFolder {
+				continue
+			}
+			if !it.foldersOnly && isFolder {
+				continue
+			}
+
+			// Build record
+			if isFolder {
+				it.current = it.buildFolderRecord(item)
+			} else {
+				it.current = it.buildFileRecord(item)
+			}
+			return true
+		}
+
+		if it.done {
+			return false
+		}
+
+		// Fetch more items
+		resp, err := it.onedrive.fetchDelta(it.ctx, it.nextLink)
+		if err != nil {
+			it.err = err
+			return false
+		}
+
+		it.items = resp.Value
+		it.index = 0
+
+		if resp.NextLink != "" {
+			it.nextLink = resp.NextLink
+		} else if resp.DeltaLink != "" {
+			it.deltaLink = resp.DeltaLink
+			it.done = true
+		} else {
+			it.done = true
+		}
+
+		if len(it.items) == 0 && it.done {
+			return false
+		}
+	}
+}
+
+func (it *deltaIterator) Value() endpoint.Record {
+	return it.current
+}
+
+func (it *deltaIterator) Err() error {
+	return it.err
+}
+
+func (it *deltaIterator) Close() error {
+	return nil
+}
+
+// DeltaLink returns the final delta link for checkpoint storage.
+func (it *deltaIterator) DeltaLink() string {
+	return it.deltaLink
+}
+
+func (it *deltaIterator) buildFileRecord(item DeltaDriveItem) endpoint.Record {
+	mimeType := ""
+	if item.File != nil {
+		mimeType = item.File.MimeType
+	}
+
+	createdBy := ""
+	if item.CreatedBy != nil && item.CreatedBy.User != nil {
+		createdBy = item.CreatedBy.User.DisplayName
+	}
+
+	modifiedBy := ""
+	if item.ModifiedBy != nil && item.ModifiedBy.User != nil {
+		modifiedBy = item.ModifiedBy.User.DisplayName
+	}
+
+	return endpoint.Record{
+		"id":           item.ID,
+		"name":         item.Name,
+		"path":         item.getPath(),
+		"size":         item.Size,
+		"mimeType":     mimeType,
+		"createdTime":  item.CreatedDateTime,
+		"modifiedTime": item.ModifiedDateTime,
+		"webUrl":       item.WebURL,
+		"createdBy":    createdBy,
+		"modifiedBy":   modifiedBy,
+	}
+}
+
+func (it *deltaIterator) buildFolderRecord(item DeltaDriveItem) endpoint.Record {
+	childCount := 0
+	if item.Folder != nil {
+		childCount = item.Folder.ChildCount
+	}
+
+	return endpoint.Record{
+		"id":           item.ID,
+		"name":         item.Name,
+		"path":         item.getPath(),
+		"childCount":   childCount,
+		"createdTime":  item.CreatedDateTime,
+		"modifiedTime": item.ModifiedDateTime,
+		"webUrl":       item.WebURL,
+	}
+}
+
+// Helper to get path from parent reference
+func (item *DeltaDriveItem) getPath() string {
+	if item.ParentReference != nil && item.ParentReference.Path != "" {
+		return item.ParentReference.Path + "/" + item.Name
+	}
+	return "/" + item.Name
+}
+
