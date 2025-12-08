@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package ucl.orchestration.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/nucleus/ucl-core/gen/orchestration/v1;orchestrationv1";
+
+// Ingestion Strategy Service
+// Defines the abstraction for Full Refresh / SCD1 / CDC strategies
+service IngestionStrategyService {
+  // List available ingestion strategies
+  rpc ListStrategies(ListStrategiesRequest) returns (ListStrategiesResponse);
+  
+  // Execute a full ingestion job using specified strategy
+  rpc RunIngestion(RunIngestionRequest) returns (stream RunIngestionResponse);
+}
+
+message ListStrategiesRequest {}
+
+message StrategyDescriptor {
+  string id = 1; // "full", "scd1", "cdc"
+  string display_name = 2;
+  string description = 3;
+  bool supports_incremental = 4;
+  bool supports_slicing = 5;
+}
+
+message ListStrategiesResponse {
+  repeated StrategyDescriptor strategies = 1;
+}
+
+message RunIngestionRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+  string strategy = 3; // "full", "scd1"
+  
+  // Incremental context
+  string last_watermark = 4;
+  string incremental_column = 5;
+  repeated string primary_keys = 6;
+  
+  // Planning hints
+  bool enable_slicing = 7;
+  int32 target_slice_size = 8;
+  
+  // Sink configuration
+  string sink_endpoint_id = 9;
+  string sink_schema = 10;
+  string sink_table = 11;
+  string load_date = 12;
+  
+  // Validation policies
+  SchemaDriftPolicy drift_policy = 13;
+  PrecisionGuardrailPolicy precision_policy = 14;
+}
+
+message SchemaDriftPolicy {
+  bool require_snapshot = 1;
+  bool allow_new_columns = 2;
+  bool allow_missing_columns = 3;
+  bool allow_type_mismatch = 4;
+}
+
+message PrecisionGuardrailPolicy {
+  int32 max_precision = 1;
+  string violation_action = 2; // "downcast", "fail", "warn"
+  int32 fallback_precision = 3;
+  int32 fallback_scale = 4;
+}
+
+message SchemaDriftResult {
+  repeated string new_columns = 1;
+  repeated string missing_columns = 2;
+  repeated TypeMismatch type_mismatches = 3;
+}
+
+message TypeMismatch {
+  string column = 1;
+  string expected = 2;
+  string observed = 3;
+}
+
+message PrecisionGuardrailResult {
+  string status = 1; // "ok", "issues_handled", "failed"
+  repeated PrecisionIssue issues = 2;
+}
+
+message PrecisionIssue {
+  string column = 1;
+  int32 precision = 2;
+  int32 scale = 3;
+  string reason = 4;
+  bool handled = 5;
+  string action = 6;
+}
+
+message RunIngestionResponse {
+  // Progress updates streamed back
+  
+  oneof event {
+    IngestionPlanEvent plan = 1;
+    SliceProgressEvent slice_progress = 2;
+    ValidationEvent validation = 3;
+    IngestionCompleteEvent complete = 4;
+  }
+}
+
+message IngestionPlanEvent {
+  int32 total_slices = 1;
+  int64 estimated_rows = 2;
+  string strategy_used = 3;
+}
+
+message SliceProgressEvent {
+  string slice_id = 1;
+  int64 rows_processed = 2;
+  string status = 3; // "started", "completed", "failed"
+}
+
+message ValidationEvent {
+  SchemaDriftResult drift = 1;
+  PrecisionGuardrailResult precision = 2;
+}
+
+message IngestionCompleteEvent {
+  int64 total_rows = 1;
+  string new_watermark = 2;
+  string raw_path = 3;
+  string final_path = 4;
+}

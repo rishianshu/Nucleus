@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package ucl.metadata.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nucleus/ucl-core/gen/metadata/v1;metadatav1";
+
+// Metadata Service
+// Handles metadata collection, caching, and retrieval
+service MetadataService {
+  // Collect metadata for a target
+  rpc CollectMetadata(CollectMetadataRequest) returns (CollectMetadataResponse);
+  
+  // Query cached metadata
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+  
+  // Check if cache refresh is needed
+  rpc NeedsRefresh(NeedsRefreshRequest) returns (NeedsRefreshResponse);
+}
+
+// ============================================================================
+// CORE METADATA MODELS
+// ============================================================================
+
+message MetadataTarget {
+  string source_id = 1;
+  string namespace = 2;
+  string entity = 3;
+  google.protobuf.Struct extras = 4;
+}
+
+message MetadataContext {
+  string source_id = 1;
+  string job_id = 2;
+  string run_id = 3;
+  string namespace = 4;
+  google.protobuf.Struct extras = 5;
+}
+
+message MetadataRecord {
+  MetadataTarget target = 1;
+  string kind = 2; // "schema", "statistics", "lineage"
+  google.protobuf.Struct payload = 3;
+  google.protobuf.Timestamp produced_at = 4;
+  string producer_id = 5;
+  string version = 6;
+  google.protobuf.Struct quality = 7;
+}
+
+// ============================================================================
+// SERVICE MESSAGES
+// ============================================================================
+
+message CollectMetadataRequest {
+  string endpoint_id = 1;
+  MetadataTarget target = 2;
+  bool force_refresh = 3;
+  google.protobuf.Struct config = 4;
+}
+
+message CollectMetadataResponse {
+  bool success = 1;
+  string producer_id = 2;
+  int32 records_produced = 3;
+  int32 records_stored = 4;
+  string error = 5;
+  string reason = 6;
+}
+
+message GetMetadataRequest {
+  MetadataTarget target = 1;
+  string kind = 2; // optional filter
+  bool include_history = 3;
+  int32 limit = 4;
+}
+
+message GetMetadataResponse {
+  repeated MetadataRecord records = 1;
+}
+
+message NeedsRefreshRequest {
+  MetadataTarget target = 1;
+}
+
+message NeedsRefreshResponse {
+  bool needs_refresh = 1;
+  string last_collected_at = 2;
+  string expires_at = 3;
+}
+
+// ============================================================================
+// CACHE CONFIGURATION
+// ============================================================================
+
+message CacheConfig {
+  string cache_path = 1;
+  int32 ttl_hours = 2;
+  bool enabled = 3;
+  string source_id = 4;
+}
