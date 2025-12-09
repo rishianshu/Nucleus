@@ -33,23 +33,26 @@ Nucleus is our opinionated platform for unifying metadata, AI-assisted reporting
 - **Trigger collections:** From the endpoint card, provide optional schema overrides and run a collection. Temporal progress + logs show up on the Collections tab.
 - **Design a report:** Create a definition, draft a version, and leverage the agent suggestions to generate SQL/templates. Publish when ready and reference the registry from downstream clients.
 
-# Project Operations (Consolidated Migration)
+## Architecture & Decisions
+**Dec 2025 Migration**:
+-   **UCL Core**: Migrated from Python to **Go** for performance and type safety.
+-   **Transport**: Replaced CLI invocations with **gRPC** for standardized contracts (`ucl.proto`).
+-   **Orchestration**: **Temporal** workflows manage long-running ingestion and preview jobs.
 
-This repository separates planning (ChatGPT) from execution (Codex) and syncs via shared artifacts.
-See docs/meta/* for contracts and schemas. Place feature contracts in intents/<slug>.
+## Context Map (Where to find things)
 
-Folders:
-- docs/meta/      : agent contracts, schemas, governance
-- epics/          : coordination only
-- intents/<slug>/ : SPEC + INTENT + ACCEPTANCE (source of truth for WHAT)
-- runs/<slug>/    : PLAN + LOG + QUESTIONS + DECISIONS + TODO (Codex writes)
-- stories/<slug>/ : STORY timeline
-- sync/STATE.md   : shared portfolio roll-up
+| Component | Location | Description |
+|-----------|----------|-------------|
+| **Protocols** | [`AGENT_INSTRUCTIONS.md`](./AGENT_INSTRUCTIONS.md) | **START HERE**. How to work, review, and plan. |
+| **UCL Core** | [`platform/ucl-core`](./platform/ucl-core) | Go gRPC server. Logic for connectors and schema. |
+| **Worker** | [`platform/ucl-worker`](./platform/ucl-worker) | Go Temporal worker. Executes ingestion activities. |
+| **API** | [`apps/metadata-api`](./apps/metadata-api) | TypeScript GraphQL API + gRPC Client. |
+| **API (Go)** | [`apps/metadata-api-go`](./apps/metadata-api-go) | *New* Go implementation of Metadata API. |
+| **Docs** | [`docs/`](./docs) | Architecture specs and legacy contracts. |
 
-Workflow:
-1) ChatGPT produces intents/<slug>/* (status: ready)
-2) make promote slug=<slug>
-3) Run Card → Codex executes autonomously (2–6h)
-4) Codex updates sync/STATE.md and stories/*
+## Quick Start
+1.  **Start Stack**: `pnpm dev:stack` (services) + `pnpm dev:designer` (UI).
+2.  **Run Tests**: `apps/metadata-api-go/scripts/run-integration-tests.sh`.
 
-Guardrails: fail-closed on ambiguity; log minor decisions; fast ci-check (<8m); never touch @custom blocks.
+## Project Operations
+This repository follows a structured **Plan -> Code -> Review** cycle. See `AGENT_INSTRUCTIONS.md` for details on how `task.md` and `implementation_plan.md` drive development.
