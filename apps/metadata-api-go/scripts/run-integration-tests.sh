@@ -20,8 +20,8 @@ export TEMPORAL_NAMESPACE="${TEMPORAL_NAMESPACE:-default}"
 export TEMPORAL_TS_TASK_QUEUE="${TEMPORAL_TS_TASK_QUEUE:-metadata-ts}"
 export TEMPORAL_GO_TASK_QUEUE="${TEMPORAL_GO_TASK_QUEUE:-metadata-go}"
 
-# Python CLI path (relative to test directory)
-export ENDPOINT_CLI_PATH="${ENDPOINT_CLI_PATH:-../../../platform/spark-ingestion/scripts/endpoint_registry_cli.py}"
+# Python CLI path (absolute path to avoid CWD confusion)
+export ENDPOINT_CLI_PATH="${ENDPOINT_CLI_PATH:-$SCRIPT_DIR/../../platform/spark-ingestion/scripts/endpoint_registry_cli.py}"
 
 # =============================================================================
 # DATABASE CREDENTIALS
