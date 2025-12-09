@@ -98,8 +98,9 @@ const goActivities = proxyActivities<GoMetadataActivities>({
 // Shadow mode flag - when true, runs Go activities in parallel for comparison
 const GO_SHADOW_MODE = process.env.GO_SHADOW_MODE === "true";
 
-// Feature flag - when true, uses Go activities instead of Python (Sprint 9)
-const USE_GO_WORKER = process.env.USE_GO_WORKER === "true";
+// Feature flag - Go worker is now the DEFAULT (Sprint 11)
+// Set USE_GO_WORKER=false to fall back to Python worker
+const USE_GO_WORKER = process.env.USE_GO_WORKER !== "false";
 
 // Unified ingestion activities - switches based on feature flag
 const ingestionActivities = USE_GO_WORKER
