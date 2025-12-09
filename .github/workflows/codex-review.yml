@@ -18,7 +18,8 @@ jobs:
       - name: Codex Review
         uses: openai/codex-action@v1
         with:
-          task: |
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt: |
             Review this PR for:
             1. Interface compliance with internal/endpoint/* types
             2. Test coverage (unit + integration)

@@ -1,0 +1,219 @@
+syntax = "proto3";
+
+package ucl.v1;
+
+option go_package = "github.com/nucleus/ucl-core/pkg/uclpb";
+
+// UCLService provides the Universal Connectivity Layer API.
+// This replaces the Python CLI (endpoint_registry_cli.py) with gRPC.
+service UCLService {
+  // ListEndpointTemplates returns available endpoint templates.
+  rpc ListEndpointTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
+  
+  // BuildEndpointConfig creates an endpoint configuration from a template.
+  rpc BuildEndpointConfig(BuildConfigRequest) returns (BuildConfigResponse);
+  
+  // TestEndpointConnection tests connectivity to an endpoint.
+  rpc TestEndpointConnection(TestConnectionRequest) returns (TestConnectionResponse);
+  
+  // ValidateConfig validates an endpoint configuration.
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  
+  // ListDatasets returns available datasets for an endpoint.
+  rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+  
+  // GetSchema returns the schema for a dataset.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+}
+
+// ===== Templates =====
+
+message ListTemplatesRequest {
+  // Optional filter by endpoint family (JDBC, HTTP, STREAM)
+  string family = 1;
+}
+
+message ListTemplatesResponse {
+  repeated EndpointTemplate templates = 1;
+}
+
+message EndpointTemplate {
+  string id = 1;
+  string family = 2;
+  string display_name = 3;
+  string vendor = 4;
+  string description = 5;
+  repeated FieldDescriptor fields = 6;
+  repeated string categories = 7;
+  // New fields for full Python CLI parity
+  string domain = 8;
+  repeated string protocols = 9;
+  repeated string versions = 10;
+  int32 default_port = 11;
+  string driver = 12;
+  string docs_url = 13;
+  string agent_prompt = 14;
+  repeated string default_labels = 15;
+  repeated Capability capabilities = 16;
+  ConnectionConfig connection = 17;
+  ProbingPlan probing = 18;
+  string sample_config = 19;
+  map<string, string> extras = 20;
+  
+  string descriptor_version = 21;
+  string min_version = 22;
+  string max_version = 23;
+}
+
+message Capability {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+}
+
+message ConnectionConfig {
+  string url_template = 1;
+  string default_verb = 2;
+}
+
+message ProbingPlan {
+  repeated ProbingMethod methods = 1;
+  string fallback_message = 2;
+}
+
+message ProbingMethod {
+  string key = 1;
+  string label = 2;
+  string strategy = 3;
+  string statement = 4;
+  string description = 5;
+  repeated string requires = 6;
+  bool returns_version = 7;
+  repeated string returns_capabilities = 8;
+}
+
+message FieldDescriptor {
+  string name = 1;
+  string type = 2; // string, number, boolean, secret
+  string label = 3;
+  string description = 4;
+  bool required = 5;
+  string default_value = 6;
+  repeated string options = 7; // For enum fields
+  
+  // Extended metadata
+  string placeholder = 8;
+  string regex = 9;
+  string help_text = 10;
+  string semantic = 11;
+  bool advanced = 12;
+  bool sensitive = 13;
+  string depends_on = 14;
+  string depends_value = 15;
+  VisibleWhen visible_when = 16;
+  int64 min_value = 17;
+  int64 max_value = 18;
+}
+
+message VisibleWhen {
+  string field = 1;
+  repeated string values = 2;
+}
+
+// ===== Config =====
+
+message BuildConfigRequest {
+  string template_id = 1;
+  map<string, string> parameters = 2;
+  repeated string labels = 3;
+}
+
+message BuildConfigResponse {
+  bool success = 1;
+  map<string, string> config = 2;
+  string connection_url = 3;
+  string error = 4;
+}
+
+// ===== Connection Test =====
+
+message TestConnectionRequest {
+  string template_id = 1;
+  map<string, string> parameters = 2;
+}
+
+message TestConnectionResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  int64 latency_ms = 4;
+  
+  // Extended fields for CLI parity
+  string detected_version = 5;
+  repeated string capabilities = 6;
+  map<string, string> details = 7;
+}
+
+// ===== Validation =====
+
+message ValidateConfigRequest {
+  string endpoint_id = 1;
+  map<string, string> config = 2;
+}
+
+message ValidateConfigResponse {
+  bool valid = 1;
+  repeated string errors = 2;
+  repeated string warnings = 3;
+}
+
+// ===== Datasets =====
+
+message ListDatasetsRequest {
+  string endpoint_id = 1;
+  map<string, string> config = 2;
+}
+
+message ListDatasetsResponse {
+  repeated Dataset datasets = 1;
+}
+
+// CODEX FIX: Aligned with endpoint.Dataset - includes all fields
+message Dataset {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string kind = 4;  // "table", "view", "stream", "topic"
+  bool supports_incremental = 5;
+  string cdm_model_id = 6;  // e.g., "cdm.work.item"
+  string ingestion_strategy = 7;  // "full", "scd1", "cdc"
+  string incremental_column = 8;
+  string incremental_literal = 9;  // "timestamp", "epoch"
+  repeated string primary_keys = 10;
+  map<string, string> metadata = 11;
+}
+
+// ===== Schema =====
+
+message GetSchemaRequest {
+  string endpoint_id = 1;
+  string dataset_id = 2;
+  map<string, string> config = 3;
+}
+
+message GetSchemaResponse {
+  repeated SchemaField fields = 1;
+}
+
+// CODEX FIX: Aligned with endpoint.FieldDefinition - includes all fields
+message SchemaField {
+  string name = 1;
+  string type = 2;
+  bool nullable = 3;
+  bool is_primary_key = 4;
+  string description = 5;
+  int32 precision = 6;
+  int32 scale = 7;
+  int32 length = 8;
+}
+

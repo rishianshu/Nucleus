@@ -59,11 +59,92 @@ type PythonMetadataActivities = {
 };
 
 const PYTHON_ACTIVITY_TASK_QUEUE = "metadata-python";
+const GO_ACTIVITY_TASK_QUEUE = "metadata-go";
 
 const pythonActivities = proxyActivities<PythonMetadataActivities>({
   taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
   scheduleToCloseTimeout: "2 hours",
 });
+
+// Go activities (Sprint 8: Shadow Mode)
+// These mirror Python activities and run on the Go worker
+type GoMetadataActivities = {
+  CollectCatalogSnapshots(request: CollectionJobRequest): Promise<CollectionJobResult>;
+  PreviewDataset(input: {
+    datasetId: string;
+    schema: string;
+    table: string;
+    limit?: number;
+    connectionUrl: string;
+    templateId: string;
+    parameters: Record<string, unknown>;
+    endpointId: string;
+    unitId: string;
+    stagingProviderId?: string | null;
+  }): Promise<{ rows: unknown[]; sampledAt: string; recordsPath?: string | null; stagingProviderId?: string | null }>;
+  PlanIngestionUnit(input: PythonIngestionRequest): Promise<{
+    slices?: Array<Record<string, unknown>>;
+    plan_metadata?: Record<string, unknown>;
+    strategy?: string | null;
+  }>;
+  RunIngestionUnit(input: PythonIngestionRequest): Promise<PythonIngestionResult>;
+};
+
+const goActivities = proxyActivities<GoMetadataActivities>({
+  taskQueue: GO_ACTIVITY_TASK_QUEUE,
+  scheduleToCloseTimeout: "2 hours",
+});
+
+// Shadow mode flag - when true, runs Go activities in parallel for comparison
+const GO_SHADOW_MODE = process.env.GO_SHADOW_MODE === "true";
+
+// Feature flag - Go worker is now the DEFAULT (Sprint 11)
+// Set USE_GO_WORKER=false to fall back to Python worker
+const USE_GO_WORKER = process.env.USE_GO_WORKER !== "false";
+
+// Unified ingestion activities - switches based on feature flag
+const ingestionActivities = USE_GO_WORKER
+  ? {
+      collectCatalogSnapshots: goActivities.CollectCatalogSnapshots,
+      previewDataset: goActivities.PreviewDataset,
+      planIngestionUnit: goActivities.PlanIngestionUnit,
+      runIngestionUnit: goActivities.RunIngestionUnit,
+    }
+  : {
+      collectCatalogSnapshots: pythonActivities.collectCatalogSnapshots,
+      previewDataset: pythonActivities.previewDataset,
+      planIngestionUnit: pythonActivities.planIngestionUnit,
+      runIngestionUnit: pythonActivities.runIngestionUnit,
+    };
+
+// Log which worker is being used
+if (USE_GO_WORKER) {
+  log.info("worker-mode", { mode: "go", taskQueue: GO_ACTIVITY_TASK_QUEUE });
+} else {
+  log.info("worker-mode", { mode: "python", taskQueue: PYTHON_ACTIVITY_TASK_QUEUE });
+}
+
+// Helper to run shadow comparison without blocking main flow
+async function runGoShadow<T>(
+  activityName: string,
+  goFn: () => Promise<T>,
+  pyStats?: Record<string, unknown> | null
+): Promise<void> {
+  if (!GO_SHADOW_MODE) return;
+  try {
+    const goResult = await goFn();
+    log.info("shadow-compare", {
+      activity: activityName,
+      pyStats: pyStats ?? null,
+      goResult: goResult ?? null,
+    });
+  } catch (error) {
+    log.warn("shadow-go-error", {
+      activity: activityName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 type PythonIngestionRequest = {
   endpointId: string;
@@ -155,7 +236,7 @@ export async function collectionRunWorkflow(input: CollectionRunWorkflowInput) {
       await markRunSkipped({ runId, reason: plan.reason });
       return;
     }
-    const result = await pythonActivities.collectCatalogSnapshots(plan.job);
+    const result = await ingestionActivities.collectCatalogSnapshots(plan.job);
     result?.logs?.forEach((entry: Record<string, unknown>) => {
       log.info("metadata-collection-log", entry);
     });
@@ -210,17 +291,10 @@ export async function previewDatasetWorkflow(input: {
     ...input,
     connectionUrl: input.connectionUrl ?? "",
   };
-  const preview = await pythonActivities.previewDataset.executeWithOptions(
-    {
-      taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
-      scheduleToCloseTimeout: "5 minutes",
-      retry: {
-        maximumAttempts: 3,
-        nonRetryableErrorTypes: ["SampleDatasetPreview"],
-      },
-    },
-    [normalizedInput],
-  );
+  
+  // CODEX FIX: Use unified ingestionActivities interface instead of executeWithOptions
+  // executeWithOptions is not a valid method on Temporal activity stubs
+  const preview = await ingestionActivities.previewDataset(normalizedInput);
   if (preview.recordsPath) {
     const rows = await loadStagedRecordsActivity({
       path: preview.recordsPath,
@@ -269,7 +343,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       transientStateVersion: context.transientStateVersion ?? null,
     };
 
-  const plan = await pythonActivities.planIngestionUnit(baseRequest);
+  const plan = await ingestionActivities.planIngestionUnit(baseRequest);
   const slices = Array.isArray(plan.slices) ? plan.slices : [];
   const planMetadata = (plan.plan_metadata as Record<string, unknown> | undefined) ?? {};
   const planStrategy = (plan.strategy as string | null | undefined) ?? (planMetadata as any)?.strategy ?? null;
@@ -293,7 +367,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       const batch = requests.slice(i, i + maxParallel);
       const results = await Promise.all(
         batch.map((req) =>
-          pythonActivities.runIngestionUnit(req).catch((err) => {
+          ingestionActivities.runIngestionUnit(req).catch((err) => {
             throw ApplicationFailure.fromError(err as Error);
           }),
         ),
@@ -301,7 +375,7 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       sliceResults.push(...results);
     }
   } else {
-    sliceResults.push(await pythonActivities.runIngestionUnit(baseRequest));
+    sliceResults.push(await ingestionActivities.runIngestionUnit(baseRequest));
   }
 
   const stagingHandles: Array<{ path: string; providerId?: string | null }> = [];
@@ -344,6 +418,15 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
   if (planStrategy) {
     aggregatedStats = aggregatedStats ?? {};
     aggregatedStats.strategy = planStrategy;
+  }
+
+  // Sprint 8: Shadow mode - run Go activity in parallel for comparison
+  if (GO_SHADOW_MODE) {
+    void runGoShadow(
+      "RunIngestionUnit",
+      () => goActivities.RunIngestionUnit(baseRequest),
+      aggregatedStats
+    );
   }
 
   const fallbackRecords = sliceResults[0]?.records ?? null;

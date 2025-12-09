@@ -1,0 +1,773 @@
+# =============================================================================
+# METADATA API GRAPHQL SCHEMA
+# Migrated from TypeScript typeDefs
+# =============================================================================
+
+scalar DateTime
+scalar JSON
+
+# =============================================================================
+# HEALTH & CORE TYPES
+# =============================================================================
+
+type Health {
+  status: String!
+  version: String!
+}
+
+type MetadataDomain {
+  key: String!
+  title: String!
+  description: String
+  itemCount: Int!
+}
+
+type MetadataRecord {
+  id: ID!
+  projectId: String!
+  domain: String!
+  labels: [String!]!
+  payload: JSON!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input MetadataRecordInput {
+  id: ID
+  projectId: String!
+  domain: String!
+  labels: [String!]
+  payload: JSON!
+}
+
+# =============================================================================
+# GRAPH / KNOWLEDGE BASE TYPES
+# =============================================================================
+
+type GraphScope {
+  orgId: String!
+  domainId: String
+  projectId: String
+  teamId: String
+}
+
+input GraphScopeInput {
+  orgId: String
+  domainId: String
+  projectId: String
+  teamId: String
+}
+
+type GraphIdentity {
+  logicalKey: String!
+  externalId: JSON
+  originEndpointId: ID
+  originVendor: String
+  phase: String
+  provenance: JSON
+  sourceLogicalKey: String
+  targetLogicalKey: String
+}
+
+type GraphNode {
+  id: ID!
+  tenantId: String!
+  projectId: String
+  entityType: String!
+  displayName: String!
+  canonicalPath: String
+  sourceSystem: String
+  specRef: String
+  properties: JSON!
+  version: Int!
+  phase: String
+  scope: GraphScope!
+  identity: GraphIdentity!
+  provenance: JSON
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type GraphEdge {
+  id: ID!
+  tenantId: String!
+  projectId: String
+  edgeType: String!
+  sourceEntityId: ID!
+  targetEntityId: ID!
+  confidence: Float
+  specRef: String
+  metadata: JSON!
+  scope: GraphScope!
+  identity: GraphIdentity!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input GraphNodeFilter {
+  entityTypes: [String!]
+  search: String
+  limit: Int
+}
+
+input GraphEdgeFilter {
+  edgeTypes: [String!]
+  sourceEntityId: ID
+  targetEntityId: ID
+  limit: Int
+}
+
+enum GraphEdgeDirection {
+  OUTBOUND
+  INBOUND
+  BOTH
+}
+
+# =============================================================================
+# KB CONNECTIONS & PAGINATION
+# =============================================================================
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: ID
+  endCursor: ID
+}
+
+type KbNodeEdge {
+  cursor: ID!
+  node: GraphNode!
+}
+
+type KbNodeConnection {
+  edges: [KbNodeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type KbEdgeEdge {
+  cursor: ID!
+  node: GraphEdge!
+}
+
+type KbEdgeConnection {
+  edges: [KbEdgeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type KbSceneSummary {
+  nodeCount: Int!
+  edgeCount: Int!
+  truncated: Boolean!
+}
+
+type KbScene {
+  nodes: [GraphNode!]!
+  edges: [GraphEdge!]!
+  summary: KbSceneSummary!
+}
+
+type KbFacetValue {
+  value: String!
+  label: String!
+  count: Int!
+}
+
+type KbFacets {
+  nodeTypes: [KbFacetValue!]!
+  edgeTypes: [KbFacetValue!]!
+  projects: [KbFacetValue!]!
+  domains: [KbFacetValue!]!
+  teams: [KbFacetValue!]!
+}
+
+type KbNodeType {
+  value: String!
+  label: String!
+  description: String
+  synonyms: [String!]!
+  icon: String
+  fieldsDisplay: [String!]!
+  actions: [String!]!
+}
+
+type KbEdgeType {
+  value: String!
+  label: String!
+  description: String
+  synonyms: [String!]!
+  icon: String
+  actions: [String!]!
+}
+
+type KbMeta {
+  version: String!
+  nodeTypes: [KbNodeType!]!
+  edgeTypes: [KbEdgeType!]!
+}
+
+# =============================================================================
+# ENDPOINT TYPES
+# =============================================================================
+
+type MetadataEndpoint {
+  id: ID!
+  sourceId: String!
+  projectId: String
+  name: String!
+  description: String
+  verb: String!
+  url: String!
+  authPolicy: String
+  domain: String
+  labels: [String!]
+  config: JSON
+  detectedVersion: String
+  versionHint: String
+  capabilities: [String!]
+  delegatedConnected: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+  deletedAt: DateTime
+  deletionReason: String
+  isDeleted: Boolean!
+  runs(limit: Int): [MetadataCollectionRun!]!
+  datasets(limit: Int, search: String): [CatalogDataset!]!
+}
+
+input MetadataEndpointInput {
+  id: ID
+  sourceId: String
+  projectId: String
+  name: String!
+  description: String
+  verb: String
+  url: String
+  authPolicy: String
+  domain: String
+  labels: [String!]
+  config: JSON
+}
+
+input EndpointInput {
+  projectSlug: String
+  sourceId: String
+  name: String!
+  description: String
+  verb: String!
+  url: String
+  authPolicy: String
+  domain: String
+  labels: [String!]
+  config: JSON
+  capabilities: [String!]
+}
+
+input EndpointPatch {
+  name: String
+  description: String
+  verb: String
+  url: String
+  authPolicy: String
+  domain: String
+  labels: [String!]
+  config: JSON
+  capabilities: [String!]
+}
+
+input TestEndpointInput {
+  templateId: String!
+  type: String!
+  connection: JSON!
+  capabilities: [String!]
+}
+
+type MetadataEndpointTestResult {
+  success: Boolean!
+  message: String
+  detectedVersion: String
+  capabilities: [String!]
+  details: JSON
+}
+
+type Diagnostic {
+  level: String!
+  code: String!
+  message: String!
+  hint: String
+  field: String
+}
+
+type TestResult {
+  ok: Boolean!
+  diagnostics: [Diagnostic!]!
+}
+
+# =============================================================================
+# ENDPOINT TEMPLATE TYPES
+# =============================================================================
+
+enum MetadataEndpointFamily {
+  JDBC
+  HTTP
+  STREAM
+}
+
+enum MetadataEndpointFieldValueType {
+  STRING
+  PASSWORD
+  NUMBER
+  BOOLEAN
+  URL
+  HOSTNAME
+  PORT
+  JSON
+  ENUM
+  LIST
+  TEXT
+}
+
+enum MetadataEndpointFieldSemantic {
+  HOST
+  PORT
+  DATABASE
+  USERNAME
+  PASSWORD
+  API_TOKEN
+  PROJECT
+  SCHEMA
+  TABLE
+  WAREHOUSE
+  ROLE
+  ENVIRONMENT
+  CLUSTER
+  TOPIC
+  GENERIC
+  FILE_PATH
+}
+
+type MetadataEndpointRequirementOption {
+  label: String!
+  value: String!
+  description: String
+}
+
+type MetadataEndpointFieldVisibilityRule {
+  field: String!
+  values: [String!]!
+}
+
+type MetadataEndpointField {
+  key: String!
+  label: String!
+  required: Boolean!
+  valueType: MetadataEndpointFieldValueType!
+  semantic: MetadataEndpointFieldSemantic
+  description: String
+  placeholder: String
+  helpText: String
+  options: [MetadataEndpointRequirementOption!]
+  regex: String
+  min: Int
+  max: Int
+  defaultValue: String
+  advanced: Boolean
+  sensitive: Boolean
+  dependsOn: String
+  dependsValue: String
+  visibleWhen: [MetadataEndpointFieldVisibilityRule!]
+}
+
+type MetadataEndpointCapability {
+  key: String!
+  label: String!
+  description: String
+}
+
+type MetadataEndpointConnection {
+  urlTemplate: String
+  defaultVerb: String
+}
+
+type MetadataEndpointProbingMethod {
+  key: String!
+  label: String!
+  strategy: String!
+  statement: String
+  description: String
+  requires: [String!]
+  returnsVersion: Boolean
+  returnsCapabilities: [String!]
+}
+
+type MetadataEndpointProbingPlan {
+  methods: [MetadataEndpointProbingMethod!]!
+  fallbackMessage: String
+}
+
+type MetadataEndpointTemplate {
+  id: ID!
+  family: MetadataEndpointFamily!
+  title: String!
+  vendor: String!
+  description: String
+  domain: String
+  categories: [String!]!
+  protocols: [String!]!
+  versions: [String!]!
+  defaultPort: Int
+  driver: String
+  docsUrl: String
+  agentPrompt: String
+  defaultLabels: [String!]
+  fields: [MetadataEndpointField!]!
+  capabilities: [MetadataEndpointCapability!]!
+  sampleConfig: JSON
+  connection: MetadataEndpointConnection
+  descriptorVersion: String
+  minVersion: String
+  maxVersion: String
+  probing: MetadataEndpointProbingPlan
+  extras: JSON
+}
+
+# =============================================================================
+# COLLECTION TYPES
+# =============================================================================
+
+enum MetadataCollectionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+type MetadataCollectionRun {
+  id: ID!
+  collectionId: ID
+  collection: MetadataCollection
+  endpointId: ID!
+  endpoint: MetadataEndpoint!
+  status: MetadataCollectionStatus!
+  requestedBy: String
+  requestedAt: DateTime!
+  startedAt: DateTime
+  completedAt: DateTime
+  workflowId: String
+  temporalRunId: String
+  error: String
+  filters: JSON
+}
+
+type MetadataCollection {
+  id: ID!
+  endpointId: ID!
+  endpoint: MetadataEndpoint!
+  scheduleCron: String
+  scheduleTimezone: String
+  isEnabled: Boolean!
+  temporalScheduleId: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  runs(first: Int = 25, after: ID): [MetadataCollectionRun!]!
+}
+
+input MetadataCollectionRunFilter {
+  endpointId: ID
+  collectionId: ID
+  status: MetadataCollectionStatus
+  from: DateTime
+  to: DateTime
+}
+
+input CollectionCreateInput {
+  endpointId: ID!
+  scheduleCron: String
+  scheduleTimezone: String = "UTC"
+  isEnabled: Boolean = true
+}
+
+input CollectionUpdateInput {
+  scheduleCron: String
+  scheduleTimezone: String
+  isEnabled: Boolean
+}
+
+input MetadataCollectionRequestInput {
+  endpointId: ID!
+  schemas: [String!]
+}
+
+# =============================================================================
+# CATALOG TYPES
+# =============================================================================
+
+type CatalogDatasetField {
+  name: String!
+  type: String!
+  description: String
+}
+
+type CatalogDatasetProfile {
+  recordCount: Int
+  sampleSize: Int
+  lastProfiledAt: DateTime
+  raw: JSON
+}
+
+type CatalogDatasetPreview {
+  sampledAt: DateTime!
+  rows: [JSON!]!
+}
+
+type CatalogDataset {
+  id: ID!
+  upstreamId: String
+  displayName: String!
+  description: String
+  source: String
+  projectIds: [String!]
+  labels: [String!]
+  schema: String
+  entity: String
+  collectedAt: DateTime
+  sourceEndpointId: ID
+  sourceEndpoint: MetadataEndpoint
+  profile: CatalogDatasetProfile
+  sampleRows: [JSON!]
+  statistics: JSON
+  fields: [CatalogDatasetField!]!
+  lastCollectionRun: MetadataCollectionRun
+  ingestionConfig: IngestionUnitConfig
+  tables: [CatalogTable!]!
+}
+
+type CatalogColumn {
+  id: ID!
+  name: String!
+  tableId: ID
+  dataType: String
+  nullable: Boolean
+}
+
+type CatalogForeignKey {
+  name: String
+  fromTable: CatalogTable!
+  fromColumns: [CatalogColumn!]!
+  toTable: CatalogTable!
+  toColumns: [CatalogColumn!]!
+  onDelete: String
+  onUpdate: String
+}
+
+type CatalogTable {
+  id: ID!
+  name: String!
+  schema: String
+  columns: [CatalogColumn!]!
+  primaryKeyColumns: [CatalogColumn!]!
+  inboundForeignKeys: [CatalogForeignKey!]!
+  outboundForeignKeys: [CatalogForeignKey!]!
+}
+
+type CatalogDatasetEdge {
+  cursor: ID!
+  node: CatalogDataset!
+}
+
+type CatalogDatasetConnection {
+  nodes: [CatalogDataset!]!
+  edges: [CatalogDatasetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+# =============================================================================
+# INGESTION TYPES
+# =============================================================================
+
+enum IngestionState {
+  IDLE
+  RUNNING
+  PAUSED
+  FAILED
+  SUCCEEDED
+}
+
+type IngestionUnit {
+  endpointId: ID!
+  unitId: ID!
+  datasetId: ID
+  kind: String!
+  displayName: String!
+  stats: JSON
+  driverId: String!
+  sinkId: String!
+  defaultMode: String
+  supportedModes: [String!]
+  defaultPolicy: JSON
+  defaultScheduleKind: String
+  defaultScheduleIntervalMinutes: Int
+  cdmModelId: String
+}
+
+type IngestionStatus {
+  endpointId: ID!
+  unitId: ID!
+  sinkId: String!
+  state: IngestionState!
+  lastRunId: String
+  lastRunAt: DateTime
+  lastError: String
+  stats: JSON
+  checkpoint: JSON
+}
+
+type IngestionActionResult {
+  ok: Boolean!
+  runId: String
+  state: IngestionState
+  message: String
+}
+
+type IngestionUnitConfig {
+  id: ID!
+  endpointId: ID!
+  datasetId: ID!
+  unitId: ID!
+  enabled: Boolean!
+  runMode: String!
+  mode: String!
+  sinkId: String!
+  sinkEndpointId: ID
+  scheduleKind: String!
+  scheduleIntervalMinutes: Int
+  policy: JSON
+  lastStatus: IngestionStatus
+}
+
+input IngestionUnitConfigInput {
+  endpointId: ID!
+  unitId: ID!
+  enabled: Boolean
+  runMode: String
+  mode: String
+  sinkId: String
+  sinkEndpointId: ID
+  scheduleKind: String
+  scheduleIntervalMinutes: Int
+  policy: JSON
+}
+
+type IngestionSink {
+  id: ID!
+  supportedCdmModels: [String!]
+}
+
+# =============================================================================
+# ONEDRIVE AUTH TYPES
+# =============================================================================
+
+type OneDriveAuthSession {
+  authSessionId: ID!
+  authUrl: String!
+  state: String!
+}
+
+type OneDriveAuthResult {
+  ok: Boolean!
+  endpointId: ID
+}
+
+# =============================================================================
+# ROOT QUERY
+# =============================================================================
+
+type Query {
+  health: Health!
+  
+  # Metadata records
+  metadataDomains: [MetadataDomain!]!
+  metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
+  
+  # Graph / KB queries
+  graphNodes(filter: GraphNodeFilter): [GraphNode!]!
+  graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
+  kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
+  kbEdges(edgeType: String, edgeTypes: [String!], direction: GraphEdgeDirection, scope: GraphScopeInput, sourceId: ID, targetId: ID, first: Int = 25, after: ID): KbEdgeConnection!
+  kbNode(id: ID!): GraphNode
+  kbNeighbors(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
+  kbScene(id: ID!, edgeTypes: [String!], depth: Int = 2, limit: Int = 300): KbScene!
+  kbFacets(scope: GraphScopeInput): KbFacets!
+  kbMeta(scope: GraphScopeInput): KbMeta!
+  
+  # Endpoints
+  metadataEndpoints(projectId: String, includeDeleted: Boolean): [MetadataEndpoint!]!
+  metadataEndpoint(id: ID!): MetadataEndpoint
+  endpoints(projectSlug: String, capability: String, search: String, first: Int = 50, after: ID): [MetadataEndpoint!]!
+  endpoint(id: ID!): MetadataEndpoint
+  endpointBySourceId(sourceId: String!): MetadataEndpoint
+  endpointTemplates(family: MetadataEndpointFamily): [MetadataEndpointTemplate!]!
+  metadataEndpointTemplates(family: MetadataEndpointFamily): [MetadataEndpointTemplate!]!
+  
+  # Collections
+  collections(endpointId: ID, isEnabled: Boolean, first: Int = 50, after: ID): [MetadataCollection!]!
+  collection(id: ID!): MetadataCollection
+  collectionRuns(filter: MetadataCollectionRunFilter, first: Int = 50, after: ID): [MetadataCollectionRun!]!
+  metadataCollectionRuns(filter: MetadataCollectionRunFilter, limit: Int): [MetadataCollectionRun!]!
+  
+  # Catalog
+  catalogDatasets(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean): [CatalogDataset!]!
+  catalogDatasetConnection(projectId: String, labels: [String!], search: String, endpointId: ID, unlabeledOnly: Boolean, first: Int = 25, after: ID): CatalogDatasetConnection!
+  catalogDatasetPreview(id: ID!): CatalogDatasetPreview!
+  metadataDataset(id: ID!): CatalogDataset
+  endpointDatasets(endpointId: ID!, domain: String, projectSlug: String, first: Int = 100, after: ID): [MetadataRecord!]!
+  
+  # Ingestion
+  ingestionUnits(endpointId: ID!): [IngestionUnit!]!
+  ingestionSinks: [IngestionSink!]!
+  ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
+  ingestionStatus(endpointId: ID!, unitId: ID!): IngestionStatus
+  ingestionUnitConfigs(endpointId: ID!): [IngestionUnitConfig!]!
+}
+
+# =============================================================================
+# ROOT MUTATION
+# =============================================================================
+
+type Mutation {
+  # Metadata records
+  upsertMetadataRecord(input: MetadataRecordInput!): MetadataRecord!
+  
+  # Endpoints
+  registerMetadataEndpoint(input: MetadataEndpointInput!): MetadataEndpoint!
+  deleteMetadataEndpoint(id: ID!, reason: String): MetadataEndpoint!
+  registerEndpoint(input: EndpointInput!): MetadataEndpoint!
+  updateEndpoint(id: ID!, patch: EndpointPatch!): MetadataEndpoint!
+  deleteEndpoint(id: ID!): Boolean!
+  testMetadataEndpoint(input: MetadataEndpointInput!): MetadataEndpointTestResult!
+  testEndpoint(input: TestEndpointInput!): TestResult!
+  
+  # OneDrive
+  startOneDriveAuth(endpointId: ID!): OneDriveAuthSession!
+  completeOneDriveAuth(state: String!, code: String): OneDriveAuthResult!
+  
+  # Collections
+  createCollection(input: CollectionCreateInput!): MetadataCollection!
+  updateCollection(id: ID!, input: CollectionUpdateInput!): MetadataCollection!
+  deleteCollection(id: ID!): Boolean!
+  triggerCollection(collectionId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
+  triggerEndpointCollection(endpointId: ID!, filters: JSON, schemaOverride: [String!]): MetadataCollectionRun!
+  triggerMetadataCollection(input: MetadataCollectionRequestInput!): MetadataCollectionRun!
+  
+  # Catalog
+  previewMetadataDataset(id: ID!, limit: Int): CatalogDatasetPreview!
+  
+  # Ingestion
+  startIngestion(endpointId: ID!, unitId: ID!, sinkId: String, sinkEndpointId: ID): IngestionActionResult!
+  pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+  resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+  configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
+}

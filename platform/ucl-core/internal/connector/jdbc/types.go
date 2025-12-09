@@ -20,13 +20,14 @@ type Config struct {
 }
 
 // ParseConfig extracts configuration from a map.
+// Supports common aliases: username→user, db→database.
 func ParseConfig(m map[string]interface{}) *Config {
 	cfg := &Config{
 		Driver:   getString(m, "driver", "postgres"),
 		Host:     getString(m, "host", "localhost"),
 		Port:     getInt(m, "port", 5432),
-		Database: getString(m, "database", ""),
-		User:     getString(m, "user", ""),
+		Database: getStringWithFallback(m, "database", "db", ""),
+		User:     getStringWithFallback(m, "user", "username", ""),
 		Password: getString(m, "password", ""),
 		SSLMode:  getString(m, "sslMode", getString(m, "ssl_mode", "disable")),
 	}
@@ -122,6 +123,17 @@ type SchemaResult = endpoint.Schema
 
 func getString(m map[string]interface{}, key, defaultVal string) string {
 	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return defaultVal
+}
+
+// getStringWithFallback tries primary key, then fallback key.
+func getStringWithFallback(m map[string]interface{}, primary, fallback, defaultVal string) string {
+	if v, ok := m[primary].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := m[fallback].(string); ok && v != "" {
 		return v
 	}
 	return defaultVal

@@ -25,6 +25,10 @@ import { getOneDriveDelegatedToken } from "../onedriveAuth.js";
 import { upsertJdbcRelations } from "../graph/jdbcRelations.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+// DEPRECATED: Python CLI - will be replaced by gRPC client (Sprint 10)
+// TODO: Replace with UCL gRPC client when protoc stubs are generated
+// See: platform/ucl-core/proto/ucl.proto for gRPC service definition
 const REGISTRY_SCRIPT_PATH = path.resolve(
   moduleDir,
   "..",
@@ -357,8 +361,37 @@ export const activities: MetadataActivities = {
     };
   },
   async listEndpointTemplates({ family }: { family?: "JDBC" | "HTTP" | "STREAM" }) {
-    const stdout = await runRegistryCommand(["list", ...(family ? ["--family", family] : [])]);
-    return JSON.parse(stdout || "[]") as EndpointTemplate[];
+    // REPLACED: Python CLI → gRPC client
+    const { listEndpointTemplates: grpcListTemplates } = await import("./ucl-client.js");
+    const grpcTemplates = await grpcListTemplates(family);
+    // Transform gRPC types to app types
+    return grpcTemplates.map((t) => ({
+      id: t.id,
+      family: t.family as "JDBC" | "HTTP" | "STREAM",
+      title: t.displayName,
+      vendor: t.vendor,
+      description: t.description ?? null,
+      domain: null,
+      categories: t.categories ?? [],
+      protocols: [],
+      versions: [],
+      defaultPort: null,
+      driver: null,
+      docsUrl: null,
+      agentPrompt: null,
+      defaultLabels: [],
+      fields: t.fields.map((f) => ({
+        key: f.name,
+        label: f.label,
+        valueType: f.type,
+        required: f.required,
+        description: f.description ?? null,
+        defaultValue: f.defaultValue ?? null,
+        options: f.options?.map((o) => ({ label: o, value: o })),
+      })),
+      capabilities: [],
+      probing: null,
+    })) as EndpointTemplate[];
   },
   async buildEndpointConfig({
     templateId,
@@ -369,41 +402,52 @@ export const activities: MetadataActivities = {
     parameters: Record<string, string>;
     extras?: { labels?: string[] };
   }) {
-    const stdout = await runRegistryCommand([
-      "build",
-      "--template",
-      templateId,
-      "--parameters",
-      JSON.stringify(parameters ?? {}),
-    ]);
-    const payload = JSON.parse(stdout || "{}") as EndpointBuildResult;
-    if (extras?.labels?.length) {
-      const merged = new Set([...(payload.labels ?? []), ...extras.labels]);
-      payload.labels = Array.from(merged);
+    // REPLACED: Python CLI → gRPC client
+    const { buildEndpointConfig: grpcBuildConfig } = await import("./ucl-client.js");
+    const result = await grpcBuildConfig(templateId, parameters ?? {}, extras?.labels);
+    if (!result.success) {
+      throw new Error(result.error ?? "Failed to build config");
     }
+    // Transform gRPC types to app types
+    const payload: EndpointBuildResult = {
+      url: result.connectionUrl ?? "",
+      config: result.config as Record<string, unknown>,
+      labels: extras?.labels ?? [],
+    };
     return payload;
   },
   async testEndpointConnection({ templateId, parameters }: { templateId: string; parameters: Record<string, string> }) {
     const startedAt = Date.now();
     emitProbeEvent("endpoint_probe_started", { templateId, parameterKeys: Object.keys(parameters ?? {}) });
     try {
-      const stdout = await runRegistryCommand([
-        "test",
-        "--template",
-        templateId,
-        "--parameters",
-        JSON.stringify(parameters ?? {}),
-      ]);
-      const result = JSON.parse(stdout || "{}") as EndpointTestResult;
+      // REPLACED: Python CLI → gRPC client
+      const { testEndpointConnection: grpcTestConnection } = await import("./ucl-client.js");
+      const result = await grpcTestConnection(templateId, parameters ?? {});
       const latencyMs = Date.now() - startedAt;
-      emitProbeEvent("endpoint_probe_success", {
-        templateId,
-        detectedVersion: result.detectedVersion ?? null,
-        capabilities: result.capabilities ?? [],
-        latencyMs,
-      });
+      // Transform gRPC types to app types
+      const testResult: EndpointTestResult = {
+        success: result.success,
+        message: result.message ?? null,
+        detectedVersion: null,
+        capabilities: [],
+      };
+      // CODEX FIX: Emit failure event when success=false
+      if (result.success) {
+        emitProbeEvent("endpoint_probe_success", {
+          templateId,
+          detectedVersion: null,
+          capabilities: [],
+          latencyMs,
+        });
+      } else {
+        emitProbeEvent("endpoint_probe_failed", {
+          templateId,
+          error: result.error ?? result.message ?? "Connection test failed",
+          latencyMs,
+        }, "error");
+      }
       emitProbeEvent("metadata.endpoint.test.latency_ms", { templateId, latencyMs });
-      return result;
+      return testResult;
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
       emitProbeEvent(
