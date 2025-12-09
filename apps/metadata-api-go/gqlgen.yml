@@ -1,0 +1,46 @@
+# =============================================================================
+# GQLGEN CONFIGURATION
+# =============================================================================
+
+# Schema file location
+schema:
+  - graph/*.graphqls
+
+# Generated code output
+exec:
+  filename: graph/generated.go
+  package: graph
+
+# Model configuration
+model:
+  filename: graph/model/models_gen.go
+  package: model
+
+# Resolver configuration
+resolver:
+  layout: follow-schema
+  dir: graph
+  package: graph
+  filename_template: "{name}.resolvers.go"
+
+# Autobind - automatically bind to models in these packages
+autobind:
+  - "github.com/nucleus/metadata-api/internal/database"
+
+# Custom model mappings
+models:
+  ID:
+    model:
+      - github.com/99designs/gqlgen/graphql.ID
+      - github.com/99designs/gqlgen/graphql.Int
+      - github.com/99designs/gqlgen/graphql.Int64
+      - github.com/99designs/gqlgen/graphql.Int32
+  DateTime:
+    model:
+      - github.com/99designs/gqlgen/graphql.Time
+  JSON:
+    model:
+      - github.com/99designs/gqlgen/graphql.Map
+
+# Skip resolver generation for these types
+omit_slice_element_pointers: true

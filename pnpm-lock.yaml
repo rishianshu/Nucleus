@@ -44,6 +44,12 @@ importers:
       '@apollo/server':
         specifier: ^4.10.0
         version: 4.12.2(graphql@16.12.0)
+      '@grpc/grpc-js':
+        specifier: ^1.14.2
+        version: 1.14.2
+      '@grpc/proto-loader':
+        specifier: ^0.8.0
+        version: 0.8.0
       '@metadata/client':
         specifier: workspace:*
         version: link:../../packages/metadata-client
@@ -857,8 +863,8 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
-  '@grpc/grpc-js@1.14.1':
-    resolution: {integrity: sha512-sPxgEWtPUR3EnRJCEtbGZG2iX8LQDUls2wUS3o27jg07KqJFMq6YDeWvMo1wfpmy3rqRdS0rivpLwhqQtEyCuQ==}
+  '@grpc/grpc-js@1.14.2':
+    resolution: {integrity: sha512-QzVUtEFyu05UNx2xr0fCQmStUO17uVQhGNowtxs00IgTZT6/W2PBLfUkj30s0FKJ29VtTa3ArVNIhNP6akQhqA==}
     engines: {node: '>=12.10.0'}
 
   '@grpc/proto-loader@0.8.0':
@@ -4915,7 +4921,7 @@ snapshots:
     dependencies:
       graphql: 16.12.0
 
-  '@grpc/grpc-js@1.14.1':
+  '@grpc/grpc-js@1.14.2':
     dependencies:
       '@grpc/proto-loader': 0.8.0
       '@js-sdsl/ordered-map': 4.4.2
@@ -5546,7 +5552,7 @@ snapshots:
 
   '@temporalio/client@1.13.2':
     dependencies:
-      '@grpc/grpc-js': 1.14.1
+      '@grpc/grpc-js': 1.14.2
       '@temporalio/common': 1.13.2
       '@temporalio/proto': 1.13.2
       abort-controller: 3.0.0
@@ -5563,7 +5569,7 @@ snapshots:
 
   '@temporalio/core-bridge@1.13.2':
     dependencies:
-      '@grpc/grpc-js': 1.14.1
+      '@grpc/grpc-js': 1.14.2
       '@temporalio/common': 1.13.2
       arg: 5.0.2
       cargo-cp-artifact: 0.1.9
@@ -5584,7 +5590,7 @@ snapshots:
 
   '@temporalio/worker@1.13.2':
     dependencies:
-      '@grpc/grpc-js': 1.14.1
+      '@grpc/grpc-js': 1.14.2
       '@swc/core': 1.15.2
       '@temporalio/activity': 1.13.2
       '@temporalio/client': 1.13.2
