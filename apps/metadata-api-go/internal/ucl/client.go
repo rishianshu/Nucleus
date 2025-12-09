@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	uclpb "github.com/nucleus/ucl-core/internal/proto/uclpb"
+	uclpb "github.com/nucleus/ucl-core/gen/go/proto"
 )
 
 // Client wraps the UCL gRPC client.

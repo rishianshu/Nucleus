@@ -278,6 +278,7 @@ type OneDriveAuthSession struct {
 	EndpointID   string         `json:"endpointId"`
 	State        string         `json:"state"`
 	CodeVerifier sql.NullString `json:"codeVerifier"`
+	RedirectURI  sql.NullString `json:"redirectUri"`
 	CreatedAt    time.Time      `json:"createdAt"`
 	ExpiresAt    time.Time      `json:"expiresAt"`
 }
