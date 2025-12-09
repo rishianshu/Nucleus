@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ucl.v1;
 
-option go_package = "github.com/nucleus/ucl-core/internal/proto/uclpb";
+option go_package = "github.com/nucleus/ucl-core/pkg/uclpb";
 
 // UCLService provides the Universal Connectivity Layer API.
 // This replaces the Python CLI (endpoint_registry_cli.py) with gRPC.
@@ -45,16 +45,79 @@ message EndpointTemplate {
   string description = 5;
   repeated FieldDescriptor fields = 6;
   repeated string categories = 7;
+  // New fields for full Python CLI parity
+  string domain = 8;
+  repeated string protocols = 9;
+  repeated string versions = 10;
+  int32 default_port = 11;
+  string driver = 12;
+  string docs_url = 13;
+  string agent_prompt = 14;
+  repeated string default_labels = 15;
+  repeated Capability capabilities = 16;
+  ConnectionConfig connection = 17;
+  ProbingPlan probing = 18;
+  string sample_config = 19;
+  map<string, string> extras = 20;
+  
+  string descriptor_version = 21;
+  string min_version = 22;
+  string max_version = 23;
+}
+
+message Capability {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+}
+
+message ConnectionConfig {
+  string url_template = 1;
+  string default_verb = 2;
+}
+
+message ProbingPlan {
+  repeated ProbingMethod methods = 1;
+  string fallback_message = 2;
+}
+
+message ProbingMethod {
+  string key = 1;
+  string label = 2;
+  string strategy = 3;
+  string statement = 4;
+  string description = 5;
+  repeated string requires = 6;
+  bool returns_version = 7;
+  repeated string returns_capabilities = 8;
 }
 
 message FieldDescriptor {
   string name = 1;
-  string type = 2;  // string, number, boolean, secret
+  string type = 2; // string, number, boolean, secret
   string label = 3;
   string description = 4;
   bool required = 5;
   string default_value = 6;
-  repeated string options = 7;  // For enum fields
+  repeated string options = 7; // For enum fields
+  
+  // Extended metadata
+  string placeholder = 8;
+  string regex = 9;
+  string help_text = 10;
+  string semantic = 11;
+  bool advanced = 12;
+  bool sensitive = 13;
+  string depends_on = 14;
+  string depends_value = 15;
+  VisibleWhen visible_when = 16;
+  int64 min_value = 17;
+  int64 max_value = 18;
+}
+
+message VisibleWhen {
+  string field = 1;
+  repeated string values = 2;
 }
 
 // ===== Config =====
@@ -84,6 +147,11 @@ message TestConnectionResponse {
   string message = 2;
   string error = 3;
   int64 latency_ms = 4;
+  
+  // Extended fields for CLI parity
+  string detected_version = 5;
+  repeated string capabilities = 6;
+  map<string, string> details = 7;
 }
 
 // ===== Validation =====

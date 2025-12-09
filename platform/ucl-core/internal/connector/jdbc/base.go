@@ -61,6 +61,14 @@ func (b *Base) Close() error {
 	return nil
 }
 
+// ConnectionURL returns the connection string (for BuildEndpointConfig).
+func (b *Base) ConnectionURL() string {
+	if b.Config != nil {
+		return b.Config.ConnectionString
+	}
+	return ""
+}
+
 // ID returns the connector template ID.
 func (b *Base) ID() string {
 	return "jdbc." + b.DriverName
@@ -132,11 +140,14 @@ func (b *Base) ListDatasets(ctx context.Context) ([]*DatasetItem, error) {
 
 // GetSchema returns column definitions (generic ANSI SQL).
 func (b *Base) GetSchema(ctx context.Context, datasetID string) (*SchemaResult, error) {
+	var schema, table string
 	parts := strings.SplitN(datasetID, ".", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid dataset_id format, expected 'schema.table'")
+	if len(parts) == 2 {
+		schema, table = parts[0], parts[1]
+	} else {
+		// Default to 'public' schema if not specified
+		schema, table = "public", datasetID
 	}
-	schema, table := parts[0], parts[1]
 	
 	query := `
 		SELECT 
@@ -145,7 +156,7 @@ func (b *Base) GetSchema(ctx context.Context, datasetID string) (*SchemaResult, 
 			is_nullable,
 			ordinal_position
 		FROM information_schema.columns
-		WHERE table_schema = ? AND table_name = ?
+		WHERE table_schema = $1 AND table_name = $2
 		ORDER BY ordinal_position
 	`
 	

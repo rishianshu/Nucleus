@@ -36,6 +36,50 @@ export interface EndpointTemplate {
   description: string;
   fields: FieldDescriptor[];
   categories: string[];
+  
+  // Extended fields
+  domain?: string;
+  protocols?: string[];
+  defaultPort?: number;
+  driver?: string;
+  docsUrl?: string;
+  agentPrompt?: string;
+  defaultLabels?: string[];
+  descriptorVersion?: string;
+  minVersion?: string;
+  maxVersion?: string;
+  capabilities?: Capability[];
+  connection?: ConnectionConfig;
+  probing?: ProbingPlan;
+  sampleConfig?: string;
+  extras?: Record<string, string>;
+}
+
+export interface Capability {
+  key: string;
+  label: string;
+  description: string;
+}
+
+export interface ConnectionConfig {
+  urlTemplate?: string;
+  defaultVerb?: string;
+}
+
+export interface ProbingPlan {
+  methods: ProbingMethod[];
+  fallbackMessage?: string;
+}
+
+export interface ProbingMethod {
+  key: string;
+  label: string;
+  strategy: string;
+  statement?: string;
+  description?: string;
+  requires?: string[];
+  returnsVersion?: boolean;
+  returnsCapabilities?: string[];
 }
 
 export interface FieldDescriptor {
@@ -46,6 +90,24 @@ export interface FieldDescriptor {
   required: boolean;
   defaultValue: string;
   options: string[];
+  
+  // Extended metadata
+  placeholder?: string;
+  regex?: string;
+  helpText?: string;
+  semantic?: string;
+  advanced?: boolean;
+  sensitive?: boolean;
+  dependsOn?: string;
+  dependsValue?: string;
+  minValue?: number;
+  maxValue?: number;
+  visibleWhen?: VisibleWhen;
+}
+
+export interface VisibleWhen {
+  field: string;
+  values: string[];
 }
 
 export interface Dataset {
@@ -78,6 +140,11 @@ export interface ConnectionTestResult {
   message: string;
   error?: string;
   latencyMs: number;
+  
+  // Extended fields
+  detectedVersion?: string;
+  capabilities?: string[];
+  details?: Record<string, string>;
 }
 
 export interface BuildConfigResult {
@@ -184,7 +251,10 @@ export async function testEndpointConnection(
           success: response.success,
           message: response.message,
           error: response.error,
-          latencyMs: response.latency_ms ?? 0,
+          latencyMs: response.latencyMs ?? 0,
+          detectedVersion: response.detectedVersion,
+          capabilities: response.capabilities ?? [],
+          details: response.details ?? {},
         });
       }
     );
