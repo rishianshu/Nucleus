@@ -2,17 +2,24 @@
 package graph
 
 import (
+	"go.temporal.io/sdk/client"
+
 	"github.com/nucleus/metadata-api/internal/database"
+	"github.com/nucleus/metadata-api/internal/ucl"
 )
 
 // Resolver is the root resolver for GraphQL queries and mutations.
 type Resolver struct {
-	db *database.Client
+	db       *database.Client
+	ucl      *ucl.Client
+	temporal client.Client
 }
 
 // NewResolver creates a new resolver with the given dependencies.
-func NewResolver(db *database.Client) *Resolver {
+func NewResolver(db *database.Client, uclClient *ucl.Client, temporalClient client.Client) *Resolver {
 	return &Resolver{
-		db: db,
+		db:       db,
+		ucl:      uclClient,
+		temporal: temporalClient,
 	}
 }

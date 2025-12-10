@@ -1,0 +1,3 @@
+- Added `docs/meta/nucleus-architecture/STORES.md` to define core store boundaries (Metadata/Graph/Signal/Kv/Object), including DB-backed KvStore schema/migration from the file driver and ObjectStore streaming contract.
+- Updated ingestion/endpoint docs to point Source→Staging→Sink flows at KvStore + ObjectStore interfaces (bucket/key handles, DB-backed checkpoints) instead of file-backed helpers.
+- Adjusted Temporal workflow activity options (`retryPolicy` → `retry`) in `apps/metadata-api/src/temporal/workflows.ts` to match current Temporal ActivityOptions typing.

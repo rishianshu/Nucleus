@@ -16,14 +16,20 @@ export async function seedCdmData() {
   if (seeded) {
     return;
   }
-  const connectionUrl = process.env.CDM_WORK_DATABASE_URL ?? process.env.METADATA_DATABASE_URL;
+  // Default to the same Postgres used by the app; prefer explicit CDM env var.
+  const connectionUrl =
+    process.env.CDM_WORK_DATABASE_URL ??
+    buildMetadataPgUrl() ??
+    process.env.METADATA_DATABASE_URL ??
+    "postgresql://postgres:postgres@localhost:5434/postgres?schema=metadata";
   if (!connectionUrl) {
     console.warn("[cdm-seed] Missing CDM_WORK_DATABASE_URL or METADATA_DATABASE_URL; skipping seed.");
     return;
   }
   const schema = process.env.CDM_WORK_DATABASE_SCHEMA ?? "cdm_work";
   const prefix = process.env.CDM_WORK_DATABASE_TABLE_PREFIX ?? "cdm_";
-  const pool = new Pool({ connectionString: connectionUrl, max: 5 });
+  // Keep pool small to avoid exhausting connections during parallel Playwright runs.
+  const pool = new Pool({ connectionString: connectionUrl, max: 2 });
   try {
     await pool.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
     await createTables(pool, schema, prefix);
@@ -34,6 +40,18 @@ export async function seedCdmData() {
   }
 }
 
+function buildMetadataPgUrl(): string | null {
+  const host = process.env.METADATA_PG_HOST ?? process.env.POSTGRES_HOST ?? process.env.POSTGRES_HOSTNAME;
+  const port = process.env.METADATA_PG_PORT ?? process.env.POSTGRES_PORT;
+  const database = process.env.METADATA_PG_DATABASE ?? process.env.POSTGRES_DB;
+  const username = process.env.METADATA_PG_USERNAME ?? process.env.POSTGRES_USER;
+  const password = process.env.METADATA_PG_PASSWORD ?? process.env.POSTGRES_PASSWORD;
+  if (!host || !port || !database || !username || !password) {
+    return null;
+  }
+  return `postgresql://${username}:${password}@${host}:${port}/${database}`;
+}
+
 async function createTables(pool: Pool, schema: string, prefix: string) {
   await pool.query(`CREATE TABLE IF NOT EXISTS "${schema}"."${prefix}work_project" (
     cdm_id TEXT PRIMARY KEY,
@@ -42,11 +60,21 @@ async function createTables(pool: Pool, schema: string, prefix: string) {
     name TEXT NOT NULL,
     description TEXT
   )`);
+  await pool.query(`ALTER TABLE "${schema}"."${prefix}work_project"
+    ADD COLUMN IF NOT EXISTS url TEXT,
+    ADD COLUMN IF NOT EXISTS properties JSONB`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS "${schema}"."${prefix}work_user" (
     cdm_id TEXT PRIMARY KEY,
     display_name TEXT,
     email TEXT
   )`);
+  await pool.query(`ALTER TABLE "${schema}"."${prefix}work_user"
+    ADD COLUMN IF NOT EXISTS source_system TEXT,
+    ADD COLUMN IF NOT EXISTS source_user_id TEXT,
+    ADD COLUMN IF NOT EXISTS active BOOLEAN,
+    ADD COLUMN IF NOT EXISTS properties JSONB`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS "${schema}"."${prefix}work_item" (
     cdm_id TEXT PRIMARY KEY,
     source_system TEXT NOT NULL,
@@ -61,6 +89,9 @@ async function createTables(pool: Pool, schema: string, prefix: string) {
     updated_at TIMESTAMPTZ,
     closed_at TIMESTAMPTZ
   )`);
+  await pool.query(`ALTER TABLE "${schema}"."${prefix}work_item"
+    ADD COLUMN IF NOT EXISTS properties JSONB`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS "${schema}"."${prefix}work_comment" (
     cdm_id TEXT PRIMARY KEY,
     item_cdm_id TEXT NOT NULL,
@@ -68,6 +99,10 @@ async function createTables(pool: Pool, schema: string, prefix: string) {
     body TEXT NOT NULL,
     created_at TIMESTAMPTZ
   )`);
+  await pool.query(`ALTER TABLE "${schema}"."${prefix}work_comment"
+    ADD COLUMN IF NOT EXISTS source_system TEXT,
+    ADD COLUMN IF NOT EXISTS properties JSONB`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS "${schema}"."${prefix}work_worklog" (
     cdm_id TEXT PRIMARY KEY,
     item_cdm_id TEXT NOT NULL,
@@ -76,6 +111,9 @@ async function createTables(pool: Pool, schema: string, prefix: string) {
     time_spent_seconds INTEGER,
     comment TEXT
   )`);
+  await pool.query(`ALTER TABLE "${schema}"."${prefix}work_worklog"
+    ADD COLUMN IF NOT EXISTS source_system TEXT,
+    ADD COLUMN IF NOT EXISTS properties JSONB`);
 }
 
 async function insertSeedRows(pool: Pool, schema: string, prefix: string) {

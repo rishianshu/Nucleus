@@ -13,7 +13,9 @@ TEMPORAL_DEV_PORT="${TEMPORAL_DEV_PORT:-${TEMPORAL_PORT:-7233}}"
 export TEMPORAL_PORT="${TEMPORAL_PORT:-$TEMPORAL_DEV_PORT}"
 export TEMPORAL_ADDRESS="${TEMPORAL_ADDRESS:-127.0.0.1:${TEMPORAL_DEV_PORT}}"
 PLAYWRIGHT_SHARD="${PLAYWRIGHT_SHARD:-}"
-PLAYWRIGHT_WORKERS="${PLAYWRIGHT_WORKERS:-}"
+PLAYWRIGHT_WORKERS="${PLAYWRIGHT_WORKERS:-4}"
+FAST_CI="${FAST_CI:-1}"
+DEFAULT_PLAYWRIGHT_WORKERS="${PLAYWRIGHT_WORKERS:-4}"
 SKIP_STACK="${SKIP_STACK:-0}"
 SKIP_WORKERS="${SKIP_WORKERS:-0}"
 
@@ -68,9 +70,32 @@ run_step() {
   (cd "$PROJECT_ROOT" && "$@")
 }
 
+ports_ready_fast() {
+  local ok=1
+  python3 - <<'PY' || ok=0
+import socket
+targets = [("127.0.0.1", 4010), ("127.0.0.1", 5176), ("127.0.0.1", 7233)]
+for host, port in targets:
+    with socket.socket() as sock:
+        sock.settimeout(0.5)
+        try:
+            sock.connect((host, port))
+        except Exception:
+            pass
+PY
+  return $ok
+}
+
+run_playwright_fast() {
+  local workers="$1"
+  echo "[ci-check] fast mode: using ${workers} workers; assuming stack + workers already running"
+  dotenv -e .env -- npx playwright test tests/metadata-auth.spec.ts --project=chromium --workers "$workers"
+  dotenv -e .env -- npx playwright test tests/metadata-lifecycle.spec.ts --project=chromium --workers "$workers"
+}
+
 start_temporal_dev_server() {
-  if python3 - <<'PY'
-import socket, os
+  python3 - <<'PY'
+import socket, os, sys
 host = "127.0.0.1"
 port = int(os.environ.get("TEMPORAL_PORT", "7233"))
 with socket.socket() as sock:
@@ -78,11 +103,11 @@ with socket.socket() as sock:
     try:
         sock.connect((host, port))
         print("reuse-existing")
-        raise SystemExit(0)
+        sys.exit(0)
     except Exception:
-        raise SystemExit(1)
+        sys.exit(1)
 PY
-  then
+  if [[ $? -eq 0 ]]; then
     echo "[ci-check] detected existing Temporal at ${TEMPORAL_ADDRESS}, not starting local dev server"
     return
   fi
@@ -94,6 +119,17 @@ PY
   (cd "$PROJECT_ROOT" && temporal server start-dev --ip 127.0.0.1 --port "$TEMPORAL_DEV_PORT" --headless --db-filename "$db_path" >"$log_path" 2>&1) &
   TEMPORAL_PID=$!
 }
+
+# Fast path: if FAST_CI=1 and services are already up, just run tests; otherwise fall back to full path.
+if [[ "$FAST_CI" == "1" ]]; then
+  if ports_ready_fast >/dev/null 2>&1; then
+    run_playwright_fast "$DEFAULT_PLAYWRIGHT_WORKERS"
+    echo "[ci-check] fast path complete"
+    exit 0
+  else
+    echo "[ci-check] fast path skipped; falling back to full start/stop"
+  fi
+fi
 
 if [[ "$SKIP_STACK" != "1" ]]; then
   run_step "starting dev stack" pnpm dev:stack

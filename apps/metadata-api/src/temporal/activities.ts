@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { execa } from "execa";
 import {
   getIngestionDriver,
   getIngestionSink,
@@ -25,28 +24,6 @@ import { getOneDriveDelegatedToken } from "../onedriveAuth.js";
 import { upsertJdbcRelations } from "../graph/jdbcRelations.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-
-// DEPRECATED: Python CLI - will be replaced by gRPC client (Sprint 10)
-// TODO: Replace with UCL gRPC client when protoc stubs are generated
-// See: platform/ucl-core/proto/ucl.proto for gRPC service definition
-const REGISTRY_SCRIPT_PATH = path.resolve(
-  moduleDir,
-  "..",
-  "..",
-  "..",
-  "..",
-  "platform",
-  "spark-ingestion",
-  "scripts",
-  "endpoint_registry_cli.py",
-);
-const SPARK_PACKAGES_ROOT = path.resolve(moduleDir, "..", "..", "..", "..", "platform", "spark-ingestion", "packages");
-const REGISTRY_PYTHONPATH_ENTRIES = [
-  path.join(SPARK_PACKAGES_ROOT, "runtime-common", "src"),
-  path.join(SPARK_PACKAGES_ROOT, "core", "src"),
-  path.join(SPARK_PACKAGES_ROOT, "metadata-service", "src"),
-  path.join(SPARK_PACKAGES_ROOT, "metadata-gateway", "src"),
-].filter((entry) => entry && entry.length > 0);
 
 const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "kb";
 const DEFAULT_STAGING_PROVIDER = process.env.INGESTION_DEFAULT_STAGING_PROVIDER ?? "in_memory";
@@ -361,7 +338,6 @@ export const activities: MetadataActivities = {
     };
   },
   async listEndpointTemplates({ family }: { family?: "JDBC" | "HTTP" | "STREAM" }) {
-    // REPLACED: Python CLI → gRPC client
     const { listEndpointTemplates: grpcListTemplates } = await import("./ucl-client.js");
     const grpcTemplates = await grpcListTemplates(family);
     // Transform gRPC types to app types
@@ -402,7 +378,7 @@ export const activities: MetadataActivities = {
     parameters: Record<string, string>;
     extras?: { labels?: string[] };
   }) {
-    // REPLACED: Python CLI → gRPC client
+    // UCL gRPC service only
     const { buildEndpointConfig: grpcBuildConfig } = await import("./ucl-client.js");
     const result = await grpcBuildConfig(templateId, parameters ?? {}, extras?.labels);
     if (!result.success) {
@@ -420,7 +396,7 @@ export const activities: MetadataActivities = {
     const startedAt = Date.now();
     emitProbeEvent("endpoint_probe_started", { templateId, parameterKeys: Object.keys(parameters ?? {}) });
     try {
-      // REPLACED: Python CLI → gRPC client
+      // UCL gRPC service only
       const { testEndpointConnection: grpcTestConnection } = await import("./ucl-client.js");
       const result = await grpcTestConnection(templateId, parameters ?? {});
       const latencyMs = Date.now() - startedAt;
@@ -798,23 +774,6 @@ function groupRecordsByCdmModel(
     return [{ modelId: normalizedDefault, records }];
   }
   return Array.from(groups.values());
-}
-
-async function runRegistryCommand(args: string[]) {
-  const pythonPathParts = [...REGISTRY_PYTHONPATH_ENTRIES];
-  if (process.env.PYTHONPATH && process.env.PYTHONPATH.length > 0) {
-    pythonPathParts.push(process.env.PYTHONPATH);
-  }
-  const env = {
-    ...process.env,
-    PYTHONPATH: pythonPathParts.join(path.delimiter),
-  };
-  const subprocess = await execa("python3", [REGISTRY_SCRIPT_PATH, ...args], {
-    stdout: "pipe",
-    stderr: "inherit",
-    env,
-  });
-  return subprocess.stdout.trim();
 }
 
 function emitProbeEvent(event: string, payload: Record<string, unknown>, level: "info" | "error" = "info") {

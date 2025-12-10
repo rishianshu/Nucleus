@@ -1,0 +1,2 @@
+- [x] pnpm ci-check green after connectionUrl casing fix and JDBC dialect-aware connection strings (Oracle/MSSQL/Postgres templates verified); mypy clean.
+- [ ] Monitor future runs; no open tasks for this slug.

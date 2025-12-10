@@ -35,12 +35,12 @@ func (a *Activities) CollectCatalogSnapshots(ctx context.Context, req Collection
 	logger.Info("collecting catalog snapshots", "runId", req.RunID, "endpoint", req.EndpointName)
 
 	// Resolve template and parameters
-	templateID := resolveTemplateFromConfig(req.Config)
+	templateID := bridge.CanonicalTemplateID(resolveTemplateFromConfig(req.Config))
 	if templateID == "" {
 		return nil, fmt.Errorf("templateId not found in config")
 	}
 
-	params := resolveParamsFromConfig(req.Config)
+	params := bridge.NormalizeParameters(templateID, resolveParamsFromConfig(req.Config))
 	if req.ConnectionURL != "" {
 		params["connectionUrl"] = req.ConnectionURL
 		params["url"] = req.ConnectionURL
@@ -116,8 +116,12 @@ func (a *Activities) PreviewDataset(ctx context.Context, req PreviewRequest) (*P
 	logger := activity.GetLogger(ctx)
 	logger.Info("previewing dataset", "unitId", req.UnitID, "limit", req.Limit)
 
+	// Normalize template/params to UCL expectations
+	templateID := bridge.CanonicalTemplateID(req.TemplateID)
+	params := bridge.NormalizeParameters(templateID, req.Parameters)
+
 	// Get UCL endpoint
-	ep, err := bridge.GetSourceEndpoint(req.TemplateID, req.Parameters)
+	ep, err := bridge.GetSourceEndpoint(templateID, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create endpoint: %w", err)
 	}
@@ -190,7 +194,7 @@ func (a *Activities) PlanIngestionUnit(ctx context.Context, req IngestionRequest
 		return nil, fmt.Errorf("templateId is required for ingestion planning")
 	}
 
-	params := bridge.ResolveParameters(req.Policy)
+	params := bridge.NormalizeParameters(templateID, bridge.ResolveParameters(req.Policy))
 
 	// P2 Fix: Extract target_slice_size from policy
 	targetSliceSize := resolveTargetSliceSize(req.Policy)
@@ -287,7 +291,7 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		return nil, fmt.Errorf("templateId is required for ingestion execution")
 	}
 
-	params := bridge.ResolveParameters(req.Policy)
+	params := bridge.NormalizeParameters(templateID, bridge.ResolveParameters(req.Policy))
 
 	// Get endpoint
 	ep, err := bridge.GetSourceEndpoint(templateID, params)
@@ -541,4 +545,3 @@ func getMaxPayloadBytes() int {
 	}
 	return staging.MaxPayloadBytes
 }
-

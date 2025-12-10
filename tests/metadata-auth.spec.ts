@@ -23,6 +23,15 @@ const PLAYWRIGHT_JIRA_BASE_URL = process.env.PLAYWRIGHT_JIRA_BASE_URL ?? "http:/
 const PLAYWRIGHT_JIRA_USERNAME = process.env.PLAYWRIGHT_JIRA_USERNAME ?? "jira-bot@example.com";
 const PLAYWRIGHT_JIRA_TOKEN = process.env.PLAYWRIGHT_JIRA_TOKEN ?? "fake-token";
 const PLAYWRIGHT_JIRA_PROJECT_KEYS = process.env.PLAYWRIGHT_JIRA_PROJECT_KEYS ?? "ENG";
+// Ensure CDM work store uses a concrete connection URL during tests to avoid env drift.
+if (!process.env.CDM_WORK_DATABASE_URL) {
+  const pgHost = process.env.METADATA_PG_HOST ?? process.env.POSTGRES_HOST ?? "localhost";
+  const pgPort = process.env.METADATA_PG_PORT ?? process.env.POSTGRES_PORT ?? "5434";
+  const pgDb = process.env.METADATA_PG_DATABASE ?? process.env.POSTGRES_DB ?? "jira_plus_plus";
+  const pgUser = process.env.METADATA_PG_USERNAME ?? process.env.POSTGRES_USER ?? "postgres";
+  const pgPassword = process.env.METADATA_PG_PASSWORD ?? process.env.POSTGRES_PASSWORD ?? "postgres";
+  process.env.CDM_WORK_DATABASE_URL = `postgresql://${pgUser}:${pgPassword}@${pgHost}:${pgPort}/${pgDb}`;
+}
 
 test.beforeAll(async ({ request }) => {
   await cleanupPlaywrightArtifacts(request);

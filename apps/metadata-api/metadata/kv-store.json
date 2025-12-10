@@ -3132,5 +3132,86 @@
     },
     "version": "d079c13448624588aaef179c0ea79ef4",
     "updatedAt": "2025-12-08T03:05:22.645Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizo1gd5-3a72a725a88b45e9afb2230e6c052032::endpoint::90240be12e304d0ea1f4ca4bb75a0464::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "b33b2626-14d1-49a2-8559-728d41676970",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T07:10:20.953Z"
+    },
+    "version": "5373e54e29fd4a19939935908cb09ff2",
+    "updatedAt": "2025-12-10T07:10:20.953Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizoc299-70bd0707ec8046399196da9af16de2a3::endpoint::42c29da36ce749e4abad3abc6f9d9c85::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "1b13c65b-2003-4d2b-b351-e4e0b589c8e3",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T08:13:52.245Z"
+    },
+    "version": "d1dddf31f1bb4f069640e5853dc98656",
+    "updatedAt": "2025-12-10T08:13:52.246Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizqks3k-975a9722e03547f39c4fe7df18950fb5::endpoint::ef8f174fe38944bebdc7a5ff5d02f748::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "13c46fba-303a-41ca-a3fe-03f26b813d3f",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T08:56:07.471Z"
+    },
+    "version": "25f882aac0cf44b79593ed1fcfe0d9da",
+    "updatedAt": "2025-12-10T08:56:07.472Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizs3rcn-2c304bbe7e244daca8f3413b3ac834da::endpoint::7c45f1d4383a488aa86284515a0a8694::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "7638d74b-2b34-4e1e-9237-d68ec1e75913",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T09:19:09.960Z"
+    },
+    "version": "0b20c8c504e04315afb61a745f1b77dd",
+    "updatedAt": "2025-12-10T09:19:09.961Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizsxfnd-ccaf1c5859e44e23952a9ea2fa2e07a4::endpoint::e2c19ab1d9a746a78318860050f5c01b::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "f3aeba4a-e4c8-40aa-a9cb-cb16aa5c87fa",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T09:41:25.406Z"
+    },
+    "version": "deccb0fc6d2242799e2cd67443f7c280",
+    "updatedAt": "2025-12-10T09:41:25.407Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizu5moj-256bf92a8ae2467984db6bbbd6fc1fbc::endpoint::ff5e725c3f1f4e4caec908b67b8aec2b::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "491651bd-f02f-4c72-be81-f873bed66a40",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T10:03:38.712Z"
+    },
+    "version": "e2c5db1ad4514dd2befd132b3a44db57",
+    "updatedAt": "2025-12-10T10:03:38.713Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizx57ll-24595538464640bc9c9ceaaa3f99fa85::endpoint::d30841be99ff4fccbdd25c12841d7d58::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "e04e09e3-ede0-4631-87bd-e8b485794d92",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T11:27:33.305Z"
+    },
+    "version": "b763a6e078ae41ccb2fd7893849943de",
+    "updatedAt": "2025-12-10T11:27:33.305Z"
+  },
+  "ingest::global-playwright-jira-temporal-mizy65zp-817e5e8319134f6fbba7a2b91c26dca3::endpoint::46f614dc5ebe46598a6296d8a3c6974b::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "099abfc1-146f-455d-9aee-4a8bcc0e1017",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T12:12:01.240Z"
+    },
+    "version": "e73c40c0033a433c8ad540fafe3a430c",
+    "updatedAt": "2025-12-10T12:12:01.241Z"
+  },
+  "ingest::global-playwright-jira-temporal-mj06iclf-7695510784b0422999a8d374cb46ffd4::endpoint::8787c752f73340f6a3622876609b1cf0::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "58a36fa4-02e7-49c4-aade-94708dc346e9",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-10T15:58:43.910Z"
+    },
+    "version": "f79d26f63b344f17b5f245052c82eaa2",
+    "updatedAt": "2025-12-10T15:58:43.912Z"
   }
 }

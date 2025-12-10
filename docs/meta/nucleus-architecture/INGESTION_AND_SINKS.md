@@ -1,15 +1,15 @@
 # Ingestion & Sink Architecture
 
-This file complements `docs/meta/nucleus-architecture/INGESTION-SOURCE-STAGING-SINK-v1.md`, which captures the canonical Source → Staging → Sink data-plane. The summary below focuses on how the TypeScript control plane and Python runtime interact today.
+This file complements `docs/meta/nucleus-architecture/INGESTION-SOURCE-STAGING-SINK-v1.md`, which captures the canonical Source → Staging → Sink data-plane. The summary below focuses on how the TypeScript control plane orchestrates ingestion via the Unified Connector Layer (UCL, Go) and the staging/sink stores.
 
 ## Canonical Data-Plane (recap)
 
-- Source/Sink endpoints live in Python (`platform/spark-ingestion/packages/runtime-common/src/runtime_common/endpoints/*`).
-- Staging buffers slices between endpoints (`runtime_common/staging.py`, `ingestion_runtime/ingestion/runtime.py`).
+- Source/Sink connectors live in the Unified Connector Layer (UCL, Go) and are exposed to Temporal as activities and to other services via gRPC or equivalent APIs.
+- Staging buffers slices between connectors and should persist slice payloads to the ObjectStore interface (bucket/key) for portability; legacy Spark staging dirs remain a compatible provider for dev.
 - Sink endpoints persist rows to external systems (HDFS, Iceberg, JDBC/CDM).
 - The TypeScript side **does not** implement a second endpoint registry. Instead, it orchestrates runs and updates KV/Prisma/KB.
 
-See the dedicated Source–Staging–Sink spec for diagrams and code pointers. Endpoints now expose logical units (`EndpointUnitDescriptor`) and optional incremental planning helpers (`SupportsIncrementalPlanning`) so the worker can request slices directly from the source rather than re-implementing planning inside workflows.
+See the dedicated Source–Staging–Sink spec for diagrams and code pointers. Endpoints now expose logical units (`EndpointUnitDescriptor`) and optional incremental planning helpers (`SupportsIncrementalPlanning`) so the worker/runtime can request slices directly from the source rather than re-implementing planning inside workflows.
 
 ## Control-Plane (TypeScript)
 
@@ -19,19 +19,20 @@ See the dedicated Source–Staging–Sink spec for diagrams and code pointers. E
    - Resolvers read endpoint configs, manage Prisma `IngestionUnitState`, and enqueue `ingestionRunWorkflow`.
 
 2. **Temporal workflow** (`apps/metadata-api/src/temporal/workflows.ts`):
-   - `startIngestionRun` (TS activity) → loads KV checkpoint (`apps/metadata-api/src/ingestion/checkpoints.ts`), marks Prisma state, resolves sink/staging defaults.
-   - `pythonActivities.runIngestionUnit` (new) → hands `{ endpointId, unitId, sinkId?, stagingProviderId?, checkpoint, policy }` to the Python worker (`platform/spark-ingestion/temporal/metadata_worker.py`), which will invoke Source→Staging→Sink logic. Workers can call `list_units` / `plan_incremental_slices` on the endpoint to break the run into adaptive slices and publish intermediate updates.
+   - `startIngestionRun` (TS activity) → loads KvStore checkpoint from the DB-backed `kv_entries` table via the shared interface (`apps/metadata-api/src/ingestion/checkpoints.ts`), marks Prisma state, resolves sink/staging defaults.
+   - Ingestion activities (for example, `connectorActivities.runIngestionUnit`) hand `{ endpointId, unitId, sinkId?, stagingProviderId?, checkpoint, policy }` to the UCL runtime, which invokes the Source→Staging→Sink logic for that connector. Connectors can call `list_units` / `plan_incremental_slices` on the endpoint to break the run into adaptive slices and publish intermediate updates. Large slices stream to ObjectStore and are referenced by `{bucket, key}` handles rather than embedding payloads in workflow inputs/outputs.
    - `completeIngestionRun` / `failIngestionRun` (TS activities) → write checkpoint back to KV, update `IngestionUnitState`, persist run stats.
-   - TypeScript no longer streams `NormalizedBatch` payloads; bulk data stays in Python.
+   - TypeScript no longer streams `NormalizedBatch` payloads; bulk data stays in the connector runtime and sinks behind the ObjectStore.
 
 3. **UI** (`apps/metadata-ui/src/ingestion/IngestionConsole.tsx`):
    - Lists endpoints/units using GraphQL.
    - Triggers mutations with ADR-compliant feedback (toast + inline cues).
    - Shows status info sourced from Prisma + KV stats.
-4. **Metadata planner** (`metadata_service/planning.py`):
+
+4. **Metadata planner**:
    - Centralized helper that inspects endpoint config/capabilities and returns planned `MetadataJob`s.
    - Metadata subsystems expose optional hooks (`validate_metadata_config`, `plan_metadata_jobs`) so the planner delegates source-specific logic (Jira HTTP, JDBC, etc.) without hard-coded branches.
-   - Python worker simply calls `plan_metadata_jobs(request, logger)` instead of branching on template ids.
+   - The connector runtime simply calls `plan_metadata_jobs(request, logger)` instead of branching on template ids inside the control plane.
 
 ## Metadata-first contract
 
@@ -50,7 +51,7 @@ This ensures orchestration never targets phantom datasets and keeps ingestion po
 When a unit advertises `cdm_model_id`, ingestion configs now expose a **data mode** selector:
 
 - `raw` (default) keeps the existing source-shaped payloads.
-- `cdm` instructs the Python worker to apply the appropriate mapper (e.g., Jira→CDM work, Confluence→CDM docs) before emitting rows.
+- `cdm` instructs the connector runtime to apply the appropriate mapper (e.g., Jira→CDM work, Confluence→CDM docs) before emitting rows.
 
 Because CDM rows typically land in downstream data stores rather than the KB, sinks also declare their CDM support. Sink registrations call `registerIngestionSink(id, factory, { supportedCdmModels: [...] })`, and the GraphQL API exposes these descriptors via the `ingestionSinks` query so the UI can filter/validate selections. When a user chooses `mode="cdm"`, the server enforces that:
 
@@ -70,19 +71,25 @@ Because CDM rows typically land in downstream data stores rather than the KB, si
 
 > **CDM sink write path**
 >
-> Temporal now forwards `sinkEndpointId`, `dataMode`, and `cdmModelId` to both the Python worker and the sink. The worker applies the relevant mapper (Jira→work CDM, Confluence/OneDrive→docs CDM, etc.) and emits normalized CDM records; the `cdm` sink writes them into the provisioned Postgres tables using parameterized upserts (`INSERT … ON CONFLICT (cdm_id) DO UPDATE`). Raw-mode runs continue to target the Knowledge Base sink unchanged.
+> Temporal now forwards `sinkEndpointId`, `dataMode`, and `cdmModelId` to both the connector runtime and the sink. The runtime applies the relevant mapper (Jira→work CDM, Confluence/OneDrive→docs CDM, etc.) and emits normalized CDM records; the `cdm` sink writes them into the provisioned Postgres tables using parameterized upserts (`INSERT … ON CONFLICT (cdm_id) DO UPDATE`). Raw-mode runs continue to target the Knowledge Base sink unchanged.
 
 > **Local dev fallback**
 >
 > When experimenting locally (or in automated tests) without a registered CDM sink endpoint, the metadata API can fall back to `CDM_WORK_DATABASE_URL` (or `METADATA_DATABASE_URL`) plus optional `CDM_WORK_DATABASE_SCHEMA` / `CDM_WORK_DATABASE_TABLE_PREFIX` env vars. This currently powers the CDM Work explorer and can also surface docs CDM tables while we wire official doc sinks. Production environments should continue to register explicit `cdm.jdbc` endpoints.
 
-The Temporal worker receives both the run-mode (full/incremental) and data-mode; Jira ingestion now produces CDM records (updating `entityType` and payload) only when the config requests it, keeping the raw path unchanged for other sinks.
+The Temporal workflow receives both the run-mode (full/incremental) and data-mode; Jira ingestion now produces CDM records (updating `entityType` and payload) only when the config requests it, keeping the raw path unchanged for other sinks.
 
-## Python Worker Highlights
+## Connector runtime (UCL) highlights
 
-- `metadata_worker.py` registers Temporal activities (`collectCatalogSnapshots`, `previewDataset`, `runIngestionUnit`).
-- `runIngestionUnit` is responsible for calling the Spark ingestion runtime (`ingestion_runtime/run_ingestion`) with the correct Source/Sink descriptors and staging provider.
-- Future semantic sources plug into this worker by implementing SourceEndpoints + table/unit configs; Stage + Sink wiring stays inside Python.
+- The UCL ingestion runtime registers Temporal activities (for example, `collectCatalogSnapshots`, `previewDataset`, `runIngestionUnit`) or equivalent handlers, depending on deployment.
+- `runIngestionUnit` is responsible for invoking the ingestion runtime with the correct Source/Sink descriptors and staging provider, following the Source→Staging→Sink contract.
+- Future semantic sources plug into UCL by implementing Source/Sink connectors plus table/unit configs; staging and sink wiring stays inside the connector runtime, not the TypeScript control plane.
+
+### ObjectStore staging handles
+
+- SourceEndpoints stream slices or archives into ObjectStore buckets/prefixes (e.g., `ingestion/<endpointId>/<runId>/<sliceIndex>`), returning `{bucket, key, contentType?, metadata?}` handles.
+- Staging providers may wrap ObjectStore (S3/MinIO) or the existing Spark/HDFS directories; the contract is to pass handles to sinks and Temporal activities rather than copying payloads through workflow arguments.
+- UCL (Go) connectors can reuse the same bucket/key contract for Git fetches or other large artifacts so the control plane remains language-agnostic.
 
 ## Legacy TypeScript Helpers
 
@@ -94,11 +101,12 @@ The Temporal worker receives both the run-mode (full/incremental) and data-mode;
 |------|----------------|-------|
 | HDFS / RAW | `runtime_common/endpoints/hdfs/parquet.py` | Spark ingestion runtime default; writes raw files and publishes Hive tables. |
 | Iceberg / warehouse | `runtime_common/endpoints/hdfs/warehouse.py` | Extends Parquet sink with Iceberg finalize/merge helpers. |
-| KB enrichment | `KnowledgeBaseSink` (`apps/metadata-api/src/ingestion/kbSink.ts`) | Optional TS helper for emitting metadata into GraphStore when the Python worker returns normalized entities. |
+| KB enrichment | `KnowledgeBaseSink` (`apps/metadata-api/src/ingestion/kbSink.ts`) | Optional TS helper for emitting metadata into GraphStore when the connector runtime returns normalized entities. |
 
 ## State & Persistence
 
-- **KV store** – checkpoint + run stats; default file-backed driver under `metadata/kv-store.json`, configurable via `INGESTION_KV_FILE`.
+- **KvStore** – checkpoint + run stats stored in the DB-backed `kv_entries` table via the shared interface (`INGESTION_KV_DRIVER=db`); file-backed `metadata/kv-store.json` is dev-only fallback.
+- **ObjectStore** – staging + large artifacts written/read via `{bucket, key}` handles (S3/MinIO default, local filesystem dev fallback).
 - **Prisma** – `IngestionUnitState` rows track state, last run IDs, timestamps.
 - **KB** – Graph metadata for console explorers (`apps/metadata-api/src/schema.ts` KB queries).
 
@@ -119,10 +127,10 @@ Jira ingestion configs now include an optional `filter` payload that the GraphQL
 
 Incremental runs now persist two KV artifacts per `{endpointId, unitId, sinkId}`:
 
-1. **Checkpoint** – legacy cursor blob (unchanged) holding the worker’s last checkpoint object.
+1. **Checkpoint** – legacy cursor blob (unchanged) holding the runtime’s last checkpoint object.
 2. **Transient state** – new JSON payload managed by `apps/metadata-api/src/ingestion/transientState.ts`.
 
-Temporal’s `startIngestionRun` loads both and hands them—along with the filter config—to the Python worker. Jira’s runtime (under `runtime_common/endpoints/jira_http.py`) records per-project watermarks in the transient state (`projects.<KEY>.lastUpdated`), so adding a new project to the filter only replays that project from `filter.updatedFrom` while existing projects continue from their saved cursor. The worker returns the updated transient payload; the `completeIngestionRun` activity writes it back to KV with optimistic concurrency, logging but ignoring conflicts.
+Temporal’s `startIngestionRun` loads both and hands them—along with the filter config—to the connector runtime. Jira’s runtime records per-project watermarks in the transient state (`projects.<KEY>.lastUpdated`), so adding a new project to the filter only replays that project from `filter.updatedFrom` while existing projects continue from their saved cursor. The runtime returns the updated transient payload; the `completeIngestionRun` activity writes it back to KV with optimistic concurrency, logging but ignoring conflicts.
 
 This pattern generalizes to any source that needs richer incremental metadata than a single cursor (e.g., per-dimension checkpoints, pagination tokens). Future endpoints can import the same transient state helpers without touching Prisma schema or Temporal signatures.
 
@@ -135,11 +143,11 @@ The Knowledge Base stores semantic entities (projects, issues, users, lineage ed
 - `catalogDatasetPreview` returns the cached sample rows (from catalog metadata) so the UI can hydrate previews instantly without touching the upstream system.
 - `previewMetadataDataset` looks up the catalog record + endpoint config, enforces the `preview` capability, and passes the request to Temporal for an on-demand live sample.
 - To avoid changing activity signatures, HTTP/semantic endpoints encode their template id + parameters + dataset metadata as JSON inside the `connectionUrl` field. JDBC endpoints continue to send the raw JDBC URL.
-- The Python worker decodes the JSON payload (if present) and delegates to the endpoint’s metadata subsystem `preview_dataset` helper. Otherwise it falls back to the SQLAlchemy/JDBC preview path.
+- The connector runtime decodes the JSON payload (if present) and delegates to the endpoint’s metadata subsystem `preview_dataset` helper. Otherwise it falls back to the JDBC or family-specific preview path.
 - Jira’s metadata subsystem implements `preview_dataset`, reusing the `_sync_jira_*` helpers to return small batches of normalized payloads.
 
 ## Remaining Gaps
 
-- **Python ingestion worker** still needs full integration with Source→Staging→Sink flow per unit (current activity is a thin shim; future slugs will wire `ingestion_runtime` for specific vendors).
-- **Semantic drivers** (Jira/Confluence/OneDrive) are pending; TypeScript orchestration is ready once Python workers expose units.
-- **Non-KB sinks** accessible from TypeScript (e.g., CDM/JDBC connectors) will arrive once SinkEndpoints expose metadata to orchestration.
+- **Connector ingestion runtime** still needs full integration with Source→Staging→Sink flow per unit (current activity is a thin shim; future slugs will wire specific vendors end-to-end).
+- **Semantic drivers** (Jira/Confluence/OneDrive) may still need deeper alignment with the unified planning + staging + CDM story; TypeScript orchestration is ready once connectors expose units consistently.
+- **Non-KB sinks** accessible from TypeScript (e.g., CDM/JDBC connectors) will arrive once SinkEndpoints expose metadata to orchestration and UCL connectors implement the corresponding write paths.

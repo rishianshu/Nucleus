@@ -486,7 +486,8 @@ func extractFamily(id string) string {
 	case "hdfs":
 		return "STREAM"
 	case "cloud":
-		return "CLOUD"
+		// Align cloud-prefixed connectors (e.g., onedrive) with HTTP family expected by clients.
+		return "HTTP"
 	default:
 		return "OTHER"
 	}

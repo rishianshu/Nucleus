@@ -16,6 +16,8 @@ import (
 	"github.com/nucleus/metadata-api/internal/auth"
 	"github.com/nucleus/metadata-api/internal/config"
 	"github.com/nucleus/metadata-api/internal/database"
+	"github.com/nucleus/metadata-api/internal/temporal"
+	"github.com/nucleus/metadata-api/internal/ucl"
 )
 
 func main() {
@@ -37,8 +39,22 @@ func main() {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
+	// Initialize UCL client
+	uclClient, err := ucl.NewClient(cfg.UCLAddress)
+	if err != nil {
+		log.Fatalf("failed to connect to UCL service: %v", err)
+	}
+	defer uclClient.Close()
+
+	// Initialize Temporal client
+	temporalClient, err := temporal.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("failed to connect to Temporal: %v", err)
+	}
+	defer temporalClient.Close()
+
 	// Initialize GraphQL resolver
-	resolver := graph.NewResolver(db)
+	resolver := graph.NewResolver(db, uclClient, temporalClient.Client())
 
 	// Set up HTTP routes
 	mux := http.NewServeMux()

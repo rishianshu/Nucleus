@@ -43,8 +43,8 @@
 
 6. **Ingestion Integration**
    - TypeScript ingestion core uses endpoint metadata to determine available units; Temporal workflow triggers Python runtime helpers/activity code (e.g., `run_jira_ingestion_unit`).
-   - Source endpoints feed data into staging providers or return normalized records; sinks (TS plane) persist to KB, Lakehouse, etc.
-   - Checkpoints and stats stored via `IngestionUnitState` + KV store.
+   - Source endpoints feed data into ObjectStore-backed staging providers (bucket/key handles) or return normalized records; sinks (TS plane) persist to KB, Lakehouse, etc.
+   - Checkpoints and stats stored via `IngestionUnitState` + the DB-backed `KvStore` interface; workflows pass object references instead of embedding large payloads.
 
 7. **API Surface Metadata (Semantic/HTTP sources)**
    - Capture REST/RPC endpoints, scopes, docs references, and sample payload metadata so humans + agents understand how ingestion fetches data.

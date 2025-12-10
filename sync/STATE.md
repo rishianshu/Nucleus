@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-kb-relations-ui-surfacing-v1 (success @ 2025-12-08T04:59Z)
+core-stores-foundation-v1 (success @ 2025-12-10T17:56Z)
 
 ## Last Run
-- slug: kb-relations-ui-surfacing-v1
+- slug: core-stores-foundation-v1
 - status: success
-- duration: ~2d (active work ~10h)
-- tests: pnpm ci-check (Playwright + mypy) green
-- commits: local changes (not committed)
-- decisions: 0
-- next_step: none; slug complete
+- duration: ~2h
+- tests: pnpm ci-check green (metadata-auth/lifecycle Playwright) + mypy
+- commits: none (workspace only)
+- decisions: 2
+- next_step: monitor future runs; no open tasks
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-10T17:56Z run success (core-stores-foundation-v1, connectionUrl casing + JDBC conn strings fixed; ci-check + mypy green)
+- 2025-12-10T07:09Z run in-progress (core-stores-foundation-v1, retry option fixed; ci-check failing on metadata-auth Playwright scenarios)
 - 2025-12-08T04:59Z run success (kb-relations-ui-surfacing-v1, KB relation filters/direction + Catalog FK/related tables; ci-check green)
 - 2025-12-07T14:38Z run started (kb-relations-ui-surfacing-v1, boot + context sync)
 - 2025-12-07T05:10Z run restarted (kb-relations-and-lineage-v1, START_PROMPT re-issued)

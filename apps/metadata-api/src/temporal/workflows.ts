@@ -28,6 +28,7 @@ const {
   loadStagedRecords: loadStagedRecordsActivity,
 } = proxyActivities<MetadataActivities>({
   startToCloseTimeout: "1 hour",
+  retry: { maximumAttempts: 3 },
 });
 
 type CollectionJobResult = {
@@ -64,6 +65,7 @@ const GO_ACTIVITY_TASK_QUEUE = "metadata-go";
 const pythonActivities = proxyActivities<PythonMetadataActivities>({
   taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
   scheduleToCloseTimeout: "2 hours",
+  retry: { maximumAttempts: 3 },
 });
 
 // Go activities (Sprint 8: Shadow Mode)
@@ -93,14 +95,16 @@ type GoMetadataActivities = {
 const goActivities = proxyActivities<GoMetadataActivities>({
   taskQueue: GO_ACTIVITY_TASK_QUEUE,
   scheduleToCloseTimeout: "2 hours",
+  retry: { maximumAttempts: 3 },
 });
 
 // Shadow mode flag - when true, runs Go activities in parallel for comparison
-const GO_SHADOW_MODE = process.env.GO_SHADOW_MODE === "true";
+const workflowEnv = typeof process !== "undefined" && process.env ? process.env : {};
+const GO_SHADOW_MODE = workflowEnv.GO_SHADOW_MODE === "true";
 
 // Feature flag - Go worker is now the DEFAULT (Sprint 11)
 // Set USE_GO_WORKER=false to fall back to Python worker
-const USE_GO_WORKER = process.env.USE_GO_WORKER !== "false";
+const USE_GO_WORKER = workflowEnv.USE_GO_WORKER !== "false";
 
 // Unified ingestion activities - switches based on feature flag
 const ingestionActivities = USE_GO_WORKER
@@ -116,13 +120,6 @@ const ingestionActivities = USE_GO_WORKER
       planIngestionUnit: pythonActivities.planIngestionUnit,
       runIngestionUnit: pythonActivities.runIngestionUnit,
     };
-
-// Log which worker is being used
-if (USE_GO_WORKER) {
-  log.info("worker-mode", { mode: "go", taskQueue: GO_ACTIVITY_TASK_QUEUE });
-} else {
-  log.info("worker-mode", { mode: "python", taskQueue: PYTHON_ACTIVITY_TASK_QUEUE });
-}
 
 // Helper to run shadow comparison without blocking main flow
 async function runGoShadow<T>(

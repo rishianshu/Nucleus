@@ -3,13 +3,14 @@ package bridge
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/nucleus/ucl-core/pkg/endpoint"
 	// Import connector package to register all connectors
 	_ "github.com/nucleus/ucl-core/pkg/connector"
 )
 
-// TemplateMapping maps Python templateId to UCL endpoint ID
+// TemplateMapping maps legacy templateId to UCL endpoint ID
 var TemplateMapping = map[string]string{
 	// JDBC connectors
 	// Note: Only registered connectors are mapped (see ucl-core/internal/connector/jdbc/register.go)
@@ -21,9 +22,11 @@ var TemplateMapping = map[string]string{
 	// TODO: Add jdbc.mysql and jdbc.generic when registered
 
 	// HTTP connectors
+	"jira.http":       "http.jira", // legacy ID used by TS/Python
 	"http.rest":       "http.rest",
 	"http.jira":       "http.jira",
 	"http.confluence": "http.confluence",
+	"confluence.http": "http.confluence",
 
 	// Cloud connectors
 	"cloud.onedrive":  "cloud.onedrive",
@@ -32,6 +35,14 @@ var TemplateMapping = map[string]string{
 	// Storage connectors
 	"hdfs.webhdfs":    "hdfs.webhdfs",
 	"hdfs.parquet":    "hdfs.webhdfs",
+}
+
+// CanonicalTemplateID returns the UCL-expected template id for a legacy id.
+func CanonicalTemplateID(templateID string) string {
+	if mapped, ok := TemplateMapping[templateID]; ok {
+		return mapped
+	}
+	return templateID
 }
 
 // GetEndpoint creates a UCL endpoint from templateId and parameters.
@@ -85,7 +96,7 @@ func ResolveTemplateID(policy map[string]any) string {
 	// Try direct keys
 	for _, key := range []string{"templateId", "template_id", "template"} {
 		if v, ok := policy[key].(string); ok && v != "" {
-			return v
+			return CanonicalTemplateID(v)
 		}
 	}
 
@@ -93,7 +104,7 @@ func ResolveTemplateID(policy map[string]any) string {
 	if params, ok := policy["parameters"].(map[string]any); ok {
 		for _, key := range []string{"templateId", "template_id", "template"} {
 			if v, ok := params[key].(string); ok && v != "" {
-				return v
+				return CanonicalTemplateID(v)
 			}
 		}
 	}
@@ -107,4 +118,89 @@ func ResolveParameters(policy map[string]any) map[string]any {
 		return params
 	}
 	return policy
+}
+
+// NormalizeParameters adapts legacy parameter keys to the connector expectations.
+// It returns a shallow-copied map (input not mutated).
+func NormalizeParameters(templateID string, params map[string]any) map[string]any {
+	out := make(map[string]any, len(params))
+	for k, v := range params {
+		out[k] = v
+	}
+
+	switch CanonicalTemplateID(templateID) {
+	case "http.jira":
+		// Align common legacy keys to Jira connector expectations
+		copyIfPresent(out, params, "base_url", "baseUrl")
+		copyIfPresent(out, params, "username", "email")
+		copyIfPresent(out, params, "email", "email")
+		copyIfPresent(out, params, "api_token", "apiToken")
+		// project_keys can be comma-separated string; convert to []string
+		if projects, ok := params["project_keys"].(string); ok && projects != "" {
+			out["projects"] = splitCSV(projects)
+		} else if projSlice, ok := params["projects"].([]string); ok {
+			out["projects"] = projSlice
+		}
+		// jql filter
+		if jql, ok := params["jqlFilter"].(string); ok && jql != "" {
+			out["jql"] = jql
+		} else if jql, ok := params["jql_filter"].(string); ok && jql != "" {
+			out["jql"] = jql
+		}
+	case "http.confluence":
+		copyIfPresent(out, params, "base_url", "baseUrl")
+		copyIfPresent(out, params, "username", "email")
+		copyIfPresent(out, params, "email", "email")
+		copyIfPresent(out, params, "api_token", "apiToken")
+		if spaces, ok := params["space_keys"].(string); ok && spaces != "" {
+			out["spaces"] = splitCSV(spaces)
+		} else if spaceSlice, ok := params["spaces"].([]string); ok {
+			out["spaces"] = spaceSlice
+		}
+	case "cloud.onedrive":
+		// Align common OneDrive keys
+		copyIfPresent(out, params, "base_url", "baseUrl")
+		copyIfPresent(out, params, "graph_base_url", "baseUrl")
+		copyIfPresent(out, params, "client_id", "clientId")
+		copyIfPresent(out, params, "client_secret", "clientSecret")
+		copyIfPresent(out, params, "tenant_id", "tenantId")
+		copyIfPresent(out, params, "drive_id", "driveId")
+		copyIfPresent(out, params, "root_path", "rootPath")
+		// refreshToken is required for real auth; pass through if present
+		if rt, ok := params["refresh_token"].(string); ok && rt != "" {
+			out["refreshToken"] = rt
+		}
+	case "jdbc.postgres", "jdbc.postgresql", "jdbc.oracle", "jdbc.sqlserver":
+		// Normalize SSL mode and username casing
+		copyIfPresent(out, params, "username", "user")
+		// If ssl_mode/sslMode provided but empty, default to disable to avoid libpq SSL negotiation failures
+		if mode, ok := params["ssl_mode"].(string); ok && strings.TrimSpace(mode) == "" {
+			out["sslMode"] = "disable"
+		} else if mode, ok := params["sslMode"].(string); ok && strings.TrimSpace(mode) == "" {
+			out["sslMode"] = "disable"
+		}
+		// If neither provided, default explicitly
+		if _, ok := out["sslMode"]; !ok {
+			out["sslMode"] = "disable"
+		}
+	}
+
+	return out
+}
+
+func copyIfPresent(dst, src map[string]any, from, to string) {
+	if v, ok := src[from]; ok {
+		dst[to] = v
+	}
+}
+
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

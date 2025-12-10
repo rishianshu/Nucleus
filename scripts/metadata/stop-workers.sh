@@ -24,4 +24,5 @@ stop_worker() {
 }
 
 stop_worker "metadata TS worker" "$PID_DIR/metadata_ts_worker.pid"
-stop_worker "metadata Python worker" "$PID_DIR/metadata_py_worker.pid"
+stop_worker "metadata Go worker" "$PID_DIR/metadata_go_worker.pid"
+stop_worker "UCL gRPC server" "$PID_DIR/ucl_grpc_server.pid"

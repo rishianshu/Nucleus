@@ -9,7 +9,8 @@ import (
 // Config holds all configuration for the metadata-api service.
 type Config struct {
 	// Server settings
-	Port string
+	Port       string
+	UCLAddress string
 
 	// Database settings
 	DatabaseURL    string
@@ -39,7 +40,8 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	return &Config{
-		Port: getEnv("METADATA_API_PORT", "4010"),
+		Port:       getEnv("METADATA_API_PORT", "4010"),
+		UCLAddress: getEnv("UCL_GRPC_ADDRESS", "localhost:50051"),
 
 		DatabaseURL:    getEnv("DATABASE_URL", ""),
 		MigrationsPath: getEnv("METADATA_MIGRATIONS_PATH", "./migrations"),

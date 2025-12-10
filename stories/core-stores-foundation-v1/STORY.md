@@ -1,0 +1,5 @@
+# STORY — core-stores-foundation-v1
+
+- 2025-12-10T06:38Z: Run in-progress. Added STORES architecture doc covering Metadata/Graph/Signal/Kv/Object responsibilities, DB-backed KvStore schema/migration, and ObjectStore streaming/backends. Updated ingestion/endpoint docs so Source→Staging→Sink uses KvStore/ObjectStore handles instead of file-backed helpers. `pnpm ci-check` failed in `apps/metadata-api` (ActivityOptions `retryPolicy` type errors); logs saved under `.artifacts/2025-12-10-core-stores-ci-check/pnpm-ci-check.log`.
+- 2025-12-10T07:09Z: Temporal workflow retry options fixed (`retryPolicy`→`retry`); reran `pnpm ci-check` and hit existing Playwright metadata-auth failures (connection tests and seeded CDM work rows missing). Summary in `.artifacts/2025-12-10-core-stores-ci-check/pnpm-ci-check-playwright-summary.log`.
+- 2025-12-10T17:56Z: Resolved endpoint build/test by fixing gRPC connectionUrl casing and JDBC dialect-aware connection strings (Postgres/Oracle/MSSQL). `pnpm ci-check` + `mypy` now green end-to-end; slug ready to close.

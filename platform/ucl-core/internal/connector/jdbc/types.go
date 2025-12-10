@@ -2,6 +2,8 @@ package jdbc
 
 import (
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/nucleus/ucl-core/internal/endpoint"
@@ -23,7 +25,7 @@ type Config struct {
 // Supports common aliases: username→user, db→database.
 func ParseConfig(m map[string]interface{}) *Config {
 	cfg := &Config{
-		Driver:   getString(m, "driver", "postgres"),
+		Driver:   strings.ToLower(getString(m, "driver", "postgres")),
 		Host:     getString(m, "host", "localhost"),
 		Port:     getInt(m, "port", 5432),
 		Database: getStringWithFallback(m, "database", "db", ""),
@@ -31,27 +33,26 @@ func ParseConfig(m map[string]interface{}) *Config {
 		Password: getString(m, "password", ""),
 		SSLMode:  getString(m, "sslMode", getString(m, "ssl_mode", "disable")),
 	}
-	
-	// Build connection string or use provided one
-	if connStr := getString(m, "connectionString", getString(m, "connection_string", "")); connStr != "" {
-		cfg.ConnectionString = connStr
-		
-		// Ensure sslmode is set in connection string if not present
-		if !strings.Contains(strings.ToLower(connStr), "sslmode=") {
-			if strings.Contains(connStr, "?") {
-				cfg.ConnectionString = connStr + "&sslmode=" + cfg.SSLMode
-			} else {
-				cfg.ConnectionString = connStr + "?sslmode=" + cfg.SSLMode
-			}
+
+	connStr := getString(m, "connectionString", getString(m, "connection_string", ""))
+	switch cfg.Driver {
+	case "postgres", "pgx":
+		cfg.ConnectionString = buildPostgresConnString(cfg, connStr)
+	case "sqlserver":
+		cfg.ConnectionString = buildSQLServerConnString(cfg, connStr)
+	case "godror", "oracle":
+		cfg.ConnectionString = buildOracleConnString(cfg, connStr)
+	default:
+		if connStr != "" {
+			cfg.ConnectionString = connStr
+		} else {
+			cfg.ConnectionString = fmt.Sprintf(
+				"host=%s port=%d user='%s' password='%s' dbname='%s' sslmode=%s",
+				cfg.Host, cfg.Port, escapeConnValue(cfg.User), escapeConnValue(cfg.Password), escapeConnValue(cfg.Database), cfg.SSLMode,
+			)
 		}
-	} else {
-		// Use single-quoted values to handle special characters in passwords
-		cfg.ConnectionString = fmt.Sprintf(
-			"host=%s port=%d user='%s' password='%s' dbname='%s' sslmode=%s",
-			cfg.Host, cfg.Port, escapeConnValue(cfg.User), escapeConnValue(cfg.Password), escapeConnValue(cfg.Database), cfg.SSLMode,
-		)
 	}
-	
+
 	return cfg
 }
 
@@ -146,6 +147,11 @@ func getInt(m map[string]interface{}, key string, defaultVal int) int {
 	if v, ok := m[key].(int); ok {
 		return v
 	}
+	if v, ok := m[key].(string); ok && v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			return parsed
+		}
+	}
 	return defaultVal
 }
 
@@ -153,4 +159,60 @@ func getInt(m map[string]interface{}, key string, defaultVal int) int {
 // PostgreSQL DSN uses single quotes, and embedded quotes are escaped by doubling.
 func escapeConnValue(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
+}
+
+func buildPostgresConnString(cfg *Config, provided string) string {
+	if provided != "" {
+		// Ensure sslmode is present when caller omitted it.
+		if !strings.Contains(strings.ToLower(provided), "sslmode=") && cfg.SSLMode != "" {
+			sep := "?"
+			if strings.Contains(provided, "?") {
+				sep = "&"
+			}
+			return provided + sep + "sslmode=" + cfg.SSLMode
+		}
+		return provided
+	}
+
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Path:   cfg.Database,
+	}
+	q := url.Values{}
+	if cfg.SSLMode != "" {
+		q.Set("sslmode", cfg.SSLMode)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func buildSQLServerConnString(cfg *Config, provided string) string {
+	if provided != "" {
+		return provided
+	}
+
+	u := &url.URL{
+		Scheme: "sqlserver",
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+	}
+	q := url.Values{}
+	if cfg.Database != "" {
+		q.Set("database", cfg.Database)
+	}
+	if strings.EqualFold(cfg.SSLMode, "disable") {
+		q.Set("encrypt", "disable")
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func buildOracleConnString(cfg *Config, provided string) string {
+	if provided != "" {
+		return provided
+	}
+	connect := fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.Database)
+	return fmt.Sprintf(`user="%s" password="%s" connectString="%s"`, escapeConnValue(cfg.User), escapeConnValue(cfg.Password), connect)
 }

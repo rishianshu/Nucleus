@@ -1,0 +1,11 @@
+{
+  "name": "Debug UCL gRPC server",
+  "type": "go",
+  "request": "launch",
+  "mode": "debug",
+  "program": "${workspaceFolder}/platform/ucl-core/cmd/server",
+  "cwd": "${workspaceFolder}/platform/ucl-core",
+  "env": {
+    "UCL_GRPC_PORT": "50051"
+  }
+}

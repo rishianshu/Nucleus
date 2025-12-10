@@ -213,7 +213,8 @@ export async function buildEndpointConfig(
 
   return new Promise((resolve, reject) => {
     client.BuildEndpointConfig(
-      { template_id: templateId, parameters, labels: labels ?? [] },
+      // Use camelCase keys because proto-loader default keepCase=false
+      { templateId, parameters, labels: labels ?? [] },
       (err: Error | null, response: any) => {
         if (err) {
           reject(err);
@@ -222,7 +223,8 @@ export async function buildEndpointConfig(
         resolve({
           success: response.success,
           config: response.config ?? {},
-          connectionUrl: response.connection_url,
+          // Proto field `connection_url` is exposed as `connectionUrl` because keepCase=false
+          connectionUrl: response.connectionUrl ?? response.connection_url,
           error: response.error,
         });
       }
@@ -241,7 +243,8 @@ export async function testEndpointConnection(
 
   return new Promise((resolve, reject) => {
     client.TestEndpointConnection(
-      { template_id: templateId, parameters },
+      // Use camelCase keys because proto-loader default keepCase=false
+      { templateId, parameters },
       (err: Error | null, response: any) => {
         if (err) {
           reject(err);

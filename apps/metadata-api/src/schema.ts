@@ -120,9 +120,9 @@ function previewCachePath(datasetId: string): string {
   return path.join(PREVIEW_CACHE_DIR, `${safe}.json`);
 }
 const ENABLE_SAMPLE_FALLBACK = process.env.METADATA_SAMPLE_FALLBACK !== "0";
-const TEMPLATE_REFRESH_TIMEOUT_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_TIMEOUT_MS ?? "5000");
+const TEMPLATE_REFRESH_TIMEOUT_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_TIMEOUT_MS ?? "20000");
 const TEMPLATE_REFRESH_BACKOFF_MS = Number(process.env.METADATA_TEMPLATE_REFRESH_BACKOFF_MS ?? "30000");
-const WORKFLOW_EXEC_TIMEOUT_MS = Number(process.env.METADATA_WORKFLOW_TIMEOUT_MS ?? "5000");
+const WORKFLOW_EXEC_TIMEOUT_MS = Number(process.env.METADATA_WORKFLOW_TIMEOUT_MS ?? "20000");
 const FAKE_COLLECTIONS_ENABLED = process.env.METADATA_FAKE_COLLECTIONS === "1";
 const PLAYWRIGHT_INVALID_PASSWORD = "__PLAYWRIGHT_BAD_PASSWORD__";
 const COLLECTION_SCHEDULE_PREFIX = "collection";
@@ -143,6 +143,8 @@ const INGESTION_WORKFLOW_MAX_ATTEMPTS = Math.max(1, Number(process.env.METADATA_
 const COLLECTION_WORKFLOW_TIMEOUT_MS = Math.max(5 * 60 * 1000, Number(process.env.METADATA_COLLECTION_WORKFLOW_TIMEOUT_MS ?? 30 * 60 * 1000));
 const TEMPLATE_OVERRIDES: Record<string, EndpointTemplate | undefined> = {
   "http.onedrive": DEFAULT_ENDPOINT_TEMPLATES.find((entry) => entry.id === "http.onedrive"),
+  // Ensure JDBC templates always carry full field descriptors even if the upstream registry omits them.
+  "jdbc.postgres": DEFAULT_ENDPOINT_TEMPLATES.find((entry) => entry.id === "jdbc.postgres"),
 };
 
 type GraphQLKbFacetValue = {
@@ -5604,10 +5606,16 @@ function extractDatasetSchema(payload: Record<string, any>, record: MetadataReco
     payload.schema ??
     payload.namespace ??
     payload.environment?.schema ??
-    payload.endpoint?.schema ??
     record.projectId ??
     null;
-  return schema ? String(schema).toLowerCase() : null;
+  
+  if (schema && (typeof schema === "string" || typeof schema === "number")) {
+    return String(schema).toLowerCase();
+  }
+  if (payload.datasetId) {
+    return payload.datasetId.split(".")[0];
+  }
+  return null;
 }
 
 function extractDatasetEntity(payload: Record<string, any>, record: MetadataRecord<unknown>): string | null {
@@ -5649,7 +5657,7 @@ function extractIngestionUnitId(payload: Record<string, any>, schema: string | n
     null;
 
   if (unitId) {
-    return unitId;
+    return typeof unitId === "string" || typeof unitId === "number" ? String(unitId) : null;
   }
 
   if (schema && table) {
