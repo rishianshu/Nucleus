@@ -940,11 +940,13 @@ export const typeDefs = `#graphql
   type CdmWorkItem {
     cdmId: ID!
     sourceSystem: String!
+    sourceId: String
     sourceIssueKey: String!
     projectCdmId: ID!
     summary: String!
     status: String
     priority: String
+    sourceUrl: String
     createdAt: DateTime
     updatedAt: DateTime
     closedAt: DateTime
@@ -953,6 +955,7 @@ export const typeDefs = `#graphql
     datasetId: ID
     sourceEndpointId: ID
     raw: JSON!
+    rawSource: JSON
   }
 
   type CdmWorkComment {
@@ -1103,12 +1106,15 @@ type ProvisionCdmSinkResult {
     id: ID!
     domain: CdmDomain!
     sourceSystem: String!
+    sourceId: String
+    sourceUrl: String
     cdmId: ID!
     title: String
     createdAt: DateTime
     updatedAt: DateTime
     state: String
     data: JSON!
+    rawSource: JSON
     docTitle: String
     docType: String
     docProjectKey: String
@@ -5336,15 +5342,19 @@ function mapCdmWorkUserRecord(row: CdmWorkUserRow) {
 }
 
 function mapCdmWorkItem(row: CdmWorkItemRow) {
-  const metadata = extractWorkSourceMetadata(row.properties);
+  const metadata = extractWorkSourceMetadata(row.properties, row.raw_source);
+  const sourceUrl = row.source_url ?? resolveRawSourceUrl(metadata.rawSource ?? metadata.raw);
+  const sourceId = row.source_id ?? row.source_issue_key ?? null;
   return {
     cdmId: row.cdm_id,
     sourceSystem: row.source_system,
+    sourceId,
     sourceIssueKey: row.source_issue_key,
     projectCdmId: row.project_cdm_id,
     summary: row.summary,
     status: row.status,
     priority: row.priority,
+    sourceUrl,
     createdAt: row.created_at ? row.created_at.toISOString() : null,
     updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
     closedAt: row.closed_at ? row.closed_at.toISOString() : null,
@@ -5353,6 +5363,7 @@ function mapCdmWorkItem(row: CdmWorkItemRow) {
     datasetId: metadata.datasetId,
     sourceEndpointId: metadata.endpointId,
     raw: metadata.raw,
+    rawSource: metadata.rawSource ?? null,
   };
 }
 
@@ -5397,12 +5408,15 @@ function mapGraphCdmEntity(envelope: CdmEntityEnvelope) {
     id: envelope.cdmId,
     domain: envelope.domain,
     sourceSystem: envelope.sourceSystem,
+    sourceId: envelope.sourceId ?? null,
+    sourceUrl: envelope.sourceUrl ?? null,
     cdmId: envelope.cdmId,
     title: envelope.title,
     createdAt: envelope.createdAt,
     updatedAt: envelope.updatedAt,
     state: envelope.state,
     data: envelope.data,
+    rawSource: envelope.rawSource ?? null,
     docTitle: envelope.docTitle ?? null,
     docType: envelope.docType ?? null,
     docProjectKey: envelope.docProjectKey ?? null,
@@ -5435,18 +5449,39 @@ function mapCdmWorkUser(cdmId?: string | null, displayName?: string | null, emai
   };
 }
 
-function extractWorkSourceMetadata(properties: Record<string, unknown> | null | undefined) {
+function extractWorkSourceMetadata(
+  properties: Record<string, unknown> | null | undefined,
+  rawSource?: Record<string, unknown> | null,
+) {
   const safeProperties = isPlainObject(properties) ? properties : {};
   const metadataBlock = isPlainObject((safeProperties as Record<string, unknown>)["_metadata"])
     ? ((safeProperties as Record<string, unknown>)["_metadata"] as Record<string, unknown>)
     : {};
   const datasetId = typeof metadataBlock["sourceDatasetId"] === "string" ? (metadataBlock["sourceDatasetId"] as string) : null;
   const endpointId = typeof metadataBlock["sourceEndpointId"] === "string" ? (metadataBlock["sourceEndpointId"] as string) : null;
+  const rawSourcePayload = rawSource && isPlainObject(rawSource) ? (rawSource as Record<string, unknown>) : null;
+  const fallbackRawSource = rawSourcePayload ?? (isPlainObject((safeProperties as Record<string, unknown>)["raw"])
+      ? ((safeProperties as Record<string, unknown>)["raw"] as Record<string, unknown>)
+      : null);
   return {
     datasetId,
     endpointId,
     raw: safeProperties,
+    rawSource: fallbackRawSource,
   };
+}
+
+function resolveRawSourceUrl(raw: Record<string, unknown> | null | undefined) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidates = [raw["source_url"], raw["url"], raw["self"], raw["webUrl"]];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

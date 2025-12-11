@@ -24,6 +24,7 @@ class CdmDocSpace:
 class CdmDocItem:
     cdm_id: str
     source_system: str
+    source_id: str
     source_item_id: str
     space_cdm_id: str
     parent_item_cdm_id: Optional[str]
@@ -35,7 +36,9 @@ class CdmDocItem:
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     url: Optional[str]
+    source_url: Optional[str]
     tags: List[str] = field(default_factory=list)
+    raw_source: Optional[Dict[str, Any]] = None
     properties: Dict[str, Any] = field(default_factory=dict)
 
 

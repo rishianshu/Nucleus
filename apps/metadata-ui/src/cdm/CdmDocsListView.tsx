@@ -331,16 +331,17 @@ function DocDetailCard({ entity, datasetLookup }: { entity: CdmEntity; datasetLo
   const datasetLink = datasetId ? `/catalog/datasets/${datasetId}` : null;
   const sourceSystem = entity.docSourceSystem ?? entity.sourceSystem;
   const sourceUrl =
-    entity.docUrl ?? (typeof entity.data?.url === "string" ? (entity.data.url as string) : null) ?? null;
+    entity.sourceUrl ?? entity.docUrl ?? (typeof entity.data?.url === "string" ? (entity.data.url as string) : null) ?? null;
   const updatedAt = entity.docUpdatedAt ?? entity.updatedAt;
   const location = entity.docLocation ?? (typeof entity.data?.path === "string" ? (entity.data.path as string) : null);
-  const metadata = entity.data ?? {};
+  const metadata = entity.rawSource ?? entity.data ?? {};
 
   const detailRows = [
     { label: "Project / Workspace", value: formatProjectLabel(entity) },
     { label: "Location", value: location ?? "—" },
     { label: "Type", value: entity.docType ?? entity.state ?? "—" },
     { label: "Dataset", value: datasetName ?? "—" },
+    { label: "Source id", value: entity.sourceId ?? entity.cdmId },
     { label: "Source system", value: sourceSystem ?? "—" },
     { label: "Source endpoint", value: datasetEndpoint ?? "—" },
     { label: "Updated", value: formatDateTime(updatedAt) },

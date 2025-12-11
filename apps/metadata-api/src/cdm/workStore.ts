@@ -24,7 +24,9 @@ export type CdmWorkUserRow = {
 export type CdmWorkItemRow = {
   cdm_id: string;
   source_system: string;
+  source_id: string | null;
   source_issue_key: string;
+  source_url: string | null;
   project_cdm_id: string;
   summary: string;
   status: string | null;
@@ -38,6 +40,7 @@ export type CdmWorkItemRow = {
   reporter_email: string | null;
   assignee_display_name: string | null;
   assignee_email: string | null;
+  raw_source: Record<string, unknown> | null;
   properties: Record<string, unknown> | null;
 };
 
@@ -179,7 +182,7 @@ export class CdmWorkStore {
     const limit = Math.min(Math.max(args.first ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const offset = args.after ? decodeCursor(args.after) : 0;
     const { whereClause, params } = buildWorkItemWhereClause(args.filter);
-    const select = `SELECT item.cdm_id, item.source_system, item.source_issue_key, item.project_cdm_id, item.summary, item.status, item.priority, item.assignee_cdm_id, item.reporter_cdm_id, item.created_at, item.updated_at, item.closed_at, item.properties,
+    const select = `SELECT item.cdm_id, item.source_system, item.source_id, item.source_issue_key, item.source_url, item.project_cdm_id, item.summary, item.status, item.priority, item.assignee_cdm_id, item.reporter_cdm_id, item.created_at, item.updated_at, item.closed_at, item.raw_source, item.properties,
       reporter.display_name AS reporter_display_name,
       reporter.email AS reporter_email,
       assignee.display_name AS assignee_display_name,
@@ -255,7 +258,7 @@ export class CdmWorkStore {
 
   async getWorkItemDetail(args: { projectId?: string | null; cdmId: string }) {
     const { pool, config } = await this.ensurePool(args.projectId);
-    const itemSql = `SELECT item.cdm_id, item.source_system, item.source_issue_key, item.project_cdm_id, item.summary, item.status, item.priority, item.assignee_cdm_id, item.reporter_cdm_id, item.created_at, item.updated_at, item.closed_at, item.properties,
+    const itemSql = `SELECT item.cdm_id, item.source_system, item.source_id, item.source_issue_key, item.source_url, item.project_cdm_id, item.summary, item.status, item.priority, item.assignee_cdm_id, item.reporter_cdm_id, item.created_at, item.updated_at, item.closed_at, item.raw_source, item.properties,
       reporter.display_name AS reporter_display_name,
       reporter.email AS reporter_email,
       assignee.display_name AS assignee_display_name,

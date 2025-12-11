@@ -12,6 +12,7 @@ export type DocItemFilter = {
 export type CdmDocItemRow = {
   cdm_id: string;
   source_system: string;
+  source_id: string | null;
   source_item_id: string;
   space_cdm_id: string | null;
   space_key: string | null;
@@ -21,12 +22,14 @@ export type CdmDocItemRow = {
   title: string | null;
   doc_type: string | null;
   mime_type: string | null;
+  source_url: string | null;
   created_by_cdm_id: string | null;
   updated_by_cdm_id: string | null;
   created_at: Date | null;
   updated_at: Date | null;
   url: string | null;
   tags: unknown;
+  raw_source: Record<string, unknown> | null;
   properties: unknown;
   dataset_id: string | null;
   endpoint_id: string | null;
@@ -68,6 +71,7 @@ export class CdmDocStore {
     );
     const query = `SELECT item.cdm_id,
         item.source_system,
+        item.source_id,
         item.source_item_id,
         item.space_cdm_id,
         space.key AS space_key,
@@ -81,8 +85,10 @@ export class CdmDocStore {
         item.updated_by_cdm_id,
         item.created_at,
         item.updated_at,
+        item.source_url,
         item.url,
         item.tags,
+        item.raw_source,
         item.properties,
         (item.properties -> '_metadata' ->> 'sourceDatasetId') AS dataset_id,
         (item.properties -> '_metadata' ->> 'sourceEndpointId') AS endpoint_id
@@ -112,6 +118,7 @@ export class CdmDocStore {
     const { pool, config } = await this.ensurePool(args.projectId);
     const sql = `SELECT item.cdm_id,
         item.source_system,
+        item.source_id,
         item.source_item_id,
         item.space_cdm_id,
         space.key AS space_key,
@@ -125,8 +132,10 @@ export class CdmDocStore {
         item.updated_by_cdm_id,
         item.created_at,
         item.updated_at,
+        item.source_url,
         item.url,
         item.tags,
+        item.raw_source,
         item.properties,
         (item.properties -> '_metadata' ->> 'sourceDatasetId') AS dataset_id,
         (item.properties -> '_metadata' ->> 'sourceEndpointId') AS endpoint_id

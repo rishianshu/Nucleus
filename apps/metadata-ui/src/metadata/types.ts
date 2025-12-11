@@ -263,11 +263,13 @@ export type CdmDocsDataset = {
 export type CdmWorkItem = {
   cdmId: string;
   sourceSystem: string;
+  sourceId?: string | null;
   sourceIssueKey: string;
   projectCdmId: string;
   summary: string;
   status?: string | null;
   priority?: string | null;
+  sourceUrl?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   closedAt?: string | null;
@@ -276,6 +278,7 @@ export type CdmWorkItem = {
   datasetId?: string | null;
   sourceEndpointId?: string | null;
   raw?: Record<string, unknown> | null;
+  rawSource?: Record<string, unknown> | null;
 };
 
 export type CdmWorkItemEdge = {
@@ -363,12 +366,15 @@ export type CdmEntity = {
   id: string;
   domain: "WORK_ITEM" | "DOC_ITEM";
   sourceSystem: string;
+  sourceId?: string | null;
+  sourceUrl?: string | null;
   cdmId: string;
   title?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   state?: string | null;
   data: Record<string, unknown>;
+  rawSource?: Record<string, unknown> | null;
   docTitle?: string | null;
   docType?: string | null;
   docProjectKey?: string | null;

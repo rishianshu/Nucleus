@@ -15,7 +15,8 @@ Nucleus standardizes "work" data (projects, issues, people, collaboration) throu
 ### `CdmWorkItem` (`cdm.work.item`)
 - Represents a task/issue/epic.
 - **ID format:** `cdm:work:item:<source_system>:<issue_key>`.
-- **Fields:** project FK (`project_cdm_id`), reporter/assignee FKs, `issue_type`, `status`, `status_category`, `priority`, textual fields (`summary`, `description`), labels array, timestamps (`created_at`, `updated_at`, `closed_at`), and a `properties` bag for custom fields/raw payloads.
+- **Fields:** project FK (`project_cdm_id`), reporter/assignee FKs, `issue_type`, `status`, `status_category`, `priority`, textual fields (`summary`, `description`), labels array, timestamps (`created_at`, `updated_at`, `closed_at`), provenance (`source_id`, `source_url`, `raw_source`), and a `properties` bag for custom fields/raw payloads.
+- **Provenance pattern:** `source_id` stores a stable upstream identifier (Jira issue id/key), `source_url` is a deep link (e.g., `https://<jira-host>/browse/<issue_key>`), and `raw_source` keeps a curated JSON subset of the upstream payload (metadata fields only—omit large attachments/bodies).
 
 ### `CdmWorkComment` (`cdm.work.comment`)
 - Discussion entries attached to work items.

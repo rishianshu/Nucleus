@@ -20,11 +20,14 @@ export type CdmEntityEnvelope = {
   domain: CdmEntityDomain;
   cdmId: string;
   sourceSystem: string;
+  sourceId?: string | null;
+  sourceUrl?: string | null;
   title: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   state: string | null;
   data: Record<string, unknown>;
+  rawSource?: Record<string, unknown> | null;
   docTitle?: string | null;
   docType?: string | null;
   docProjectKey?: string | null;
@@ -138,15 +141,26 @@ function mapDocFilter(filter: CdmEntityStoreFilter): DocItemFilter {
 }
 
 function mapWorkRow(row: CdmWorkItemRow): CdmEntityEnvelope {
+  const rawSource = normalizeJson(row.raw_source, null);
+  const properties = normalizeJson(row.properties, {});
+  const safeProperties = isPlainObject(properties) ? (properties as Record<string, unknown>) : {};
+  const safeRawSource = isPlainObject(rawSource) ? (rawSource as Record<string, unknown>) : null;
+  const fallbackRaw = safeRawSource ?? (isPlainObject(safeProperties["raw"]) ? (safeProperties["raw"] as Record<string, unknown>) : null);
+  const sourceUrl = row.source_url ?? resolveWorkSourceUrl(fallbackRaw ?? safeProperties);
+  const sourceId = row.source_id ?? row.source_issue_key ?? null;
   return {
     domain: "WORK_ITEM",
     cdmId: row.cdm_id,
     sourceSystem: row.source_system,
+    sourceId,
+    sourceUrl,
     title: row.summary ?? row.source_issue_key,
     createdAt: serializeTimestamp(row.created_at),
     updatedAt: serializeTimestamp(row.updated_at ?? row.closed_at ?? row.created_at),
     state: row.status ?? null,
     data: {
+      sourceId,
+      sourceUrl,
       sourceIssueKey: row.source_issue_key,
       projectCdmId: row.project_cdm_id,
       summary: row.summary,
@@ -169,7 +183,9 @@ function mapWorkRow(row: CdmWorkItemRow): CdmEntityEnvelope {
       createdAt: serializeTimestamp(row.created_at),
       updatedAt: serializeTimestamp(row.updated_at),
       closedAt: serializeTimestamp(row.closed_at),
+      rawSource: fallbackRaw,
     },
+    rawSource: fallbackRaw,
   };
 }
 
@@ -183,10 +199,17 @@ function mapDocRow(row: CdmDocItemRow): CdmEntityEnvelope {
   const location = buildDocLocation(row, safeProperties);
   const excerpt = extractDocContentExcerpt(safeProperties);
   const docType = row.doc_type ?? row.mime_type ?? null;
+  const rawSource = normalizeJson(row.raw_source, null);
+  const safeRawSource = isPlainObject(rawSource) ? (rawSource as Record<string, unknown>) : null;
+  const fallbackRawSource = safeRawSource ?? (isPlainObject(safeProperties["raw"]) ? (safeProperties["raw"] as Record<string, unknown>) : null);
+  const sourceUrl = row.source_url ?? row.url ?? null;
+  const sourceId = row.source_id ?? row.source_item_id ?? null;
   return {
     domain: "DOC_ITEM",
     cdmId: row.cdm_id,
     sourceSystem: row.source_system,
+    sourceId,
+    sourceUrl,
     title: row.title ?? row.source_item_id,
     createdAt: serializeTimestamp(row.created_at),
     updatedAt: serializeTimestamp(row.updated_at),
@@ -201,7 +224,7 @@ function mapDocRow(row: CdmDocItemRow): CdmEntityEnvelope {
       parentItemCdmId: row.parent_item_cdm_id,
       createdByCdmId: row.created_by_cdm_id,
       updatedByCdmId: row.updated_by_cdm_id,
-      url: row.url,
+      url: sourceUrl,
       tags: normalizeJson(row.tags, []),
       properties: safeProperties,
       createdAt: serializeTimestamp(row.created_at),
@@ -209,6 +232,9 @@ function mapDocRow(row: CdmDocItemRow): CdmEntityEnvelope {
       datasetId: metadata.datasetId,
       datasetName,
       sourceEndpointId: metadata.endpointId,
+      sourceId,
+      sourceUrl,
+      rawSource: fallbackRawSource,
     },
     docTitle: row.title ?? row.source_item_id,
     docType,
@@ -220,8 +246,9 @@ function mapDocRow(row: CdmDocItemRow): CdmEntityEnvelope {
     docDatasetId: metadata.datasetId,
     docDatasetName: datasetName,
     docSourceEndpointId: metadata.endpointId,
-    docUrl: row.url,
+    docUrl: sourceUrl,
     docContentExcerpt: excerpt,
+    rawSource: fallbackRawSource,
   };
 }
 
@@ -247,6 +274,23 @@ function normalizeJson(value: unknown, fallback: unknown) {
     // ignore parse errors
   }
   return fallback;
+}
+
+function resolveWorkSourceUrl(raw: Record<string, unknown> | null | undefined) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidates = [
+    (raw as Record<string, unknown>)["source_url"],
+    (raw as Record<string, unknown>)["url"],
+    (raw as Record<string, unknown>)["self"],
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 export { encodeWorkCursor as encodeCursor };

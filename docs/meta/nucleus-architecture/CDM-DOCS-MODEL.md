@@ -11,7 +11,11 @@ The documents CDM defines a stable, connector-agnostic representation for collab
 ### `CdmDocItem` (`cdm.doc.item`)
 - Represents a page/file/folder.
 - **ID format:** `cdm:doc:item:<source_system>:<native>` (OneDrive items append drive id: `cdm:doc:item:onedrive:<driveId>:<itemId>`).
-- **Fields:** `space_cdm_id`, optional `parent_item_cdm_id`, `doc_type`, `mime_type`, author pointers (`created_by_cdm_id`, `updated_by_cdm_id`), timestamps, `url`, tag list, and `properties` (paths, custom fields, permissions, etc.).
+- **Fields:** `space_cdm_id`, optional `parent_item_cdm_id`, `doc_type`, `mime_type`, author pointers (`created_by_cdm_id`, `updated_by_cdm_id`), timestamps, deep-link `source_url`/`url`, `source_id`, tag list, `raw_source` (curated upstream metadata), and `properties` (paths, custom fields, permissions, etc.).
+- **Provenance pattern:**
+  - `source_id` is the canonical upstream identifier (Confluence `content.id`, OneDrive `driveItem.id`).
+  - `source_url` is a human-friendly deep link (Confluence `_links.tinyui` / page URL, OneDrive `webUrl`).
+  - `raw_source` captures a bounded JSON subset (metadata, history/version info, links) to avoid storing full page bodies or binary content.
 
 ### `CdmDocRevision` (`cdm.doc.revision`)
 - Immutable version metadata.

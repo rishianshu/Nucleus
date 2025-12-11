@@ -66,9 +66,12 @@ def test_page_mapping_and_revision():
     )
     assert item.cdm_id == "cdm:doc:item:confluence:12345"
     assert item.space_cdm_id == space.cdm_id
+    assert item.source_id == "12345"
+    assert item.source_url == "https://example.atlassian.net/wiki/x/abcd"
     assert item.tags == ["howto", "internal"]
     assert item.created_at == datetime.datetime(2024, 1, 1, 10, 0, tzinfo=datetime.timezone.utc)
     assert item.updated_by_cdm_id == "cdm:work:user:confluence:user-2"
+    assert item.raw_source["version"]["number"] == 2
 
     revision = confluence_docs_mapper.map_confluence_page_version_to_cdm(
         PAGE_SAMPLE,

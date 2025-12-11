@@ -649,11 +649,13 @@ export const CDM_WORK_ITEMS_QUERY = `
         node {
           cdmId
           sourceSystem
+          sourceId
           sourceIssueKey
           projectCdmId
           summary
           status
           priority
+          sourceUrl
           createdAt
           updatedAt
           closedAt
@@ -670,6 +672,7 @@ export const CDM_WORK_ITEMS_QUERY = `
           datasetId
           sourceEndpointId
           raw
+          rawSource
         }
       }
       pageInfo {
@@ -809,11 +812,13 @@ export const CDM_WORK_ITEM_DETAIL_QUERY = `
       item {
         cdmId
         sourceSystem
+        sourceId
         sourceIssueKey
         projectCdmId
         summary
         status
         priority
+        sourceUrl
         createdAt
         updatedAt
         closedAt
@@ -830,6 +835,7 @@ export const CDM_WORK_ITEM_DETAIL_QUERY = `
         datasetId
         sourceEndpointId
         raw
+        rawSource
       }
       comments {
         cdmId
@@ -880,12 +886,15 @@ export const CDM_ENTITY_CONNECTION_QUERY = `
           id
           domain
           sourceSystem
+          sourceId
+          sourceUrl
           cdmId
           title
           createdAt
           updatedAt
           state
           data
+          rawSource
           docTitle
           docType
           docProjectKey
@@ -916,12 +925,15 @@ export const CDM_ENTITY_CONNECTION_QUERY = `
       id
       domain
       sourceSystem
+      sourceId
+      sourceUrl
       cdmId
       title
       createdAt
       updatedAt
       state
       data
+      rawSource
       docTitle
       docType
       docProjectKey

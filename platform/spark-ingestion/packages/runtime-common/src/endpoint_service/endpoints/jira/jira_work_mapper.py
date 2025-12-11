@@ -1,5 +1,6 @@
 """Pure helper functions to map normalized Jira records into CDM work models."""
 
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -59,16 +60,20 @@ def map_jira_user_to_cdm(user: Dict[str, Any], *, source_system: str = "jira") -
 
 def map_jira_issue_to_cdm(issue: Dict[str, Any], *, project_cdm_id: str, source_system: str = "jira") -> CdmWorkItem:
     key = str(issue.get("key") or "")
+    issue_id = str(issue.get("id") or key)
     cdm_id = f"cdm:work:item:{source_system}:{key}"
     fields = issue.get("fields") or {}
     reporter = fields.get("reporter") or {}
     assignee = fields.get("assignee") or {}
     labels = list(fields.get("labels") or [])
+    source_url = _build_issue_url(issue.get("self"), key)
 
     return CdmWorkItem(
         cdm_id=cdm_id,
         source_system=source_system,
+        source_id=issue_id,
         source_issue_key=key,
+        source_url=source_url,
         project_cdm_id=project_cdm_id,
         reporter_cdm_id=_user_cdm_id(reporter, source_system),
         assignee_cdm_id=_user_cdm_id(assignee, source_system),
@@ -82,6 +87,11 @@ def map_jira_issue_to_cdm(issue: Dict[str, Any], *, project_cdm_id: str, source_
         created_at=_parse_datetime(fields.get("created")),
         updated_at=_parse_datetime(fields.get("updated")),
         closed_at=_parse_datetime(fields.get("resolutiondate")),
+        raw_source={
+            "id": issue_id,
+            "key": key,
+            "fields": fields,
+        },
         properties={
             "rawFields": fields,
             "raw": issue,
@@ -156,4 +166,16 @@ def _nested_name(obj: Dict[str, Any] | None, *path: str) -> Optional[str]:
             return None
     if isinstance(target, str):
         return target
+    return None
+
+
+def _build_issue_url(api_url: Optional[str], key: str) -> Optional[str]:
+    if not api_url or not isinstance(api_url, str):
+        return None
+    try:
+        parsed = urlparse(api_url)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}/browse/{key}"
+    except Exception:
+        return None
     return None

@@ -32,21 +32,25 @@ def test_doc_item_with_tags():
     item = CdmDocItem(
         cdm_id="cdm:doc:item:confluence:123",
         source_system="confluence",
+        source_id="123",
         source_item_id="123",
         space_cdm_id="cdm:doc:space:confluence:ENG",
         parent_item_cdm_id=None,
         title="Getting Started",
         doc_type="page",
         mime_type="text/html",
+        source_url="https://example/wiki/spaces/ENG/pages/123",
         created_by_cdm_id="cdm:work:user:confluence:user-1",
         updated_by_cdm_id=None,
         created_at=now,
         updated_at=now,
         url="https://example/wiki/spaces/ENG/pages/123",
         tags=["how-to"],
+        raw_source={"id": "123"},
         properties={"path": "/ENG/Getting Started"},
     )
     assert item.tags == ["how-to"]
+    assert item.raw_source["id"] == "123"
     assert item.properties["path"].startswith("/")
 
 

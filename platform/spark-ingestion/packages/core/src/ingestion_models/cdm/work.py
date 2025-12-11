@@ -35,6 +35,7 @@ class CdmWorkUser:
 class CdmWorkItem:
     cdm_id: str
     source_system: str
+    source_id: str
     source_issue_key: str
     project_cdm_id: str
     reporter_cdm_id: Optional[str]
@@ -45,10 +46,12 @@ class CdmWorkItem:
     priority: Optional[str]
     summary: str
     description: Optional[str]
+    source_url: Optional[str] = None
     labels: List[str] = field(default_factory=list)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+    raw_source: Optional[Dict[str, Any]] = None
     properties: Dict[str, Any] = field(default_factory=dict)
 
 

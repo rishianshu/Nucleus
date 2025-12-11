@@ -500,7 +500,10 @@ function WorkDetailPanel({
   const dataset = row.datasetId ? datasetLookup.get(row.datasetId) : null;
   const datasetLabel = dataset?.label ?? row.datasetId ?? "—";
   const endpointLabel = dataset?.endpointName ?? "Source endpoint";
-  const rawPayload = (row as { raw?: Record<string, unknown> }).raw ?? {};
+  const rawPayload =
+    (row as { rawSource?: Record<string, unknown> | null; raw?: Record<string, unknown> | null }).rawSource ??
+    (row as { raw?: Record<string, unknown> | null }).raw ??
+    {};
   const projectLabel =
     row.kind === "ITEM"
       ? resolveProjectName(row.projectCdmId, projects)
@@ -509,7 +512,12 @@ function WorkDetailPanel({
         : row.kind === "PROJECT"
           ? row.name
           : "";
-  const sourceUrl = row.kind === "PROJECT" && row.url ? row.url : resolveSourceUrl(rawPayload);
+  const sourceUrl =
+    row.kind === "PROJECT" && row.url
+      ? row.url
+      : row.kind === "ITEM"
+        ? row.sourceUrl ?? resolveSourceUrl(rawPayload)
+        : resolveSourceUrl(rawPayload);
 
   return (
     <aside
@@ -551,6 +559,7 @@ function WorkDetailPanel({
         {row.kind === "ITEM" ? (
           <>
             <DetailField label="Key" value={row.sourceIssueKey} />
+            <DetailField label="Source id" value={row.sourceId ?? row.sourceIssueKey} />
             <DetailField label="Summary" value={row.summary} />
             <DetailField label="Status" value={row.status ?? "—"} />
             <DetailField label="Priority" value={row.priority ?? "—"} />
@@ -815,6 +824,10 @@ function resolveSourceUrl(raw: Record<string, unknown> | null | undefined) {
   }
   const rawRecord = raw as Record<string, unknown>;
   const candidateKeys = [
+    rawRecord.source_url,
+    rawRecord.sourceUrl,
+    rawRecord.url,
+    rawRecord.webUrl,
     rawRecord.self,
     getNestedString(rawRecord, ["raw", "self"]),
     getNestedString(rawRecord, ["raw", "url"]),

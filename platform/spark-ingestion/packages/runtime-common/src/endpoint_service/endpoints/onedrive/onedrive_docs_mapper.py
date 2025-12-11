@@ -26,21 +26,34 @@ def map_onedrive_item_to_cdm(item: Dict[str, Any], *, drive_id: str, source_syst
     web_url = item.get("webUrl")
     name = item.get("name") or item_id
     path = item.get("path") or name
+    raw_source = {
+        "id": item_id,
+        "driveId": drive_id,
+        "name": name,
+        "size": size,
+        "mimeType": mime_type,
+        "webUrl": web_url,
+        "createdDateTime": item.get("createdDateTime"),
+        "lastModifiedDateTime": item.get("lastModifiedDateTime"),
+    }
     return CdmDocItem(
         cdm_id=logical_id,
         source_system=source_system,
+        source_id=item_id,
         source_item_id=item_id,
         space_cdm_id=f"cdm:doc:space:{source_system}:{drive_id}",
         parent_item_cdm_id=None,
         title=name,
         doc_type=item.get("file", {}).get("mimeType") or "file",
         mime_type=mime_type or "application/octet-stream",
+        source_url=web_url or path,
         created_by_cdm_id=None,
         updated_by_cdm_id=None,
         created_at=None,
         updated_at=last_modified,
         url=web_url or path,
         tags=[],
+        raw_source=raw_source,
         properties={
             "path": path,
             "mimeType": mime_type,

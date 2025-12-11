@@ -31,7 +31,9 @@ USER_SAMPLE = {
 }
 
 ISSUE_SAMPLE = {
+    "id": "10001",
     "key": "ENG-42",
+    "self": "https://example.atlassian.net/rest/api/3/issue/10001",
     "fields": {
         "summary": "Fix bug",
         "description": "Detailed doc",
@@ -86,10 +88,13 @@ def test_issue_mapping():
     issue = jira_work_mapper.map_jira_issue_to_cdm(ISSUE_SAMPLE, project_cdm_id=project.cdm_id)
     assert issue.cdm_id == "cdm:work:item:jira:ENG-42"
     assert issue.project_cdm_id == project.cdm_id
+    assert issue.source_id == "10001"
+    assert issue.source_url == "https://example.atlassian.net/browse/ENG-42"
     assert issue.reporter_cdm_id == "cdm:work:user:jira:user-123"
     assert issue.labels == ["bug", "priority"]
     assert issue.created_at == datetime.datetime(2024, 1, 1, 10, 0, tzinfo=datetime.timezone.utc)
     assert issue.status_category == "Complete"
+    assert issue.raw_source["fields"]["summary"] == "Fix bug"
 
 
 def test_comment_mapping():

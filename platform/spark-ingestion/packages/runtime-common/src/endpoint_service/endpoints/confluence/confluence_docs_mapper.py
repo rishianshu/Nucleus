@@ -45,16 +45,28 @@ def map_confluence_page_to_cdm(
     history = page.get("history") or {}
     version = page.get("version") or {}
     labels = _labels(page)
+    raw_source = {
+        "id": native_id,
+        "title": page.get("title"),
+        "type": page.get("type"),
+        "spaceKey": history.get("spaceKey") or page.get("spaceKey"),
+        "history": history,
+        "version": version,
+        "metadata": page.get("metadata"),
+        "links": page.get("_links"),
+    }
 
     return CdmDocItem(
         cdm_id=cdm_id,
         source_system=source_system,
+        source_id=native_id,
         source_item_id=native_id,
         space_cdm_id=space_cdm_id,
         parent_item_cdm_id=parent_item_cdm_id,
         title=str(page.get("title") or native_id),
         doc_type=page.get("type"),
         mime_type=page.get("body", {}).get("storage", {}).get("representation"),
+        source_url=page.get("url") or _link(page, "tinyui") or _link(page, "webui"),
         created_by_cdm_id=_user_cdm_id(history.get("createdBy"), source_system),
         updated_by_cdm_id=_user_cdm_id(version.get("by"), source_system),
         created_at=_parse_datetime(
@@ -63,6 +75,7 @@ def map_confluence_page_to_cdm(
         updated_at=_parse_datetime(page.get("updated_at") or version.get("when")),
         url=page.get("url") or _link(page, "tinyui") or _link(page, "webui"),
         tags=labels,
+        raw_source=raw_source,
         properties={
             "spaceKey": history.get("spaceKey") or page.get("spaceKey"),
             "status": page.get("status"),

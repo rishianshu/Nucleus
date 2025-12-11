@@ -14,7 +14,9 @@ const sampleProject = {
 const sampleItem = {
   cdm_id: "cdm:work:item:test:ENG-1",
   source_system: "jira",
+  source_id: "ENG-1",
   source_issue_key: "ENG-1",
+  source_url: "https://example.atlassian.net/browse/ENG-1",
   project_cdm_id: sampleProject.cdm_id,
   summary: "Seeded issue summary",
   status: "In Progress",
@@ -28,6 +30,7 @@ const sampleItem = {
   reporter_email: "reporter@example.com",
   assignee_display_name: "Assignee",
   assignee_email: "assignee@example.com",
+  raw_source: { key: "ENG-1" },
 };
 
 const sampleComment = {
@@ -60,6 +63,7 @@ const fakeCdmStore = {
 const sampleDocItem = {
   cdm_id: "cdm:doc:item:confluence:seed:1",
   source_system: "confluence",
+  source_id: "seed-1",
   source_item_id: "123",
   space_cdm_id: "cdm:doc:space:confluence:CUS",
   space_key: "CUS",
@@ -73,6 +77,7 @@ const sampleDocItem = {
   updated_by_cdm_id: null,
   created_at: new Date("2024-02-01T00:00:00Z"),
   updated_at: new Date("2024-02-02T00:00:00Z"),
+  source_url: "https://example/wiki/spaces/CUS/pages/123",
   url: "https://example/wiki/spaces/CUS/pages/123",
   tags: [],
   properties: {
@@ -90,6 +95,10 @@ const sampleDocItem = {
         },
       },
     },
+  },
+  raw_source: {
+    id: "seed-1",
+    url: "https://example/wiki/spaces/CUS/pages/123",
   },
   dataset_id: "confluence.page",
   endpoint_id: "endpoint-doc",
@@ -116,6 +125,7 @@ test("cdm work queries map CDM tables", async () => {
   assert.equal(connection.edges.length, 1);
   assert.equal(connection.pageInfo.hasNextPage, false);
   assert.equal(connection.edges[0]?.node.summary, sampleItem.summary);
+  assert.equal(connection.edges[0]?.node.sourceUrl, sampleItem.source_url);
   assert.equal(connection.edges[0]?.node.reporter?.displayName, "Reporter");
 
   const detail = await resolvers.Query.cdmWorkItem(null, { cdmId: sampleItem.cdm_id }, context);
@@ -140,6 +150,7 @@ test("cdm docs entities expose doc-specific fields", async () => {
   assert.equal(node.docDatasetId, "confluence.page");
   assert.equal(node.docProjectKey, "CUS");
   assert.ok(node.docContentExcerpt.includes("Seeded"));
+  assert.equal(node.sourceUrl, sampleDocItem.source_url);
 
   const singleDoc = await resolvers.Query.cdmEntity(
     null,
@@ -147,6 +158,7 @@ test("cdm docs entities expose doc-specific fields", async () => {
     context,
   );
   assert.equal(singleDoc?.docSourceEndpointId, "endpoint-doc");
+  assert.equal(singleDoc?.sourceId, sampleDocItem.source_id);
 });
 
 test("cdm docs dataset query filters doc configs", async () => {

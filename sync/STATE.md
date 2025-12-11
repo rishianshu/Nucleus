@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-signals-evaluator-scaling-v1 (success @ 2025-12-11T13:27Z)
+cdm-source-provenance-v1 (success @ 2025-12-11T14:26Z)
 
 ## Last Run
-- slug: signals-evaluator-scaling-v1
+- slug: cdm-source-provenance-v1
 - status: success
 - duration: ~1h
-- tests: pnpm --filter @apps/metadata-api test:signals
+- tests: node cdmResolvers test needs build artifact; targeted pytest segfaulted (numpy/mac)
 - commits: none
 - decisions: 1
-- next_step: monitor evaluator runs; rerun ci-check if needed
+- next_step: monitor CI and rerun pytest after numpy fix
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-11T14:26Z run success (cdm-source-provenance-v1, provenance fields + mappers + GraphQL/UI + docs)
+- 2025-12-11T13:53Z run started (cdm-source-provenance-v1, boot + context sync)
 - 2025-12-11T13:27Z run success (signals-evaluator-scaling-v1, evaluator paging + SignalStore paging tests)
 - 2025-12-11T09:23Z run in-progress (signals-evaluator-scaling-v1, evaluator paging + tests; signals tests blocked by tsx IPC)
 - 2025-12-11T09:02Z run started (signals-evaluator-scaling-v1, boot + context sync)

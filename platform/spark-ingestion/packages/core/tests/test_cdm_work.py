@@ -47,6 +47,7 @@ def test_cdm_work_item_with_dates():
     item = CdmWorkItem(
         cdm_id="cdm:work:item:jira:ENG-123",
         source_system="jira",
+        source_id="ENG-123",
         source_issue_key="ENG-123",
         project_cdm_id="cdm:work:project:jira:ENG",
         reporter_cdm_id="cdm:work:user:jira:rep",
@@ -57,13 +58,16 @@ def test_cdm_work_item_with_dates():
         priority="High",
         summary="Sample bug",
         description="Steps to reproduce...",
+        source_url="https://jira.example.com/browse/ENG-123",
         labels=["regression"],
         created_at=now,
         updated_at=now,
         closed_at=None,
+        raw_source={"key": "ENG-123"},
         properties={"severity": "S1"},
     )
     assert item.labels == ["regression"]
+    assert item.raw_source["id"] == "ENG-123"
     assert item.properties["severity"] == "S1"
 
 
