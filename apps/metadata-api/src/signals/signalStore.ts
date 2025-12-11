@@ -5,6 +5,8 @@ import type {
   SignalDefinitionFilter,
   SignalInstance,
   SignalInstanceFilter,
+  SignalInstancePage,
+  SignalInstancePageFilter,
   SignalInstanceStatus,
   SignalSeverity,
   SignalStatus,
@@ -56,6 +58,23 @@ function mapInstance(row: any, definition?: SignalDefinition | null): SignalInst
     createdAt: toDate(row.createdAt),
     updatedAt: toDate(row.updatedAt),
     definition: definition ?? (row.definition ? mapDefinition(row.definition) : undefined),
+  };
+}
+
+function buildInstanceWhere(filter?: SignalInstanceFilter) {
+  const definitionIds = filter?.definitionIds && filter.definitionIds.length ? { in: filter.definitionIds } : undefined;
+  const definitionSlugs =
+    filter?.definitionSlugs && filter.definitionSlugs.length ? { slug: { in: filter.definitionSlugs } } : undefined;
+  const entityRefs = filter?.entityRefs && filter.entityRefs.length ? { in: filter.entityRefs } : undefined;
+  const statusFilter = filter?.status && filter.status.length ? { in: filter.status } : undefined;
+  const severityFilter = filter?.severity && filter.severity.length ? { in: filter.severity } : undefined;
+  return {
+    definitionId: definitionIds,
+    definition: definitionSlugs,
+    entityRef: entityRefs,
+    entityKind: filter?.entityKind ?? undefined,
+    status: statusFilter,
+    severity: severityFilter,
   };
 }
 
@@ -152,26 +171,35 @@ export class PrismaSignalStore implements SignalStore {
   async listInstances(filter?: SignalInstanceFilter): Promise<SignalInstance[]> {
     const prisma = await this.resolvePrisma();
     const take = Math.min(Math.max(filter?.limit ?? 50, 1), 200);
-    const definitionIds = filter?.definitionIds && filter.definitionIds.length ? { in: filter.definitionIds } : undefined;
-    const definitionSlugs =
-      filter?.definitionSlugs && filter.definitionSlugs.length ? { slug: { in: filter.definitionSlugs } } : undefined;
-    const entityRefs = filter?.entityRefs && filter.entityRefs.length ? { in: filter.entityRefs } : undefined;
-    const statusFilter = filter?.status && filter.status.length ? { in: filter.status } : undefined;
-    const severityFilter = filter?.severity && filter.severity.length ? { in: filter.severity } : undefined;
+    const where = buildInstanceWhere(filter);
     const rows = await prisma.signalInstance.findMany({
-      where: {
-        definitionId: definitionIds,
-        definition: definitionSlugs,
-        entityRef: entityRefs,
-        entityKind: filter?.entityKind ?? undefined,
-        status: statusFilter,
-        severity: severityFilter,
-      },
+      where,
       orderBy: [{ lastSeenAt: "desc" }, { createdAt: "desc" }],
       take,
       include: { definition: true },
     });
     return rows.map((row: any) => mapInstance(row, row.definition ? mapDefinition(row.definition) : undefined));
+  }
+
+  async listInstancesPaged(filter?: SignalInstancePageFilter): Promise<SignalInstancePage> {
+    const prisma = await this.resolvePrisma();
+    const take = Math.min(Math.max(filter?.limit ?? 200, 1), 200);
+    const offset = decodeCursor(filter?.after ?? null);
+    const where = buildInstanceWhere(filter);
+    const rows = await prisma.signalInstance.findMany({
+      where,
+      orderBy: [{ lastSeenAt: "desc" }, { createdAt: "desc" }],
+      skip: offset,
+      take: take + 1,
+      include: { definition: true },
+    });
+    const pageRows = rows.slice(0, take);
+    const hasNextPage = rows.length > take;
+    return {
+      rows: pageRows.map((row: any) => mapInstance(row, row.definition ? mapDefinition(row.definition) : undefined)),
+      cursorOffset: offset,
+      hasNextPage,
+    };
   }
 
   async upsertInstance(input: UpsertSignalInstanceInput): Promise<SignalInstance> {
@@ -255,5 +283,21 @@ export class PrismaSignalStore implements SignalStore {
       include: { definition: true },
     });
     return mapInstance(row, row.definition ? mapDefinition(row.definition) : undefined);
+  }
+}
+
+function decodeCursor(cursor: string | null): number {
+  if (!cursor) {
+    return 0;
+  }
+  try {
+    const decoded = Buffer.from(cursor, "base64").toString("utf-8");
+    const value = Number.parseInt(decoded, 10);
+    if (Number.isNaN(value) || value < 0) {
+      return 0;
+    }
+    return value;
+  } catch {
+    return 0;
   }
 }

@@ -54,6 +54,16 @@ export type SignalInstanceFilter = {
   limit?: number;
 };
 
+export type SignalInstancePage = {
+  rows: SignalInstance[];
+  cursorOffset: number;
+  hasNextPage: boolean;
+};
+
+export type SignalInstancePageFilter = SignalInstanceFilter & {
+  after?: string | null;
+};
+
 export type CreateSignalDefinitionInput = Omit<
   SignalDefinition,
   "id" | "createdAt" | "updatedAt" | "definitionSpec"
@@ -87,6 +97,7 @@ export interface SignalStore {
   // Instances
   getInstance(id: string): Promise<SignalInstance | null>;
   listInstances(filter?: SignalInstanceFilter): Promise<SignalInstance[]>;
+  listInstancesPaged?(filter?: SignalInstancePageFilter): Promise<SignalInstancePage>;
   upsertInstance(input: UpsertSignalInstanceInput): Promise<SignalInstance>;
   updateInstanceStatus(id: string, status: SignalInstanceStatus, resolvedAt?: Date | string | null): Promise<SignalInstance>;
 }

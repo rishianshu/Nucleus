@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-signals-dsl-and-evaluator-v1 (success @ 2025-12-11T07:50Z)
+signals-evaluator-scaling-v1 (success @ 2025-12-11T13:27Z)
 
 ## Last Run
-- slug: signals-dsl-and-evaluator-v1
+- slug: signals-evaluator-scaling-v1
 - status: success
 - duration: ~1h
-- tests: pnpm ci-check (stack up: prisma generate/migrate, metadata-api/ui build, signal tests, Playwright auth/lifecycle, mypy)
+- tests: pnpm --filter @apps/metadata-api test:signals
 - commits: none
 - decisions: 1
-- next_step: monitor evaluateSignals usage
+- next_step: monitor evaluator runs; rerun ci-check if needed
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-11T13:27Z run success (signals-evaluator-scaling-v1, evaluator paging + SignalStore paging tests)
+- 2025-12-11T09:23Z run in-progress (signals-evaluator-scaling-v1, evaluator paging + tests; signals tests blocked by tsx IPC)
+- 2025-12-11T09:02Z run started (signals-evaluator-scaling-v1, boot + context sync)
 - 2025-12-11T07:50Z run success (signals-dsl-and-evaluator-v1, ci-check green)
 - 2025-12-11T07:25Z run success (signals-dsl-and-evaluator-v1, DSL evaluator + GraphQL/CLI + tests)
 - 2025-12-11T06:56Z run started (signals-dsl-and-evaluator-v1, boot + context sync)

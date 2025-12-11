@@ -37,9 +37,13 @@ type SignalDefinitionSpecV1 = {
 
 - Loads ACTIVE SignalDefinitions (optionally filtered by slug) and parses `definitionSpec` as v1 DSL.
 - Dispatches per `type` to fetch CDM rows (`cdm_work_item`, `cdm_doc_item`), compute candidates, and upsert via `SignalStore.upsertInstance` keyed by `(definitionId, entityRef)`.
+- CDM work/doc rows are processed page-by-page via store pagination to avoid materializing whole tables in memory.
+- SignalInstance reconciliation uses paged SignalStore reads (no fixed 200-instance cap) and resolves unmatched OPEN instances after each definition.
 - Idempotent: repeated runs update `lastSeenAt`/summary/severity without duplicating instances.
 - Resolution: OPEN instances that no longer match are updated to `RESOLVED` with the current evaluation timestamp.
 - Dry run: `dryRun: true` returns would-be counts without persisting instances.
+- Signals are batch/slow-path by design; use `sourceRunId`/`dryRun` for traceability rather than expecting realtime responses.
+- Unsupported DSL `type` values or per-definition errors are recorded in `skippedDefinitions` without aborting other definitions.
 
 ### Entrypoints
 - **GraphQL**: `mutation evaluateSignals(definitionSlugs?, dryRun?) : SignalEvaluationSummary` (admin/service-only). Returns evaluated + skipped slugs and instance counts (created/updated/resolved).

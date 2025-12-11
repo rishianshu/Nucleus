@@ -1,5 +1,5 @@
 import { CdmDocStore, type CdmDocItemRow } from "../cdm/docStore.js";
-import { CdmWorkStore, encodeCursor as encodeWorkCursor, type CdmWorkItemRow } from "../cdm/workStore.js";
+import { CdmWorkStore, type CdmWorkItemRow } from "../cdm/workStore.js";
 import {
   intervalToMs,
   parseSignalDefinitionSpec,
@@ -51,6 +51,14 @@ type EvaluatedInstance = {
   details?: Record<string, unknown> | null;
 };
 
+type ReconciliationContext = {
+  existingByRef: Map<string, SignalInstance>;
+  matchedRefs: Set<string>;
+  created: number;
+  updated: number;
+  resolved: number;
+};
+
 const MAX_PAGE_SIZE = 200;
 
 export class DefaultSignalEvaluator implements SignalEvaluator {
@@ -84,25 +92,36 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
     missingSlugs.forEach((slug) => summary.skippedDefinitions.push({ slug, reason: "definition not found" }));
 
     for (const definition of definitions) {
-      const parsed = parseSignalDefinitionSpec(definition.definitionSpec);
-      if (!parsed.ok) {
-        summary.skippedDefinitions.push({ slug: definition.slug, reason: parsed.reason });
-        continue;
-      }
-      const spec = parsed.spec;
-      if (!matchesCdmModel(definition, spec)) {
-        summary.skippedDefinitions.push({
-          slug: definition.slug,
-          reason: "cdmModelId mismatch between definition and spec",
-        });
-        continue;
-      }
+      try {
+        const parsed = parseSignalDefinitionSpec(definition.definitionSpec);
+        if (!parsed.ok) {
+          summary.skippedDefinitions.push({ slug: definition.slug, reason: parsed.reason });
+          continue;
+        }
+        const spec = parsed.spec;
+        if (!matchesCdmModel(definition, spec)) {
+          summary.skippedDefinitions.push({
+            slug: definition.slug,
+            reason: "cdmModelId mismatch between definition and spec",
+          });
+          continue;
+        }
+        if (spec.type !== "cdm.work.stale_item" && spec.type !== "cdm.doc.orphan") {
+          summary.skippedDefinitions.push({
+            slug: definition.slug,
+            reason: `unsupported spec type ${spec.type}`,
+          });
+          continue;
+        }
 
-      summary.evaluatedDefinitions.push(definition.slug);
-      const counts = await this.evaluateDefinition(definition, spec, now, options);
-      summary.instancesCreated += counts.created;
-      summary.instancesUpdated += counts.updated;
-      summary.instancesResolved += counts.resolved;
+        const counts = await this.evaluateDefinition(definition, spec, now, options);
+        summary.evaluatedDefinitions.push(definition.slug);
+        summary.instancesCreated += counts.created;
+        summary.instancesUpdated += counts.updated;
+        summary.instancesResolved += counts.resolved;
+      } catch (error) {
+        summary.skippedDefinitions.push({ slug: definition.slug, reason: formatErrorReason(error) });
+      }
     }
 
     return summary;
@@ -130,7 +149,7 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
     if (spec.type === "cdm.doc.orphan") {
       return this.evaluateDocOrphan(definition, spec.config, now, options);
     }
-    return { created: 0, updated: 0, resolved: 0 };
+    throw new Error(`unsupported spec type ${spec.type}`);
   }
 
   private async evaluateWorkStale(
@@ -147,60 +166,62 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
     const maxAgeMs = intervalToMs(config.maxAge);
     const warnAfterMs = config.severityMapping?.warnAfter ? intervalToMs(config.severityMapping.warnAfter) : null;
     const errorAfterMs = config.severityMapping?.errorAfter ? intervalToMs(config.severityMapping.errorAfter) : null;
-
-    const rows = await this.fetchAllWorkItems({
-      filter: statusIncludeRaw ? { statusIn: statusIncludeRaw } : undefined,
-    });
-
-    const matches: EvaluatedInstance[] = [];
+    const context = await this.createReconciliationContext(definition.id);
     const nowMs = now.getTime();
-    for (const row of rows) {
-      const status = normalizeString(row.status);
-      if (statusInclude && (!status || !statusInclude.has(status))) {
-        continue;
-      }
-      if (statusExclude && status && statusExclude.has(status)) {
-        continue;
-      }
-
-      if (projectInclude || projectExclude) {
-        const projectKey = normalizeString(row.project_cdm_id);
-        if (projectInclude && (!projectKey || !projectInclude.has(projectKey))) {
+    for await (const rows of this.iterateWorkItems({
+      filter: statusIncludeRaw ? { statusIn: statusIncludeRaw } : undefined,
+    })) {
+      const matches: EvaluatedInstance[] = [];
+      for (const row of rows) {
+        const status = normalizeString(row.status);
+        if (statusInclude && (!status || !statusInclude.has(status))) {
           continue;
         }
-        if (projectExclude && projectKey && projectExclude.has(projectKey)) {
+        if (statusExclude && status && statusExclude.has(status)) {
           continue;
         }
-      }
 
-      const lastActivityAt = row.updated_at ?? row.closed_at ?? row.created_at;
-      if (!lastActivityAt) {
-        continue;
-      }
-      const ageMs = nowMs - lastActivityAt.getTime();
-      if (ageMs < maxAgeMs) {
-        continue;
-      }
+        if (projectInclude || projectExclude) {
+          const projectKey = normalizeString(row.project_cdm_id);
+          if (projectInclude && (!projectKey || !projectInclude.has(projectKey))) {
+            continue;
+          }
+          if (projectExclude && projectKey && projectExclude.has(projectKey)) {
+            continue;
+          }
+        }
 
-      const severity = pickSeverity(definition.severity, warnAfterMs, errorAfterMs, ageMs);
-      const summary = buildWorkSummary(row, ageMs);
-      matches.push({
-        entityRef: buildEntityRef("cdm.work.item", row.cdm_id),
-        entityKind: definition.entityKind,
-        severity,
-        summary,
-        details: {
-          cdmId: row.cdm_id,
-          projectCdmId: row.project_cdm_id,
-          sourceIssueKey: row.source_issue_key,
-          status: row.status,
-          ageMs,
-          lastActivityAt: lastActivityAt.toISOString(),
-        },
-      });
+        const lastActivityAt = row.updated_at ?? row.closed_at ?? row.created_at;
+        if (!lastActivityAt) {
+          continue;
+        }
+        const ageMs = nowMs - lastActivityAt.getTime();
+        if (ageMs < maxAgeMs) {
+          continue;
+        }
+
+        const severity = pickSeverity(definition.severity, warnAfterMs, errorAfterMs, ageMs);
+        const summary = buildWorkSummary(row, ageMs);
+        matches.push({
+          entityRef: buildEntityRef("cdm.work.item", row.cdm_id),
+          entityKind: definition.entityKind,
+          severity,
+          summary,
+          details: {
+            cdmId: row.cdm_id,
+            projectCdmId: row.project_cdm_id,
+            sourceIssueKey: row.source_issue_key,
+            status: row.status,
+            ageMs,
+            lastActivityAt: lastActivityAt.toISOString(),
+          },
+        });
+      }
+      await this.applyMatchesForPage(definition, matches, context, now, options);
     }
 
-    return this.applyMatches(definition, matches, now, options);
+    await this.resolveUnmatchedInstances(definition, context, now, options);
+    return { created: context.created, updated: context.updated, resolved: context.resolved };
   }
 
   private async evaluateDocOrphan(
@@ -212,59 +233,61 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
     const spaceInclude = toLowerSet(config.spaceInclude);
     const spaceExclude = toLowerSet(config.spaceExclude);
     const minAgeMs = intervalToMs(config.minAge);
-    const rows = await this.fetchAllDocItems();
-
-    const matches: EvaluatedInstance[] = [];
+    const context = await this.createReconciliationContext(definition.id);
     const nowMs = now.getTime();
-    for (const row of rows) {
-      const spaceKey = normalizeString(row.space_cdm_id) ?? normalizeString(row.space_key);
-      if (spaceInclude && (!spaceKey || !spaceInclude.has(spaceKey))) {
-        continue;
-      }
-      if (spaceExclude && spaceKey && spaceExclude.has(spaceKey)) {
-        continue;
-      }
+    for await (const rows of this.iterateDocItems()) {
+      const matches: EvaluatedInstance[] = [];
+      for (const row of rows) {
+        const spaceKey = normalizeString(row.space_cdm_id) ?? normalizeString(row.space_key);
+        if (spaceInclude && (!spaceKey || !spaceInclude.has(spaceKey))) {
+          continue;
+        }
+        if (spaceExclude && spaceKey && spaceExclude.has(spaceKey)) {
+          continue;
+        }
 
-      const updatedAt = row.updated_at ?? row.created_at;
-      if (!updatedAt) {
-        continue;
-      }
-      const ageMs = nowMs - updatedAt.getTime();
-      if (ageMs < minAgeMs) {
-        continue;
-      }
+        const updatedAt = row.updated_at ?? row.created_at;
+        if (!updatedAt) {
+          continue;
+        }
+        const ageMs = nowMs - updatedAt.getTime();
+        if (ageMs < minAgeMs) {
+          continue;
+        }
 
-      const properties = normalizeRecord(row.properties);
-      const viewCount = extractViewCount(properties);
-      if (typeof config.minViewCount === "number" && viewCount >= config.minViewCount) {
-        continue;
-      }
-      if (config.requireProjectLink && hasProjectLink(row, properties)) {
-        continue;
-      }
+        const properties = normalizeRecord(row.properties);
+        const viewCount = extractViewCount(properties);
+        if (typeof config.minViewCount === "number" && viewCount >= config.minViewCount) {
+          continue;
+        }
+        if (config.requireProjectLink && hasProjectLink(row, properties)) {
+          continue;
+        }
 
-      const summary = buildDocSummary(row, ageMs, viewCount, config.requireProjectLink === true);
-      matches.push({
-        entityRef: buildEntityRef("cdm.doc.item", row.cdm_id),
-        entityKind: definition.entityKind,
-        severity: definition.severity,
-        summary,
-        details: {
-          cdmId: row.cdm_id,
-          spaceCdmId: row.space_cdm_id,
-          spaceKey: row.space_key,
-          viewCount,
-          ageMs,
-          updatedAt: updatedAt.toISOString(),
-        },
-      });
+        const summary = buildDocSummary(row, ageMs, viewCount, config.requireProjectLink === true);
+        matches.push({
+          entityRef: buildEntityRef("cdm.doc.item", row.cdm_id),
+          entityKind: definition.entityKind,
+          severity: definition.severity,
+          summary,
+          details: {
+            cdmId: row.cdm_id,
+            spaceCdmId: row.space_cdm_id,
+            spaceKey: row.space_key,
+            viewCount,
+            ageMs,
+            updatedAt: updatedAt.toISOString(),
+          },
+        });
+      }
+      await this.applyMatchesForPage(definition, matches, context, now, options);
     }
 
-    return this.applyMatches(definition, matches, now, options);
+    await this.resolveUnmatchedInstances(definition, context, now, options);
+    return { created: context.created, updated: context.updated, resolved: context.resolved };
   }
 
-  private async fetchAllWorkItems(args?: { filter?: { statusIn?: string[] | null } }): Promise<CdmWorkItemRow[]> {
-    const rows: CdmWorkItemRow[] = [];
+  private async *iterateWorkItems(args?: { filter?: { statusIn?: string[] | null } }) {
     let after: string | null = null;
     while (true) {
       const page = await this.workStore.listWorkItems({
@@ -273,17 +296,21 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
         first: MAX_PAGE_SIZE,
         after,
       });
-      rows.push(...page.rows);
+      if (page.rows.length > 0) {
+        yield page.rows;
+      }
       if (!page.hasNextPage) {
         break;
       }
-      after = encodeWorkCursor((page.cursorOffset ?? 0) + page.rows.length);
+      const nextOffset = (page.cursorOffset ?? 0) + page.rows.length;
+      if (nextOffset === page.cursorOffset) {
+        break;
+      }
+      after = encodeOffsetCursor(nextOffset);
     }
-    return rows;
   }
 
-  private async fetchAllDocItems(): Promise<CdmDocItemRow[]> {
-    const rows: CdmDocItemRow[] = [];
+  private async *iterateDocItems() {
     let after: string | null = null;
     while (true) {
       const page = await this.docStore.listDocItems({
@@ -293,41 +320,82 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
         after,
         secured: false,
       });
-      rows.push(...page.rows);
+      if (page.rows.length > 0) {
+        yield page.rows;
+      }
       if (!page.hasNextPage) {
         break;
       }
-      after = encodeWorkCursor((page.cursorOffset ?? 0) + page.rows.length);
+      const nextOffset = (page.cursorOffset ?? 0) + page.rows.length;
+      if (nextOffset === page.cursorOffset) {
+        break;
+      }
+      after = encodeOffsetCursor(nextOffset);
     }
-    return rows;
   }
 
-  private async applyMatches(
-    definition: SignalDefinition,
-    matches: EvaluatedInstance[],
-    now: Date,
-    options?: EvaluateSignalsOptions,
-  ): Promise<EvaluationCounts> {
-    const existing = await this.signalStore.listInstances({ definitionIds: [definition.id], limit: MAX_PAGE_SIZE });
+  private async createReconciliationContext(definitionId: string): Promise<ReconciliationContext> {
+    const existing = await this.loadInstancesForDefinition(definitionId);
     const existingByRef = new Map<string, SignalInstance>();
     existing.forEach((instance) => existingByRef.set(instance.entityRef, instance));
+    return {
+      existingByRef,
+      matchedRefs: new Set<string>(),
+      created: 0,
+      updated: 0,
+      resolved: 0,
+    };
+  }
 
-    const matchedRefs = new Set<string>();
+  private async loadInstancesForDefinition(definitionId: string): Promise<SignalInstance[]> {
+    if (this.signalStore.listInstancesPaged) {
+      const instances: SignalInstance[] = [];
+      let after: string | null = null;
+      while (true) {
+        const page = await this.signalStore.listInstancesPaged({
+          definitionIds: [definitionId],
+          limit: MAX_PAGE_SIZE,
+          after,
+        });
+        instances.push(...page.rows);
+        if (!page.hasNextPage) {
+          break;
+        }
+        const nextOffset = (page.cursorOffset ?? 0) + page.rows.length;
+        if (nextOffset === page.cursorOffset) {
+          break;
+        }
+        after = encodeOffsetCursor(nextOffset);
+      }
+      return instances;
+    }
+    return this.signalStore.listInstances({ definitionIds: [definitionId], limit: MAX_PAGE_SIZE });
+  }
+
+  private async applyMatchesForPage(
+    definition: SignalDefinition,
+    matches: EvaluatedInstance[],
+    context: ReconciliationContext,
+    now: Date,
+    options?: EvaluateSignalsOptions,
+  ): Promise<void> {
+    if (!matches.length) {
+      return;
+    }
     const uniqueMatches = new Map<string, EvaluatedInstance>();
     matches.forEach((match) => uniqueMatches.set(match.entityRef, match));
 
-    let created = 0;
-    let updated = 0;
-    let resolved = 0;
-
     for (const match of uniqueMatches.values()) {
-      matchedRefs.add(match.entityRef);
-      const prior = existingByRef.get(match.entityRef);
+      if (context.matchedRefs.has(match.entityRef)) {
+        continue;
+      }
+      context.matchedRefs.add(match.entityRef);
+      const prior = context.existingByRef.get(match.entityRef);
       if (options?.dryRun) {
         if (prior) {
-          updated += 1;
+          context.updated += 1;
         } else {
-          created += 1;
+          context.created += 1;
         }
         continue;
       }
@@ -343,21 +411,28 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
         timestamp: now,
       });
       if (prior) {
-        updated += 1;
+        context.updated += 1;
       } else {
-        created += 1;
+        context.created += 1;
       }
     }
+  }
 
-    for (const instance of existingByRef.values()) {
+  private async resolveUnmatchedInstances(
+    definition: SignalDefinition,
+    context: ReconciliationContext,
+    now: Date,
+    options?: EvaluateSignalsOptions,
+  ): Promise<void> {
+    for (const instance of context.existingByRef.values()) {
       if (instance.status !== "OPEN") {
         continue;
       }
-      if (matchedRefs.has(instance.entityRef)) {
+      if (context.matchedRefs.has(instance.entityRef)) {
         continue;
       }
       if (options?.dryRun) {
-        resolved += 1;
+        context.resolved += 1;
         continue;
       }
       await this.signalStore.upsertInstance({
@@ -372,11 +447,20 @@ export class DefaultSignalEvaluator implements SignalEvaluator {
         sourceRunId: options?.sourceRunId ?? null,
         timestamp: now,
       });
-      resolved += 1;
+      context.resolved += 1;
     }
-
-    return { created, updated, resolved };
   }
+}
+
+function encodeOffsetCursor(offset: number): string {
+  return Buffer.from(String(offset)).toString("base64");
+}
+
+function formatErrorReason(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return `error: ${error.message}`;
+  }
+  return `error: ${String(error)}`;
 }
 
 function matchesCdmModel(definition: SignalDefinition, spec: ParsedSignalDefinitionSpec): boolean {

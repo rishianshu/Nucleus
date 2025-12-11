@@ -1,0 +1,1 @@
+2025-12-11: Evaluator now pages CDM rows and uses SignalStore paging for full reconciliation (removing the 200-instance cap) while keeping logic synchronous; unsupported DSL types/errors are recorded as skips instead of aborting other definitions.

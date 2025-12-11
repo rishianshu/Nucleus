@@ -78,7 +78,7 @@ export function parseSignalDefinitionSpec(input: unknown): ParseResult {
     return { ok: true, spec: { version: 1, type, config: parsed.config } };
   }
 
-  return { ok: false, reason: `unsupported definitionSpec.type: ${type}` };
+  return { ok: false, reason: `unsupported spec type ${type}` };
 }
 
 export function intervalToMs(interval: IntervalConfig): number {

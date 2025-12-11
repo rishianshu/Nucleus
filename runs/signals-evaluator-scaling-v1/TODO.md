@@ -1,0 +1,1 @@
+- [x] Re-run `pnpm --filter @apps/metadata-api test:signals` when tsx IPC socket restrictions are lifted.

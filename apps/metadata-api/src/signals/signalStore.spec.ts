@@ -135,7 +135,7 @@ function createMockPrisma() {
         ? { ...row, definition: await signalDefinition.findUnique({ where: { id: row.definitionId } }) }
         : row;
     },
-    async findMany({ where, include, take }: { where?: any; include?: { definition?: boolean }; take?: number }) {
+    async findMany({ where, include, take, skip }: { where?: any; include?: { definition?: boolean }; take?: number; skip?: number }) {
       const filtered = instances.filter((i) => {
         if (where?.definitionId?.in && !where.definitionId.in.includes(i.definitionId)) return false;
         if (where?.definition?.slug?.in) {
@@ -148,7 +148,8 @@ function createMockPrisma() {
         if (where?.severity?.in && !where.severity.in.includes(i.severity)) return false;
         return true;
       });
-      const rows = typeof take === "number" ? filtered.slice(0, take) : filtered;
+      const start = typeof skip === "number" && skip > 0 ? skip : 0;
+      const rows = typeof take === "number" ? filtered.slice(start, start + take) : filtered.slice(start);
       return Promise.all(
         rows.map(async (row) =>
           include?.definition
@@ -166,6 +167,10 @@ function createMockPrisma() {
       return fn(this);
     },
   };
+}
+
+function encodeCursor(offset: number) {
+  return Buffer.from(String(offset)).toString("base64");
 }
 
 async function main() {
@@ -230,6 +235,27 @@ async function main() {
   const instanceList = await store.listInstances({ definitionIds: [created.id] });
   if (!instanceList.some((row) => row.id === instance.id)) {
     throw new Error("listInstances missing upserted instance");
+  }
+
+  await store.upsertInstance({
+    definitionId: created.id,
+    entityRef: `entity:${slug}:second`,
+    entityKind: "WORK_ITEM",
+    severity: "WARNING",
+    summary: "Second test instance",
+    details: { kind: "smoke-test-2" },
+    status: "OPEN",
+    sourceRunId: "test-run-2",
+  });
+
+  const pagedFirst = await store.listInstancesPaged({ definitionIds: [created.id], limit: 1 });
+  if (pagedFirst.rows.length !== 1 || pagedFirst.hasNextPage !== true) {
+    throw new Error("listInstancesPaged did not page correctly (first page)");
+  }
+  const nextCursor = encodeCursor(pagedFirst.cursorOffset + pagedFirst.rows.length);
+  const pagedSecond = await store.listInstancesPaged({ definitionIds: [created.id], limit: 1, after: nextCursor });
+  if (pagedSecond.rows.length !== 1 || pagedSecond.hasNextPage !== false) {
+    throw new Error("listInstancesPaged did not page correctly (second page)");
   }
 
   const resolved = await store.updateInstanceStatus(instance.id, "RESOLVED");

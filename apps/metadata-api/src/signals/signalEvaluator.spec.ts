@@ -6,6 +6,7 @@ import type {
   SignalDefinitionFilter,
   SignalInstance,
   SignalInstanceFilter,
+  SignalInstancePageFilter,
   SignalInstanceStatus,
   SignalSeverity,
   SignalStatus,
@@ -78,35 +79,18 @@ class FakeSignalStore implements SignalStore {
   }
 
   async listInstances(filter?: SignalInstanceFilter) {
-    let results = this.instances.slice();
-    if (filter?.definitionIds && filter.definitionIds.length > 0) {
-      const allowed = new Set(filter.definitionIds);
-      results = results.filter((inst) => allowed.has(inst.definitionId));
-    }
-    if (filter?.definitionSlugs && filter.definitionSlugs.length > 0) {
-      const allowedSlugs = new Set(filter.definitionSlugs);
-      results = results.filter((inst) => {
-        const def = this.definitions.find((defn) => defn.id === inst.definitionId);
-        return def ? allowedSlugs.has(def.slug) : false;
-      });
-    }
-    if (filter?.entityRefs && filter.entityRefs.length > 0) {
-      const allowedRefs = new Set(filter.entityRefs);
-      results = results.filter((inst) => allowedRefs.has(inst.entityRef));
-    }
-    if (filter?.entityKind) {
-      results = results.filter((inst) => inst.entityKind === filter.entityKind);
-    }
-    if (filter?.status && filter.status.length > 0) {
-      const allowedStatus = new Set(filter.status);
-      results = results.filter((inst) => allowedStatus.has(inst.status));
-    }
-    if (filter?.severity && filter.severity.length > 0) {
-      const allowedSeverity = new Set(filter.severity);
-      results = results.filter((inst) => allowedSeverity.has(inst.severity));
-    }
+    const results = this.filterInstances(filter);
     const limit = Math.min(Math.max(filter?.limit ?? results.length, 1), 200);
     return results.slice(0, limit);
+  }
+
+  async listInstancesPaged(filter?: SignalInstancePageFilter) {
+    const results = this.filterInstances(filter);
+    const offset = filter?.after ? decodeCursor(filter.after) : 0;
+    const limit = Math.min(Math.max(filter?.limit ?? results.length, 1), results.length);
+    const rows = results.slice(offset, offset + limit);
+    const hasNextPage = offset + rows.length < results.length;
+    return { rows, cursorOffset: offset, hasNextPage };
   }
 
   async upsertInstance(input: UpsertSignalInstanceInput) {
@@ -169,6 +153,37 @@ class FakeSignalStore implements SignalStore {
     instance.lastSeenAt = now;
     instance.updatedAt = now;
     return instance;
+  }
+
+  private filterInstances(filter?: SignalInstanceFilter) {
+    let results = this.instances.slice();
+    if (filter?.definitionIds && filter.definitionIds.length > 0) {
+      const allowed = new Set(filter.definitionIds);
+      results = results.filter((inst) => allowed.has(inst.definitionId));
+    }
+    if (filter?.definitionSlugs && filter.definitionSlugs.length > 0) {
+      const allowedSlugs = new Set(filter.definitionSlugs);
+      results = results.filter((inst) => {
+        const def = this.definitions.find((defn) => defn.id === inst.definitionId);
+        return def ? allowedSlugs.has(def.slug) : false;
+      });
+    }
+    if (filter?.entityRefs && filter.entityRefs.length > 0) {
+      const allowedRefs = new Set(filter.entityRefs);
+      results = results.filter((inst) => allowedRefs.has(inst.entityRef));
+    }
+    if (filter?.entityKind) {
+      results = results.filter((inst) => inst.entityKind === filter.entityKind);
+    }
+    if (filter?.status && filter.status.length > 0) {
+      const allowedStatus = new Set(filter.status);
+      results = results.filter((inst) => allowedStatus.has(inst.status));
+    }
+    if (filter?.severity && filter.severity.length > 0) {
+      const allowedSeverity = new Set(filter.severity);
+      results = results.filter((inst) => allowedSeverity.has(inst.severity));
+    }
+    return results;
   }
 }
 
@@ -308,6 +323,61 @@ async function testWorkEvaluation() {
   assert.equal(resolvedInstance?.status, "RESOLVED");
 }
 
+async function testWorkEvaluationPagination() {
+  const now = new Date("2024-02-01T00:00:00Z");
+  const definitions = [
+    buildDefinition({
+      id: "def-work-large",
+      slug: "work.stale_item.large",
+      severity: "WARNING",
+      cdmModelId: "cdm.work.item",
+      definitionSpec: {
+        version: 1,
+        type: "cdm.work.stale_item",
+        config: {
+          cdmModelId: "cdm.work.item",
+          maxAge: { unit: "days", value: 1 },
+        },
+      },
+    }),
+  ];
+
+  const workRows: CdmWorkItemRow[] = [];
+  for (let i = 0; i < 205; i += 1) {
+    workRows.push(
+      buildWorkRow({
+        cdm_id: `work-${i}`,
+        source_issue_key: `ENG-${i}`,
+        status: "In Progress",
+        updated_at: new Date("2024-01-01T00:00:00Z"),
+        created_at: new Date("2023-12-01T00:00:00Z"),
+      }),
+    );
+  }
+
+  const store = new FakeSignalStore(definitions, []);
+  const workStore = new FakeWorkStore(workRows);
+  const evaluator = new DefaultSignalEvaluator({
+    signalStore: store,
+    workStore,
+    docStore: new FakeDocStore([]),
+  });
+
+  const firstSummary = await evaluator.evaluateAll({ now });
+  assert.equal(firstSummary.instancesCreated, 205);
+  assert.equal(firstSummary.instancesUpdated, 0);
+  assert.equal(firstSummary.instancesResolved, 0);
+  assert.equal(store.instances.length, 205);
+
+  workStore.rows = workRows.slice(0, 200);
+  const secondSummary = await evaluator.evaluateAll({ now });
+  assert.equal(secondSummary.instancesCreated, 0);
+  assert.equal(secondSummary.instancesUpdated, 200);
+  assert.equal(secondSummary.instancesResolved, 5);
+  const resolvedCount = store.instances.filter((inst) => inst.status === "RESOLVED").length;
+  assert.equal(resolvedCount, 5);
+}
+
 async function testDocEvaluationDryRun() {
   const now = new Date("2024-03-01T00:00:00Z");
   const definitions = [
@@ -381,12 +451,73 @@ async function testDocEvaluationDryRun() {
   assert.ok(instance.entityRef.startsWith("cdm.doc.item"));
 }
 
+async function testDefinitionErrorIsolation() {
+  const now = new Date("2024-04-01T00:00:00Z");
+  const definitions = [
+    buildDefinition({
+      id: "def-doc-error",
+      slug: "doc.error",
+      entityKind: "DOC",
+      cdmModelId: "cdm.doc.item",
+      definitionSpec: {
+        version: 1,
+        type: "cdm.doc.orphan",
+        config: {
+          cdmModelId: "cdm.doc.item",
+          minAge: { unit: "days", value: 1 },
+        },
+      },
+    }),
+    buildDefinition({
+      id: "def-work-ok",
+      slug: "work.ok",
+      definitionSpec: {
+        version: 1,
+        type: "cdm.work.stale_item",
+        config: {
+          cdmModelId: "cdm.work.item",
+          maxAge: { unit: "days", value: 1 },
+        },
+      },
+    }),
+  ];
+
+  class ThrowingDocStore extends FakeDocStore {
+    override async listDocItems() {
+      throw new Error("doc store failure");
+    }
+  }
+
+  const workRows: CdmWorkItemRow[] = [
+    buildWorkRow({
+      cdm_id: "work-error-isolation",
+      source_issue_key: "ENG-100",
+      status: "In Progress",
+      updated_at: new Date("2024-03-15T00:00:00Z"),
+      created_at: new Date("2024-03-01T00:00:00Z"),
+    }),
+  ];
+
+  const evaluator = new DefaultSignalEvaluator({
+    signalStore: new FakeSignalStore(definitions, []),
+    workStore: new FakeWorkStore(workRows),
+    docStore: new ThrowingDocStore([]),
+  });
+
+  const summary = await evaluator.evaluateAll({ now });
+  assert.deepEqual(summary.evaluatedDefinitions, ["work.ok"]);
+  assert.equal(summary.instancesCreated, 1);
+  assert.equal(summary.skippedDefinitions.length, 1);
+  assert.equal(summary.skippedDefinitions[0]?.slug, "doc.error");
+  assert.ok(summary.skippedDefinitions[0]?.reason.startsWith("error:"));
+}
+
 async function testInvalidSpecIsSkipped() {
   const definitions = [
     buildDefinition({
       id: "def-invalid",
       slug: "invalid.spec",
-      definitionSpec: { version: 2, type: "unknown", config: {} },
+      definitionSpec: { version: 1, type: "unknown", config: {} },
     }),
   ];
   const store = new FakeSignalStore(definitions, []);
@@ -399,6 +530,7 @@ async function testInvalidSpecIsSkipped() {
   const summary = await evaluator.evaluateAll();
   assert.equal(summary.evaluatedDefinitions.length, 0);
   assert.equal(summary.skippedDefinitions.length, 1);
+  assert.ok(summary.skippedDefinitions[0]?.reason.includes("unsupported spec type"));
   assert.equal(summary.instancesCreated, 0);
 }
 
@@ -482,7 +614,9 @@ function decodeCursor(cursor: string): number {
 
 async function main() {
   await testWorkEvaluation();
+  await testWorkEvaluationPagination();
   await testDocEvaluationDryRun();
+  await testDefinitionErrorIsolation();
   await testInvalidSpecIsSkipped();
   console.log("[signalEvaluator.spec] all assertions passed");
 }
