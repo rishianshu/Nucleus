@@ -7,6 +7,8 @@ type DefinitionRow = {
   title: string;
   description?: string | null;
   status: string;
+  implMode?: string;
+  sourceFamily?: string | null;
   entityKind: string;
   processKind?: string | null;
   policyKind?: string | null;
@@ -15,6 +17,7 @@ type DefinitionRow = {
   cdmModelId?: string | null;
   owner?: string | null;
   definitionSpec: Record<string, unknown>;
+  surfaceHints?: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -48,6 +51,8 @@ function createMockPrisma() {
         title: data.title!,
         description: data.description ?? null,
         status: data.status as string,
+        implMode: (data as any).implMode ?? "DSL",
+        sourceFamily: (data as any).sourceFamily ?? null,
         entityKind: data.entityKind!,
         processKind: data.processKind ?? null,
         policyKind: data.policyKind ?? null,
@@ -56,6 +61,7 @@ function createMockPrisma() {
         cdmModelId: data.cdmModelId ?? null,
         owner: data.owner ?? null,
         definitionSpec: (data.definitionSpec ?? {}) as Record<string, unknown>,
+        surfaceHints: (data as any).surfaceHints ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

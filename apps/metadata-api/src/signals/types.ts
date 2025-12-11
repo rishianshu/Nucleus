@@ -1,6 +1,7 @@
 export type SignalStatus = "ACTIVE" | "DISABLED" | "DRAFT";
 export type SignalInstanceStatus = "OPEN" | "RESOLVED" | "SUPPRESSED";
 export type SignalSeverity = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+export type SignalImplMode = "DSL" | "CODE";
 
 export type SignalDefinition = {
   id: string;
@@ -8,12 +9,15 @@ export type SignalDefinition = {
   title: string;
   description?: string | null;
   status: SignalStatus;
-  entityKind: string;
+  implMode: SignalImplMode;
+  sourceFamily?: string | null;
+  entityKind?: string | null;
   processKind?: string | null;
   policyKind?: string | null;
   severity: SignalSeverity;
   tags: string[];
   cdmModelId?: string | null;
+  surfaceHints?: Record<string, unknown> | null;
   owner?: string | null;
   definitionSpec: Record<string, unknown>;
   createdAt: Date;
@@ -41,6 +45,8 @@ export type SignalInstance = {
 export type SignalDefinitionFilter = {
   status?: SignalStatus[];
   entityKind?: string[];
+  sourceFamily?: string[];
+  implMode?: SignalImplMode[];
   tags?: string[];
 };
 
@@ -66,8 +72,8 @@ export type SignalInstancePageFilter = SignalInstanceFilter & {
 
 export type CreateSignalDefinitionInput = Omit<
   SignalDefinition,
-  "id" | "createdAt" | "updatedAt" | "definitionSpec"
-> & { definitionSpec: Record<string, unknown> };
+  "id" | "createdAt" | "updatedAt" | "definitionSpec" | "implMode"
+> & { definitionSpec: Record<string, unknown>; implMode?: SignalImplMode };
 
 export type UpdateSignalDefinitionInput = Partial<
   Omit<SignalDefinition, "id" | "createdAt" | "updatedAt" | "definitionSpec">

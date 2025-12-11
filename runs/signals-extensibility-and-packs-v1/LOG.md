@@ -1,0 +1,4 @@
+2025-12-11T15:54:45Z {start: booting signals-extensibility-and-packs-v1, next: follow RUNCARD RESUME protocol}
+2025-12-11T16:20:47Z {done: schema/migration/GraphQL updates + evaluator registry + generic filter implementation scaffolding, next: seed Jira/Confluence packs and add generic filter tests, risks: need to validate field coverage + migrations}
+2025-12-11T16:41:58Z {done: added root migrations/schema + docs and attempted dev:stack (Docker socket EPERM), next: rerun signals tests/ci-check once stack access available, risks: stack start blocked by docker perms}
+2025-12-11T16:55:59Z {done: reran signals tests with elevated perms, refreshed docs for implMode/registry/generic filter + pack seeding verification, next: optional pnpm ci-check when full stack + Playwright are available, risks: ci-check requires running UI/stack and browsers}

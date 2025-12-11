@@ -1,0 +1,3 @@
+- 2025-12-11: SignalDefinition now records `implMode`, `sourceFamily`, and optional `surfaceHints`; entityKind falls back to the CDM model when absent.
+- 2025-12-11: Evaluator uses a registry with a new `cdm.generic.filter` handler (field whitelist, severityRules, templated summaries) in addition to work/doc handlers.
+- 2025-12-11: Seeded Jira (stale, unassigned blocker, reopened often) and Confluence (orphan, stale low views) DSL packs as DRAFT definitions; docs updated with pack/DSL guidance.

@@ -6,8 +6,9 @@ This note defines the first-class Signals model for Nucleus. Signals capture dur
 
 **SignalDefinition** — describes *what* to evaluate.
 - `slug`, `title`, `description`, `status` (`ACTIVE|DISABLED|DRAFT`)
-- EPP classification: `entityKind`, `processKind?`, `policyKind?`
-- `severity` (`INFO|WARNING|ERROR|CRITICAL`), `tags`, `owner?`
+- `implMode` (`DSL|CODE`, default `DSL`) and `sourceFamily?` (`jira`, `confluence`, etc.)
+- EPP classification: `entityKind?`, `processKind?`, `policyKind?`
+- `severity` (`INFO|WARNING|ERROR|CRITICAL`), `tags`, `owner?`, `surfaceHints?` (JSON UI hints such as recommended views)
 - `cdmModelId?` (e.g., `cdm.work.item`, `cdm.doc.item`) for grounding
 - `definitionSpec` (JSON) — versioned Signal DSL payload (`version`, `type`, `config`); see `SIGNALS_DSL_AND_EVALUATOR.md`
 - Timestamps: `createdAt`, `updatedAt`
@@ -41,6 +42,7 @@ This note defines the first-class Signals model for Nucleus. Signals capture dur
 - Definitions seeded via migration use the DSL envelope:
   - `work.stale_item` (`cdm.work.stale_item`, policy=FRESHNESS)
   - `doc.orphaned` (`cdm.doc.orphan`, policy=OWNERSHIP)
+- Additional DSL pack definitions (status=DRAFT) are seeded for Jira and Confluence: `jira.work.stale_item.default`, `jira.work.unassigned_blocker`, `jira.work.reopened_often`, `confluence.doc.orphan`, `confluence.doc.stale_low_views`.
 - Sample instances remain for visibility; the DSL evaluator (GraphQL/CLI) produces real instances idempotently.
 
 See `SIGNALS_DSL_AND_EVALUATOR.md` for the DSL schema, evaluation flow, and authoring guidance.

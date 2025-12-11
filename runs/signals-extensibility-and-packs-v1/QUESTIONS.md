@@ -1,0 +1,1 @@
+- No open questions. Prior Docker socket EPERM avoided by reusing the existing stack and running signals tests with elevated permissions.

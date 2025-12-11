@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-cdm-source-provenance-v1 (success @ 2025-12-11T14:26Z)
+signals-extensibility-and-packs-v1 (in-progress @ 2025-12-11T16:55Z)
 
 ## Last Run
-- slug: cdm-source-provenance-v1
-- status: success
-- duration: ~1h
-- tests: node cdmResolvers test needs build artifact; targeted pytest segfaulted (numpy/mac)
+- slug: signals-extensibility-and-packs-v1
+- status: in-progress
+- duration: ~0.5h
+- tests: signalStore/signalEvaluator (tsx) green with elevated perms; ci-check pending
 - commits: none
-- decisions: 1
-- next_step: monitor CI and rerun pytest after numpy fix
+- decisions: 3
+- next_step: run pnpm ci-check (stack + Playwright) and close slug
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-11T16:55Z run in-progress (signals-extensibility-and-packs-v1, signals tests green + docs refreshed; ci-check pending stack/Playwright)
+- 2025-12-11T16:32Z run in-progress (signals-extensibility-and-packs-v1, implMode/registry/generic filter + packs seeded; signals tests blocked by tsx IPC)
+- 2025-12-11T15:54Z run started (signals-extensibility-and-packs-v1, boot + context sync)
 - 2025-12-11T14:26Z run success (cdm-source-provenance-v1, provenance fields + mappers + GraphQL/UI + docs)
 - 2025-12-11T13:53Z run started (cdm-source-provenance-v1, boot + context sync)
 - 2025-12-11T13:27Z run success (signals-evaluator-scaling-v1, evaluator paging + SignalStore paging tests)

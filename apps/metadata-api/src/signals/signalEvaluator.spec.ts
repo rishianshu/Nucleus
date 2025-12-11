@@ -38,8 +38,17 @@ class FakeSignalStore implements SignalStore {
       if (filter?.status && filter.status.length > 0 && !filter.status.includes(def.status)) {
         return false;
       }
+      if (filter?.implMode && filter.implMode.length > 0 && !filter.implMode.includes(def.implMode)) {
+        return false;
+      }
       if (filter?.entityKind && filter.entityKind.length > 0 && !filter.entityKind.includes(def.entityKind)) {
         return false;
+      }
+      if (filter?.sourceFamily && filter.sourceFamily.length > 0) {
+        const family = def.sourceFamily ?? null;
+        if (!family || !filter.sourceFamily.includes(family)) {
+          return false;
+        }
       }
       if (filter?.tags && filter.tags.length > 0) {
         const tagSet = new Set(def.tags ?? []);
@@ -512,6 +521,154 @@ async function testDefinitionErrorIsolation() {
   assert.ok(summary.skippedDefinitions[0]?.reason.startsWith("error:"));
 }
 
+async function testGenericFilterWorkEvaluation() {
+  const now = new Date("2024-05-01T00:00:00Z");
+  const definitions = [
+    buildDefinition({
+      id: "def-unassigned",
+      slug: "jira.work.unassigned_blocker",
+      severity: "WARNING",
+      cdmModelId: "cdm.work.item",
+      definitionSpec: {
+        version: 1,
+        type: "cdm.generic.filter",
+        config: {
+          cdmModelId: "cdm.work.item",
+          where: [
+            { field: "priority", op: "EQ", value: "Blocker" },
+            { field: "assignee", op: "IS_NULL" },
+            { field: "status", op: "NOT_IN", value: ["Done", "Cancelled"] },
+          ],
+          severityRules: [{ when: [{ field: "priority", op: "EQ", value: "Blocker" }], severity: "ERROR" }],
+          summaryTemplate: "Unassigned blocker {{source_issue_key}}",
+        },
+      },
+    }),
+    buildDefinition({
+      id: "def-reopened",
+      slug: "jira.work.reopened_often",
+      severity: "WARNING",
+      cdmModelId: "cdm.work.item",
+      definitionSpec: {
+        version: 1,
+        type: "cdm.generic.filter",
+        config: {
+          cdmModelId: "cdm.work.item",
+          where: [{ field: "properties.reopen_count", op: "GT", value: 2 }],
+          severityRules: [{ when: [{ field: "properties.reopen_count", op: "GT", value: 4 }], severity: "ERROR" }],
+          summaryTemplate: "Reopened {{properties.reopen_count}} times ({{source_issue_key}})",
+        },
+      },
+    }),
+  ];
+
+  const workRows: CdmWorkItemRow[] = [
+    buildWorkRow({
+      cdm_id: "work-unassigned",
+      source_issue_key: "ENG-10",
+      priority: "Blocker",
+      assignee_cdm_id: null,
+      status: "In Progress",
+    }),
+    buildWorkRow({
+      cdm_id: "work-assigned",
+      source_issue_key: "ENG-11",
+      priority: "Blocker",
+      assignee_cdm_id: "user-1",
+      status: "In Progress",
+    }),
+    buildWorkRow({
+      cdm_id: "work-reopened",
+      source_issue_key: "ENG-12",
+      priority: "Major",
+      assignee_cdm_id: "user-2",
+      status: "In Progress",
+      properties: { reopen_count: 5 },
+    }),
+  ];
+
+  const store = new FakeSignalStore(definitions, []);
+  const evaluator = new DefaultSignalEvaluator({
+    signalStore: store,
+    workStore: new FakeWorkStore(workRows),
+    docStore: new FakeDocStore([]),
+  });
+
+  const summary = await evaluator.evaluateAll({ now });
+  assert.equal(summary.instancesCreated, 2);
+  assert.equal(summary.skippedDefinitions.length, 0);
+  const unassigned = store.instances.find((inst) => inst.definitionId === definitions[0].id);
+  assert.ok(unassigned);
+  assert.equal(unassigned?.severity, "ERROR");
+  assert.ok(unassigned?.summary.includes("ENG-10"));
+  const reopened = store.instances.find((inst) => inst.definitionId === definitions[1].id);
+  assert.ok(reopened);
+  assert.equal(reopened?.severity, "ERROR");
+  assert.ok(reopened?.summary.includes("5"));
+}
+
+async function testGenericFilterDocEvaluation() {
+  const now = new Date("2024-06-01T00:00:00Z");
+  const definitions = [
+    buildDefinition({
+      id: "def-doc-stale",
+      slug: "confluence.doc.stale_low_views",
+      entityKind: "DOC",
+      cdmModelId: "cdm.doc.item",
+      severity: "WARNING",
+      definitionSpec: {
+        version: 1,
+        type: "cdm.generic.filter",
+        config: {
+          cdmModelId: "cdm.doc.item",
+          where: [
+            { field: "ageDays", op: "GT", value: 30 },
+            { field: "viewCount", op: "LT", value: 5 },
+          ],
+          severityRules: [{ when: [{ field: "viewCount", op: "LT", value: 1 }], severity: "ERROR" }],
+          summaryTemplate: "Doc {{title}} stale with {{viewCount}} views",
+        },
+      },
+    }),
+  ];
+
+  const docRows: CdmDocItemRow[] = [
+    buildDocRow({
+      cdm_id: "doc-stale",
+      title: "Old doc",
+      updated_at: new Date("2024-04-01T00:00:00Z"),
+      created_at: new Date("2024-03-01T00:00:00Z"),
+      properties: { viewCount: 0 },
+    }),
+    buildDocRow({
+      cdm_id: "doc-fresh",
+      title: "Fresh doc",
+      updated_at: new Date("2024-05-25T00:00:00Z"),
+      properties: { viewCount: 0 },
+    }),
+    buildDocRow({
+      cdm_id: "doc-viewed",
+      title: "Viewed doc",
+      updated_at: new Date("2024-03-01T00:00:00Z"),
+      properties: { viewCount: 10 },
+    }),
+  ];
+
+  const store = new FakeSignalStore(definitions, []);
+  const evaluator = new DefaultSignalEvaluator({
+    signalStore: store,
+    workStore: new FakeWorkStore([]),
+    docStore: new FakeDocStore(docRows),
+  });
+
+  const summary = await evaluator.evaluateAll({ now });
+  assert.equal(summary.instancesCreated, 1);
+  assert.deepEqual(summary.evaluatedDefinitions, [definitions[0].slug]);
+  const instance = store.instances[0];
+  assert.equal(instance.severity, "ERROR");
+  assert.ok(instance.summary.includes("Old doc"));
+}
+
 async function testInvalidSpecIsSkipped() {
   const definitions = [
     buildDefinition({
@@ -542,12 +699,15 @@ function buildDefinition(input: Partial<SignalDefinition> & { definitionSpec: Re
     title: input.title ?? "Test definition",
     description: input.description ?? null,
     status: input.status ?? ("ACTIVE" as SignalStatus),
+    implMode: input.implMode ?? "DSL",
+    sourceFamily: input.sourceFamily ?? null,
     entityKind: input.entityKind ?? "WORK_ITEM",
     processKind: input.processKind ?? null,
     policyKind: input.policyKind ?? null,
     severity: input.severity ?? ("WARNING" as SignalSeverity),
     tags: input.tags ?? [],
     cdmModelId: input.cdmModelId ?? "cdm.work.item",
+    surfaceHints: input.surfaceHints ?? null,
     owner: input.owner ?? "tests",
     definitionSpec: input.definitionSpec,
     createdAt: input.createdAt ?? now,
@@ -616,6 +776,8 @@ async function main() {
   await testWorkEvaluation();
   await testWorkEvaluationPagination();
   await testDocEvaluationDryRun();
+  await testGenericFilterWorkEvaluation();
+  await testGenericFilterDocEvaluation();
   await testDefinitionErrorIsolation();
   await testInvalidSpecIsSkipped();
   console.log("[signalEvaluator.spec] all assertions passed");

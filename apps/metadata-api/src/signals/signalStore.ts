@@ -3,6 +3,7 @@ import type {
   CreateSignalDefinitionInput,
   SignalDefinition,
   SignalDefinitionFilter,
+  SignalImplMode,
   SignalInstance,
   SignalInstanceFilter,
   SignalInstancePage,
@@ -28,12 +29,15 @@ function mapDefinition(row: any): SignalDefinition {
     title: row.title,
     description: row.description,
     status: row.status as SignalStatus,
-    entityKind: row.entityKind,
+    implMode: (row.implMode as SignalImplMode) ?? "DSL",
+    sourceFamily: row.sourceFamily ?? null,
+    entityKind: row.entityKind ?? null,
     processKind: row.processKind,
     policyKind: row.policyKind,
     severity: row.severity as SignalSeverity,
     tags: row.tags ?? [],
     cdmModelId: row.cdmModelId,
+    surfaceHints: (row.surfaceHints as Record<string, unknown> | null) ?? null,
     owner: row.owner,
     definitionSpec: (row.definitionSpec ?? {}) as Record<string, unknown>,
     createdAt: toDate(row.createdAt),
@@ -101,11 +105,15 @@ export class PrismaSignalStore implements SignalStore {
     const prisma = await this.resolvePrisma();
     const statusFilter = filter?.status && filter.status.length ? { in: filter.status } : undefined;
     const entityFilter = filter?.entityKind && filter.entityKind.length ? { in: filter.entityKind } : undefined;
+    const sourceFamilyFilter = filter?.sourceFamily && filter.sourceFamily.length ? { in: filter.sourceFamily } : undefined;
+    const implModeFilter = filter?.implMode && filter.implMode.length ? { in: filter.implMode } : undefined;
     const tagsFilter = filter?.tags && filter.tags.length ? { hasSome: filter.tags } : undefined;
     const rows = await prisma.signalDefinition.findMany({
       where: {
         status: statusFilter,
         entityKind: entityFilter,
+        sourceFamily: sourceFamilyFilter,
+        implMode: implModeFilter,
         tags: tagsFilter,
       },
       orderBy: [{ createdAt: "desc" }, { slug: "asc" }],
@@ -121,12 +129,15 @@ export class PrismaSignalStore implements SignalStore {
         title: input.title,
         description: input.description ?? null,
         status: input.status,
-        entityKind: input.entityKind,
+        implMode: input.implMode ?? "DSL",
+        sourceFamily: input.sourceFamily ?? null,
+        entityKind: input.entityKind ?? null,
         processKind: input.processKind ?? null,
         policyKind: input.policyKind ?? null,
         severity: input.severity,
         tags: input.tags ?? [],
         cdmModelId: input.cdmModelId ?? null,
+        surfaceHints: input.surfaceHints ?? null,
         owner: input.owner ?? null,
         definitionSpec: input.definitionSpec ?? {},
       },
@@ -141,12 +152,15 @@ export class PrismaSignalStore implements SignalStore {
     if (Object.prototype.hasOwnProperty.call(patch, "title")) data.title = patch.title;
     if (Object.prototype.hasOwnProperty.call(patch, "description")) data.description = patch.description ?? null;
     if (Object.prototype.hasOwnProperty.call(patch, "status")) data.status = patch.status;
+    if (Object.prototype.hasOwnProperty.call(patch, "implMode")) data.implMode = patch.implMode;
+    if (Object.prototype.hasOwnProperty.call(patch, "sourceFamily")) data.sourceFamily = patch.sourceFamily ?? null;
     if (Object.prototype.hasOwnProperty.call(patch, "entityKind")) data.entityKind = patch.entityKind;
     if (Object.prototype.hasOwnProperty.call(patch, "processKind")) data.processKind = patch.processKind ?? null;
     if (Object.prototype.hasOwnProperty.call(patch, "policyKind")) data.policyKind = patch.policyKind ?? null;
     if (Object.prototype.hasOwnProperty.call(patch, "severity")) data.severity = patch.severity;
     if (Object.prototype.hasOwnProperty.call(patch, "tags")) data.tags = patch.tags ?? [];
     if (Object.prototype.hasOwnProperty.call(patch, "cdmModelId")) data.cdmModelId = patch.cdmModelId ?? null;
+    if (Object.prototype.hasOwnProperty.call(patch, "surfaceHints")) data.surfaceHints = patch.surfaceHints ?? null;
     if (Object.prototype.hasOwnProperty.call(patch, "owner")) data.owner = patch.owner ?? null;
     if (Object.prototype.hasOwnProperty.call(patch, "definitionSpec")) data.definitionSpec = patch.definitionSpec;
     const row = await prisma.signalDefinition.update({

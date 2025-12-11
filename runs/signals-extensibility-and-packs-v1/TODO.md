@@ -1,0 +1,3 @@
+- Docs refreshed for implMode, registry dispatch, generic filter, and seeded packs.
+- Targeted signals tests (signalStore/signalEvaluator) rerun successfully; registry/pack seeds verified across Prisma + GraphQL docs.
+- Optional: run full `pnpm ci-check` (Playwright + stack) when time permits.

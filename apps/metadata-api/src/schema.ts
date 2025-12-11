@@ -37,6 +37,7 @@ import type {
   SignalDefinition,
   SignalInstance,
   SignalDefinitionFilter,
+  SignalImplMode,
   SignalInstanceFilter,
   SignalInstanceStatus,
   SignalSeverity,
@@ -1158,6 +1159,11 @@ type ProvisionCdmSinkResult {
     DRAFT
   }
 
+  enum SignalImplMode {
+    DSL
+    CODE
+  }
+
   enum SignalInstanceStatus {
     OPEN
     RESOLVED
@@ -1177,12 +1183,15 @@ type ProvisionCdmSinkResult {
     title: String!
     description: String
     status: SignalStatus!
-    entityKind: String!
+    implMode: SignalImplMode!
+    sourceFamily: String
+    entityKind: String
     processKind: String
     policyKind: String
     severity: SignalSeverity!
     tags: [String!]!
     cdmModelId: String
+    surfaceHints: JSON
     owner: String
     definitionSpec: JSON
     createdAt: DateTime!
@@ -1223,7 +1232,13 @@ type ProvisionCdmSinkResult {
     health: Health!
     metadataDomains: [MetadataDomain!]!
     metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
-    signalDefinitions(status: [SignalStatus!], entityKind: [String!], tags: [String!]): [SignalDefinition!]!
+    signalDefinitions(
+      status: [SignalStatus!]
+      implMode: [SignalImplMode!]
+      entityKind: [String!]
+      sourceFamily: [String!]
+      tags: [String!]
+    ): [SignalDefinition!]!
     signalDefinition(slug: String!): SignalDefinition
     signalInstances(
       definitionSlugs: [String!]
@@ -1741,13 +1756,21 @@ export function createResolvers(
       },
       signalDefinitions: async (
         _parent: unknown,
-        args: { status?: string[] | null; entityKind?: string[] | null; tags?: string[] | null },
+        args: {
+          status?: string[] | null;
+          implMode?: string[] | null;
+          entityKind?: string[] | null;
+          sourceFamily?: string[] | null;
+          tags?: string[] | null;
+        },
         ctx: ResolverContext,
       ) => {
         enforceReadAccess(ctx);
         const filter: SignalDefinitionFilter = {
           status: coerceSignalStatus(args.status),
+          implMode: coerceSignalImplMode(args.implMode),
           entityKind: args.entityKind ?? undefined,
+          sourceFamily: args.sourceFamily ?? undefined,
           tags: args.tags ?? undefined,
         };
         const defs = await signalStore.listDefinitions(filter);
@@ -7827,12 +7850,19 @@ function mapConfluenceSpaceOption(record: MetadataRecord<unknown>) {
 }
 
 const SIGNAL_STATUS_VALUES: SignalStatus[] = ["ACTIVE", "DISABLED", "DRAFT"];
+const SIGNAL_IMPL_MODE_VALUES: SignalImplMode[] = ["DSL", "CODE"];
 const SIGNAL_INSTANCE_STATUS_VALUES: SignalInstanceStatus[] = ["OPEN", "RESOLVED", "SUPPRESSED"];
 const SIGNAL_SEVERITY_VALUES: SignalSeverity[] = ["INFO", "WARNING", "ERROR", "CRITICAL"];
 
 function coerceSignalStatus(values?: string[] | null): SignalStatus[] | undefined {
   if (!values) return undefined;
   const filtered = values.filter((v): v is SignalStatus => SIGNAL_STATUS_VALUES.includes(v as SignalStatus));
+  return filtered.length ? filtered : undefined;
+}
+
+function coerceSignalImplMode(values?: string[] | null): SignalImplMode[] | undefined {
+  if (!values) return undefined;
+  const filtered = values.filter((v): v is SignalImplMode => SIGNAL_IMPL_MODE_VALUES.includes(v as SignalImplMode));
   return filtered.length ? filtered : undefined;
 }
 
@@ -7853,6 +7883,7 @@ function coerceSignalSeverity(values?: string[] | null): SignalSeverity[] | unde
 function mapSignalDefinitionToGraphQL(def: SignalDefinition) {
   return {
     ...def,
+    surfaceHints: def.surfaceHints ?? null,
     createdAt: def.createdAt.toISOString(),
     updatedAt: def.updatedAt.toISOString(),
     definitionSpec: def.definitionSpec ?? {},
