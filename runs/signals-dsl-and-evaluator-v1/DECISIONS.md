@@ -1,0 +1,1 @@
+2025-12-11: Enforced Signal DSL v1 (`version`/`type`/`config`) for `work.stale_item` and `doc.orphan` definitions; evaluator marks unmatched OPEN instances as RESOLVED and supports admin-only `evaluateSignals` (GraphQL/CLI) with dry-run.

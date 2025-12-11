@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "temporal:worker": "dotenv -e ../../.env -- tsx src/temporal/worker.ts",
     "prisma": "prisma",
-    "test:signals": "tsx src/signals/signalStore.spec.ts"
+    "test:signals": "tsx src/signals/signalStore.spec.ts && tsx src/signals/signalEvaluator.spec.ts"
   },
   "dependencies": {
     "@apollo/server": "^4.10.0",

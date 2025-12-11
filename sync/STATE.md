@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-signals-epp-foundation-v1 (success @ 2025-12-11T05:04Z)
+signals-dsl-and-evaluator-v1 (success @ 2025-12-11T07:50Z)
 
 ## Last Run
-- slug: signals-epp-foundation-v1
+- slug: signals-dsl-and-evaluator-v1
 - status: success
-- duration: ~3h
-- tests: pnpm ci-check green (generate/migrate/build, signal store spec, Playwright, mypy)
-- commits: none (workspace only)
-- decisions: 0
-- next_step: monitor signal definitions/instances usage; plan edit/mutation flows in follow-up slug
+- duration: ~1h
+- tests: pnpm ci-check (stack up: prisma generate/migrate, metadata-api/ui build, signal tests, Playwright auth/lifecycle, mypy)
+- commits: none
+- decisions: 1
+- next_step: monitor evaluateSignals usage
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,9 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-11T07:50Z run success (signals-dsl-and-evaluator-v1, ci-check green)
+- 2025-12-11T07:25Z run success (signals-dsl-and-evaluator-v1, DSL evaluator + GraphQL/CLI + tests)
+- 2025-12-11T06:56Z run started (signals-dsl-and-evaluator-v1, boot + context sync)
 - 2025-12-10T20:01Z run started (signals-epp-foundation-v1, boot + context sync)
 - 2025-12-11T05:04Z run success (signals-epp-foundation-v1, ci-check green with signals GraphQL/store)
 - 2025-12-10T17:56Z run success (core-stores-foundation-v1, connectionUrl casing + JDBC conn strings fixed; ci-check + mypy green)

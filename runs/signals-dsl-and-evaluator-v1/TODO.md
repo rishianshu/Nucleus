@@ -1,0 +1,1 @@
+- [x] Run `pnpm ci-check` once stack availability/time permits to validate end-to-end.

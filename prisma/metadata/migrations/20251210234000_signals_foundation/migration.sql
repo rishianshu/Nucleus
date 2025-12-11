@@ -75,7 +75,19 @@ WITH inserted_defs AS (
       ARRAY['work', 'freshness', 'signals'],
       'cdm.work.item',
       'signals-team',
-      jsonb_build_object('thresholdDays', 14, 'kind', 'stale_work')
+      jsonb_build_object(
+        'version', 1,
+        'type', 'cdm.work.stale_item',
+        'config', jsonb_build_object(
+          'cdmModelId', 'cdm.work.item',
+          'maxAge', jsonb_build_object('unit', 'days', 'value', 14),
+          'statusExclude', ARRAY['Done', 'Closed'],
+          'severityMapping', jsonb_build_object(
+            'warnAfter', jsonb_build_object('unit', 'days', 'value', 7),
+            'errorAfter', jsonb_build_object('unit', 'days', 'value', 14)
+          )
+        )
+      )
     ),
     (
       'doc.orphaned',
@@ -89,7 +101,16 @@ WITH inserted_defs AS (
       ARRAY['docs', 'ownership', 'signals'],
       'cdm.doc.item',
       'signals-team',
-      jsonb_build_object('requiresOwner', true, 'kind', 'orphaned_doc')
+      jsonb_build_object(
+        'version', 1,
+        'type', 'cdm.doc.orphan',
+        'config', jsonb_build_object(
+          'cdmModelId', 'cdm.doc.item',
+          'minAge', jsonb_build_object('unit', 'days', 'value', 30),
+          'minViewCount', 1,
+          'requireProjectLink', true
+        )
+      )
     )
   RETURNING id, slug
 )

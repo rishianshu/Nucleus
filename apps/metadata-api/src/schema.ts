@@ -73,6 +73,7 @@ import {
   type WorkProjectFilter as CdmWorkProjectFilterArgs,
   type WorkUserFilter as CdmWorkUserFilterArgs,
 } from "./cdm/workStore.js";
+import { CdmDocStore } from "./cdm/docStore.js";
 import { CdmEntityStore, type CdmEntityDomain, type CdmEntityEnvelope } from "./cdm/entityStore.js";
 import { describeDocDataset, inferDocSourceSystem, isDocDatasetId } from "./cdm/docHelpers.js";
 import {
@@ -81,6 +82,7 @@ import {
   markOneDriveEndpointDelegatedConnected,
   startOneDriveAuth,
 } from "./onedriveAuth.js";
+import { DefaultSignalEvaluator, type SignalEvaluator } from "./signals/evaluator.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -1198,6 +1200,19 @@ type ProvisionCdmSinkResult {
     updatedAt: DateTime!
   }
 
+  type SignalSkippedDefinition {
+    slug: String!
+    reason: String!
+  }
+
+  type SignalEvaluationSummary {
+    evaluatedDefinitions: [String!]!
+    skippedDefinitions: [SignalSkippedDefinition!]!
+    instancesCreated: Int!
+    instancesUpdated: Int!
+    instancesResolved: Int!
+  }
+
   type Query {
     health: Health!
     metadataDomains: [MetadataDomain!]!
@@ -1283,6 +1298,7 @@ type ProvisionCdmSinkResult {
     resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
     provisionCdmSink(input: ProvisionCdmSinkInput!): ProvisionCdmSinkResult!
+    evaluateSignals(definitionSlugs: [String!], dryRun: Boolean): SignalEvaluationSummary!
   }
 `;
 
@@ -1293,7 +1309,9 @@ export function createResolvers(
     ingestionStateStore?: Partial<IngestionStateStoreImpl>;
     ingestionConfigStore?: Partial<IngestionConfigStoreImpl>;
     cdmWorkStore?: CdmWorkStore;
+    cdmDocStore?: CdmDocStore;
     cdmEntityStore?: CdmEntityStore;
+    signalEvaluator?: SignalEvaluator;
     cdmProvisioner?: typeof provisionCdmSinkTables;
     temporalClientFactory?: typeof getTemporalClient;
     prismaClient?: Awaited<ReturnType<typeof getPrismaClient>>;
@@ -1365,7 +1383,11 @@ export function createResolvers(
   };
   const provisionCdmSinkFn = options?.cdmProvisioner ?? provisionCdmSinkTables;
   const cdmWorkStore = options?.cdmWorkStore ?? new CdmWorkStore();
-  const cdmEntityStore = options?.cdmEntityStore ?? new CdmEntityStore({ workStore: cdmWorkStore });
+  const cdmDocStore = options?.cdmDocStore ?? new CdmDocStore();
+  const cdmEntityStore =
+    options?.cdmEntityStore ?? new CdmEntityStore({ workStore: cdmWorkStore, docStore: cdmDocStore });
+  const signalEvaluator: SignalEvaluator =
+    options?.signalEvaluator ?? new DefaultSignalEvaluator({ signalStore, workStore: cdmWorkStore, docStore: cdmDocStore });
   const registerEndpointWithInput = async (
     input: GraphQLMetadataEndpointInput,
     ctx: ResolverContext,
@@ -2916,6 +2938,18 @@ export function createResolvers(
           }
         }
         return { ok: true, datasetId: result.datasetId, schema: result.schema, tableName: result.tableName };
+      },
+      evaluateSignals: async (
+        _parent: unknown,
+        args: { definitionSlugs?: string[] | null; dryRun?: boolean | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceWriteAccess(ctx, "admin");
+        const summary = await signalEvaluator.evaluateAll({
+          definitionSlugs: args.definitionSlugs ?? undefined,
+          dryRun: args.dryRun ?? false,
+        });
+        return summary;
       },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);

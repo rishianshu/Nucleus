@@ -9,7 +9,7 @@ This note defines the first-class Signals model for Nucleus. Signals capture dur
 - EPP classification: `entityKind`, `processKind?`, `policyKind?`
 - `severity` (`INFO|WARNING|ERROR|CRITICAL`), `tags`, `owner?`
 - `cdmModelId?` (e.g., `cdm.work.item`, `cdm.doc.item`) for grounding
-- `definitionSpec` (JSON) — opaque payload for future DSL/config
+- `definitionSpec` (JSON) — versioned Signal DSL payload (`version`, `type`, `config`); see `SIGNALS_DSL_AND_EVALUATOR.md`
 - Timestamps: `createdAt`, `updatedAt`
 
 **SignalInstance** — evaluated fact for a specific entity.
@@ -26,10 +26,11 @@ This note defines the first-class Signals model for Nucleus. Signals capture dur
 - **Interface:** `SignalStore` (TS) provides CRUD for definitions, list/get for instances, idempotent `upsertInstance` keyed by `{definitionId, entityRef}`, and `updateInstanceStatus`.
 - **Separation:** SignalStore is distinct from event logs (SignalBus), CDM, GraphStore, and KvStore. It stores evaluated state, not raw events.
 
-## GraphQL (read-only, v1)
+## GraphQL (signals v1)
 - Enums: `SignalStatus`, `SignalInstanceStatus`, `SignalSeverity`.
 - Types/queries: `signalDefinitions`, `signalDefinition(slug)`, `signalInstances`, `signalInstance(id)`.
-- Scoped by existing auth (viewer+); mutations remain internal for evaluators until a DSL/UX is added.
+- Mutation (admin/service): `evaluateSignals(definitionSlugs?, dryRun?)` runs the DSL-backed evaluator and returns a summary (evaluated/skipped slugs, instance counts).
+- Scoped by existing auth (viewer+ for reads; admin/service for evaluation), keeping mutations internal while authoring UX matures.
 
 ## Relationship to CDM and KB
 - `entityRef` should use stable IDs already present in CDM/KB (e.g., `cdm.work.item:<id>`, `cdm.doc.item:<id>`, or KB node IDs). This keeps Signals composable with graph projections later.
@@ -37,10 +38,12 @@ This note defines the first-class Signals model for Nucleus. Signals capture dur
 - EPP fields (`entityKind`, `processKind`, `policyKind`) let Workspace/Brain slice signals without knowing evaluator internals.
 
 ## Seeds (v1)
-- Definitions seeded via migration:
-  - `work.stale_item` (WORK_ITEM, policy=FRESHNESS)
-  - `doc.orphaned` (DOC, policy=OWNERSHIP)
-- Sample instances seeded for visibility; evaluators will replace these with real observations in later slugs.
+- Definitions seeded via migration use the DSL envelope:
+  - `work.stale_item` (`cdm.work.stale_item`, policy=FRESHNESS)
+  - `doc.orphaned` (`cdm.doc.orphan`, policy=OWNERSHIP)
+- Sample instances remain for visibility; the DSL evaluator (GraphQL/CLI) produces real instances idempotently.
+
+See `SIGNALS_DSL_AND_EVALUATOR.md` for the DSL schema, evaluation flow, and authoring guidance.
 
 ## Future work (out of scope for v1)
 - Signal DSL + evaluator runtimes, scheduling, and re-evaluation policies.

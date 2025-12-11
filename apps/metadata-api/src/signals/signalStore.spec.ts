@@ -185,7 +185,11 @@ async function main() {
     tags: ["test", "signals"],
     cdmModelId: "cdm.work.item",
     owner: "signals-epp-foundation",
-    definitionSpec: { kind: "test", thresholdDays: 1 },
+    definitionSpec: {
+      version: 1,
+      type: "cdm.work.stale_item",
+      config: { cdmModelId: "cdm.work.item", maxAge: { unit: "days", value: 1 } },
+    },
   });
   if (!created.id) {
     throw new Error("Failed to create signal definition");

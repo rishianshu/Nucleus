@@ -1,0 +1,3 @@
+2025-12-11T06:56:13Z | start | done: booted for signals-dsl-and-evaluator-v1 and verified intents/runs artifacts exist | next: follow RUNCARD resume protocol (read PLAN/TODO/last LOG, INTENT/SPEC/ACCEPTANCE) | risks: none yet
+2025-12-11T07:25:08Z {done: implemented DSL parser + evaluator dispatch, wired evaluateSignals GraphQL/CLI, updated seeds/docs, and ran pnpm --filter @apps/metadata-api test:signals, next: update STATE/STORY and handoff notes, risks: full pnpm ci-check not run in this pass}
+2025-12-11T07:50:19Z {done: reran pnpm ci-check with Docker stack; prisma generate/migrate, builds, signal tests, Playwright auth/lifecycle, and mypy all green, next: close TODO item and finalize handoff, risks: none}
