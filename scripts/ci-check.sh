@@ -151,8 +151,11 @@ fi
 wait_for_port "127.0.0.1" "4010" "metadata api"
 wait_for_port "127.0.0.1" "5176" "metadata ui"
 
+run_step "prisma generate (metadata)" pnpm prisma:generate:metadata
+run_step "applying metadata migrations" pnpm migrate:metadata
 run_step "building metadata api" pnpm --filter @apps/metadata-api build
 run_step "building metadata ui" pnpm --filter @apps/metadata-ui build
+run_step "running signal store unit tests" dotenv -e .env -- pnpm --filter @apps/metadata-api test:signals
 PW_SHARD_ARGS=()
 if [[ -n "${PLAYWRIGHT_SHARD:-}" ]]; then
   PW_SHARD_ARGS+=(--shard "$PLAYWRIGHT_SHARD")

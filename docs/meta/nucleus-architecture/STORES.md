@@ -12,6 +12,8 @@ This note defines Nucleus' core storage interfaces and boundaries for all runtim
 | KvStore | Small JSON state scoped by namespace + scopeId (checkpoints, transient state, feature flags). | Temporal workflows, UCL connectors, ingestion workers, control-plane services. | **DB-backed table** (`kv_entries`); replaces file-backed `metadata/kv-store.json`. | Optimistic concurrency via `version`; not for large payloads. |
 | ObjectStore | Large/binary objects and staging artifacts (Git archives, doc snapshots, ingestion chunks). | UCL connectors, ingestion runtime, KB/Workspace attachments, Git endpoints. | S3-compatible bucket (S3/MinIO) with local filesystem fallback for dev. | Streaming read/write; callers pass `{bucket, key}` references through workflows. |
 
+See `SIGNALS_EPP_MODEL.md` for the full Signals/EPP model (SignalDefinition/SignalInstance) and how SignalStore is used alongside CDM and KB.
+
 ## KvStore Contract
 
 **Interface (language-agnostic):**
@@ -124,4 +126,3 @@ interface ObjectSummary {
 - **KvStore** replaces file-backed checkpoints for Temporal/UCL/ingestion; only small JSON state should live here (no binaries or large manifests).
 - **ObjectStore** is the sole staging/raw artifact store for ingestion and Git/Doc blobs; Temporal activities and UCL connectors exchange `{bucket, key}` pointers instead of embedding payloads.
 - Brain API and Workspace surfaces should cite these store interfaces (not Postgres tables or local files) when describing persistence or data flow so language-agnostic clients stay aligned.
-

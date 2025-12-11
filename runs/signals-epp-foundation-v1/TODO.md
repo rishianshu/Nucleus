@@ -1,0 +1,1 @@
+- [x] Rerun `pnpm ci-check` once Docker daemon/stack is available; ensure signal GraphQL + Playwright + store spec all green.

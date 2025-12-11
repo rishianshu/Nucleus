@@ -31,6 +31,17 @@ import { getPrismaClient } from "./prismaClient.js";
 import { getTemporalClient } from "./temporal/client.js";
 import { WORKFLOW_NAMES } from "./temporal/workflows.js";
 import { getGraphStore } from "./context.js";
+import { PrismaSignalStore } from "./signals/signalStore.js";
+import type {
+  SignalStore,
+  SignalDefinition,
+  SignalInstance,
+  SignalDefinitionFilter,
+  SignalInstanceFilter,
+  SignalInstanceStatus,
+  SignalSeverity,
+  SignalStatus,
+} from "./signals/types.js";
 import type { AuthContext } from "./auth.js";
 import sampleMetadata from "./fixtures/sample-metadata.json" assert { type: "json" };
 import { DEFAULT_ENDPOINT_TEMPLATES } from "./fixtures/default-endpoint-templates.js";
@@ -1133,10 +1144,76 @@ type ProvisionCdmSinkResult {
     docSearch: String
   }
 
+  enum SignalStatus {
+    ACTIVE
+    DISABLED
+    DRAFT
+  }
+
+  enum SignalInstanceStatus {
+    OPEN
+    RESOLVED
+    SUPPRESSED
+  }
+
+  enum SignalSeverity {
+    INFO
+    WARNING
+    ERROR
+    CRITICAL
+  }
+
+  type SignalDefinition {
+    id: ID!
+    slug: String!
+    title: String!
+    description: String
+    status: SignalStatus!
+    entityKind: String!
+    processKind: String
+    policyKind: String
+    severity: SignalSeverity!
+    tags: [String!]!
+    cdmModelId: String
+    owner: String
+    definitionSpec: JSON
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type SignalInstance {
+    id: ID!
+    definition: SignalDefinition!
+    status: SignalInstanceStatus!
+    entityRef: String!
+    entityKind: String!
+    severity: SignalSeverity!
+    summary: String!
+    details: JSON
+    firstSeenAt: DateTime!
+    lastSeenAt: DateTime!
+    resolvedAt: DateTime
+    sourceRunId: String
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
   type Query {
     health: Health!
     metadataDomains: [MetadataDomain!]!
     metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
+    signalDefinitions(status: [SignalStatus!], entityKind: [String!], tags: [String!]): [SignalDefinition!]!
+    signalDefinition(slug: String!): SignalDefinition
+    signalInstances(
+      definitionSlugs: [String!]
+      definitionIds: [ID!]
+      entityRefs: [String!]
+      entityKind: String
+      status: [SignalInstanceStatus!]
+      severity: [SignalSeverity!]
+      limit: Int
+    ): [SignalInstance!]!
+    signalInstance(id: ID!): SignalInstance
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
     kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
@@ -1237,6 +1314,7 @@ export function createResolvers(
     saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
   };
   const resolvePrismaClient = async () => options?.prismaClient ?? (await getPrismaClient());
+  const signalStore: SignalStore = new PrismaSignalStore(resolvePrismaClient);
 
   const fetchCatalogDatasetRecord = async (
     datasetId: string,
@@ -1632,6 +1710,67 @@ export function createResolvers(
           search: args.search,
           limit: args.limit,
         });
+      },
+      signalDefinitions: async (
+        _parent: unknown,
+        args: { status?: string[] | null; entityKind?: string[] | null; tags?: string[] | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const filter: SignalDefinitionFilter = {
+          status: coerceSignalStatus(args.status),
+          entityKind: args.entityKind ?? undefined,
+          tags: args.tags ?? undefined,
+        };
+        const defs = await signalStore.listDefinitions(filter);
+        return defs.map(mapSignalDefinitionToGraphQL);
+      },
+      signalDefinition: async (_parent: unknown, args: { slug: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const def = await signalStore.getDefinitionBySlug(args.slug);
+        return def ? mapSignalDefinitionToGraphQL(def) : null;
+      },
+      signalInstances: async (
+        _parent: unknown,
+        args: {
+          definitionSlugs?: string[] | null;
+          definitionIds?: string[] | null;
+          entityRefs?: string[] | null;
+          entityKind?: string | null;
+          status?: string[] | null;
+          severity?: string[] | null;
+          limit?: number | null;
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const filter: SignalInstanceFilter = {
+          definitionSlugs: args.definitionSlugs ?? undefined,
+          definitionIds: args.definitionIds ?? undefined,
+          entityRefs: args.entityRefs ?? undefined,
+          entityKind: args.entityKind ?? undefined,
+          status: coerceSignalInstanceStatus(args.status),
+          severity: coerceSignalSeverity(args.severity),
+          limit: args.limit ?? undefined,
+        };
+        const instances = await signalStore.listInstances(filter);
+        return Promise.all(
+          instances.map(async (instance) => {
+            const definition =
+              instance.definition ?? (await signalStore.getDefinition(instance.definitionId)) ?? undefined;
+            return mapSignalInstanceToGraphQL(instance, definition);
+          }),
+        );
+      },
+      signalInstance: async (_parent: unknown, args: { id: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const instance = await signalStore.getInstance(args.id);
+        if (!instance) {
+          return null;
+        }
+        const definition =
+          instance.definition ?? (await signalStore.getDefinition(instance.definitionId)) ?? undefined;
+        return mapSignalInstanceToGraphQL(instance, definition);
       },
       graphNodes: async (_parent: unknown, args: { filter?: GraphQLGraphNodeFilter | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -7616,6 +7755,57 @@ function mapConfluenceSpaceOption(record: MetadataRecord<unknown>) {
   }
   const name = normalizeStringValue(payload?.name ?? payload?.title ?? payload?.displayName) ?? spaceKey;
   return { key: spaceKey, name };
+}
+
+const SIGNAL_STATUS_VALUES: SignalStatus[] = ["ACTIVE", "DISABLED", "DRAFT"];
+const SIGNAL_INSTANCE_STATUS_VALUES: SignalInstanceStatus[] = ["OPEN", "RESOLVED", "SUPPRESSED"];
+const SIGNAL_SEVERITY_VALUES: SignalSeverity[] = ["INFO", "WARNING", "ERROR", "CRITICAL"];
+
+function coerceSignalStatus(values?: string[] | null): SignalStatus[] | undefined {
+  if (!values) return undefined;
+  const filtered = values.filter((v): v is SignalStatus => SIGNAL_STATUS_VALUES.includes(v as SignalStatus));
+  return filtered.length ? filtered : undefined;
+}
+
+function coerceSignalInstanceStatus(values?: string[] | null): SignalInstanceStatus[] | undefined {
+  if (!values) return undefined;
+  const filtered = values.filter((v): v is SignalInstanceStatus =>
+    SIGNAL_INSTANCE_STATUS_VALUES.includes(v as SignalInstanceStatus),
+  );
+  return filtered.length ? filtered : undefined;
+}
+
+function coerceSignalSeverity(values?: string[] | null): SignalSeverity[] | undefined {
+  if (!values) return undefined;
+  const filtered = values.filter((v): v is SignalSeverity => SIGNAL_SEVERITY_VALUES.includes(v as SignalSeverity));
+  return filtered.length ? filtered : undefined;
+}
+
+function mapSignalDefinitionToGraphQL(def: SignalDefinition) {
+  return {
+    ...def,
+    createdAt: def.createdAt.toISOString(),
+    updatedAt: def.updatedAt.toISOString(),
+    definitionSpec: def.definitionSpec ?? {},
+  };
+}
+
+function mapSignalInstanceToGraphQL(instance: SignalInstance, definition?: SignalDefinition) {
+  const resolvedDefinition = definition ?? instance.definition;
+  if (!resolvedDefinition) {
+    throw new GraphQLError("Signal definition missing for instance", {
+      extensions: { code: "E_SIGNAL_DEFINITION_MISSING" },
+    });
+  }
+  return {
+    ...instance,
+    definition: mapSignalDefinitionToGraphQL(resolvedDefinition),
+    firstSeenAt: instance.firstSeenAt.toISOString(),
+    lastSeenAt: instance.lastSeenAt.toISOString(),
+    resolvedAt: instance.resolvedAt ? instance.resolvedAt.toISOString() : null,
+    createdAt: instance.createdAt.toISOString(),
+    updatedAt: instance.updatedAt.toISOString(),
+  };
 }
 
 function extractJiraRecordValue(record: MetadataRecord<unknown>) {

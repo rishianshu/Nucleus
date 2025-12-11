@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-core-stores-foundation-v1 (success @ 2025-12-10T17:56Z)
+signals-epp-foundation-v1 (success @ 2025-12-11T05:04Z)
 
 ## Last Run
-- slug: core-stores-foundation-v1
+- slug: signals-epp-foundation-v1
 - status: success
-- duration: ~2h
-- tests: pnpm ci-check green (metadata-auth/lifecycle Playwright) + mypy
+- duration: ~3h
+- tests: pnpm ci-check green (generate/migrate/build, signal store spec, Playwright, mypy)
 - commits: none (workspace only)
-- decisions: 2
-- next_step: monitor future runs; no open tasks
+- decisions: 0
+- next_step: monitor signal definitions/instances usage; plan edit/mutation flows in follow-up slug
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-10T20:01Z run started (signals-epp-foundation-v1, boot + context sync)
+- 2025-12-11T05:04Z run success (signals-epp-foundation-v1, ci-check green with signals GraphQL/store)
 - 2025-12-10T17:56Z run success (core-stores-foundation-v1, connectionUrl casing + JDBC conn strings fixed; ci-check + mypy green)
 - 2025-12-10T07:09Z run in-progress (core-stores-foundation-v1, retry option fixed; ci-check failing on metadata-auth Playwright scenarios)
 - 2025-12-08T04:59Z run success (kb-relations-ui-surfacing-v1, KB relation filters/direction + Catalog FK/related tables; ci-check green)

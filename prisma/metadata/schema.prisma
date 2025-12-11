@@ -228,3 +228,67 @@ model GraphEdge {
   @@index([sourceLogicalKey])
   @@index([targetLogicalKey])
 }
+
+model SignalDefinition {
+  id             String           @id @default(uuid())
+  slug           String           @unique
+  title          String
+  description    String?
+  status         SignalStatus
+  entityKind     String         @map("entity_kind")
+  processKind    String?        @map("process_kind")
+  policyKind     String?        @map("policy_kind")
+  severity       SignalSeverity
+  tags           String[]         @default([])
+  cdmModelId     String?        @map("cdm_model_id")
+  owner          String?
+  definitionSpec Json           @map("definition_spec")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  instances      SignalInstance[]
+
+  @@map("signal_definitions")
+}
+
+model SignalInstance {
+  id           String               @id @default(uuid())
+  definitionId String               @map("definition_id")
+  definition   SignalDefinition     @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  status       SignalInstanceStatus
+  entityRef    String               @map("entity_ref")
+  entityKind   String               @map("entity_kind")
+  severity     SignalSeverity
+  summary      String
+  details      Json?
+  firstSeenAt  DateTime             @default(now()) @map("first_seen_at")
+  lastSeenAt   DateTime             @default(now()) @map("last_seen_at")
+  resolvedAt   DateTime?            @map("resolved_at")
+  sourceRunId  String?              @map("source_run_id")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  @@map("signal_instances")
+  @@unique([definitionId, entityRef])
+  @@index([definitionId, status])
+  @@index([entityRef, definitionId])
+  @@index([entityKind, status, severity])
+}
+
+enum SignalStatus {
+  ACTIVE
+  DISABLED
+  DRAFT
+}
+
+enum SignalInstanceStatus {
+  OPEN
+  RESOLVED
+  SUPPRESSED
+}
+
+enum SignalSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}

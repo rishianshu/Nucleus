@@ -1,7 +1,9 @@
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { loginViaKeycloak, ensureRealmUser, keycloakBase, metadataBase } from "./helpers/webAuth";
-import { graphql, ensureCatalogSeed } from "./helpers/metadata";
+import { graphql, ensureCatalogSeed, fetchKeycloakToken } from "./helpers/metadata";
 import { seedCdmData } from "./helpers/cdmSeed";
+
+test.setTimeout(120_000);
 
 const POSTGRES_CONNECTION_DEFAULTS = {
   host: process.env.METADATA_PG_HOST ?? "localhost",
@@ -321,6 +323,41 @@ test("metadata endpoints can be registered, edited, and deleted", async ({ page,
   await expect(
     page.locator("[data-testid='metadata-endpoint-card']").filter({ hasText: updatedEndpointName }),
   ).toHaveCount(0);
+});
+
+test("signals GraphQL exposes seeded definitions and instances", async ({ request }) => {
+  const token = await fetchKeycloakToken(request);
+  const data = await graphql<{
+    signalDefinitions: { slug: string; entityKind: string; cdmModelId?: string | null }[];
+    signalInstances: { entityRef: string; status: string; definition: { slug: string } }[];
+  }>(
+    request,
+    token,
+    `
+      query SignalsSmoke {
+        signalDefinitions {
+          slug
+          entityKind
+          cdmModelId
+        }
+        signalInstances(limit: 10) {
+          entityRef
+          status
+          definition {
+            slug
+          }
+        }
+      }
+    `,
+  );
+  const slugs = data.signalDefinitions.map((entry) => entry.slug);
+  expect(slugs).toEqual(expect.arrayContaining(["work.stale_item", "doc.orphaned"]));
+  expect(data.signalInstances.length).toBeGreaterThan(0);
+  expect(
+    data.signalInstances.some((instance) =>
+      ["work.stale_item", "doc.orphaned"].includes(instance.definition.slug),
+    ),
+  ).toBeTruthy();
 });
 
 test("metadata viewer role cannot mutate endpoints", async ({ page, request }) => {
