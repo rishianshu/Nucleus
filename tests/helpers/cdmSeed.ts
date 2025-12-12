@@ -3,12 +3,13 @@ import { Pool } from "pg";
 let seeded = false;
 const SEEDED_ENDPOINT_ID = "seeded-endpoint";
 
-function buildSeedProperties(datasetId: string) {
+function buildSeedProperties(datasetId: string, extras?: Record<string, unknown>) {
   return JSON.stringify({
     _metadata: {
       sourceDatasetId: datasetId,
       sourceEndpointId: SEEDED_ENDPOINT_ID,
     },
+    ...(extras ?? {}),
   });
 }
 
@@ -154,7 +155,7 @@ async function insertSeedRows(pool: Pool, schema: string, prefix: string) {
     `INSERT INTO "${schema}"."${prefix}work_item" (cdm_id, source_system, source_issue_key, project_cdm_id, summary, status, priority, assignee_cdm_id, reporter_cdm_id, created_at, updated_at, closed_at, properties)
      VALUES ($1, 'jira', 'ENG-1', $2, 'Seeded issue summary', 'In Progress', 'High', $3, $4, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 day', NULL, $5::jsonb)
      ON CONFLICT (cdm_id) DO UPDATE SET summary = EXCLUDED.summary, status = EXCLUDED.status, priority = EXCLUDED.priority, properties = EXCLUDED.properties`,
-    [itemId, projectId, assigneeId, reporterId, buildSeedProperties("jira.issues")],
+    [itemId, projectId, assigneeId, reporterId, buildSeedProperties("jira.issues", { url: "https://jira.example.com/browse/ENG-1" })],
   );
   await pool.query(
     `INSERT INTO "${schema}"."${prefix}work_comment" (cdm_id, source_system, item_cdm_id, author_cdm_id, body, created_at, properties)

@@ -142,16 +142,39 @@ function createMockPrisma() {
         : row;
     },
     async findMany({ where, include, take, skip }: { where?: any; include?: { definition?: boolean }; take?: number; skip?: number }) {
+      const matchesDefinition = (def: DefinitionRow | undefined, filter: any): boolean => {
+        if (!filter) return true;
+        if (!def) return false;
+        if (Array.isArray(filter.AND)) {
+          return filter.AND.every((entry: any) => matchesDefinition(def, entry));
+        }
+        if (Array.isArray(filter.OR)) {
+          return filter.OR.some((entry: any) => matchesDefinition(def, entry));
+        }
+        if (filter.slug?.in && !filter.slug.in.includes(def.slug)) return false;
+        if (filter.slug?.contains) {
+          const target = (filter.slug.contains as string).toLowerCase();
+          if (!def.slug.toLowerCase().includes(target)) return false;
+        }
+        if (filter.title?.contains) {
+          const target = (filter.title.contains as string).toLowerCase();
+          if (!def.title.toLowerCase().includes(target)) return false;
+        }
+        if (filter.sourceFamily?.in && (!def.sourceFamily || !filter.sourceFamily.in.includes(def.sourceFamily))) return false;
+        if (filter.policyKind?.in && (!def.policyKind || !filter.policyKind.in.includes(def.policyKind))) return false;
+        return true;
+      };
+
       const filtered = instances.filter((i) => {
         if (where?.definitionId?.in && !where.definitionId.in.includes(i.definitionId)) return false;
-        if (where?.definition?.slug?.in) {
-          const def = definitions.find((d) => d.id === i.definitionId);
-          if (!def || !where.definition.slug.in.includes(def.slug)) return false;
-        }
+        const def = definitions.find((d) => d.id === i.definitionId);
+        if (!matchesDefinition(def, where?.definition)) return false;
         if (where?.entityRef?.in && !where.entityRef.in.includes(i.entityRef)) return false;
         if (where?.entityKind && i.entityKind !== where.entityKind) return false;
         if (where?.status?.in && !where.status.in.includes(i.status)) return false;
         if (where?.severity?.in && !where.severity.in.includes(i.severity)) return false;
+        if (where?.lastSeenAt?.gte && i.lastSeenAt < where.lastSeenAt.gte) return false;
+        if (where?.lastSeenAt?.lte && i.lastSeenAt > where.lastSeenAt.lte) return false;
         return true;
       });
       const start = typeof skip === "number" && skip > 0 ? skip : 0;
@@ -192,6 +215,7 @@ async function main() {
     entityKind: "WORK_ITEM",
     processKind: "TEST_FLOW",
     policyKind: "FRESHNESS",
+    sourceFamily: "jira",
     severity: "WARNING",
     tags: ["test", "signals"],
     cdmModelId: "cdm.work.item",
@@ -254,14 +278,56 @@ async function main() {
     sourceRunId: "test-run-2",
   });
 
+  await store.upsertInstance({
+    definitionId: created.id,
+    entityRef: `entity:${slug}:old`,
+    entityKind: "WORK_ITEM",
+    severity: "ERROR",
+    summary: "Older test instance",
+    details: { kind: "smoke-test-3" },
+    status: "OPEN",
+    sourceRunId: "test-run-3",
+    timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+  });
+
+  const byEntityRef = await store.listInstances({ entityRef: `entity:${slug}` });
+  if (byEntityRef.length !== 1) {
+    throw new Error("entityRef filter did not return expected single instance");
+  }
+
+  const definitionSearch = await store.listInstances({ definitionSearch: slug });
+  if (definitionSearch.length < 3) {
+    throw new Error("definitionSearch filter did not match instances");
+  }
+
+  const sourceFamilyFiltered = await store.listInstances({ sourceFamily: ["jira"] });
+  if (sourceFamilyFiltered.length < 3) {
+    throw new Error("sourceFamily filter did not return seeded instances");
+  }
+
+  const policyFiltered = await store.listInstances({ policyKind: ["FRESHNESS"] });
+  if (policyFiltered.length < 3) {
+    throw new Error("policyKind filter did not return seeded instances");
+  }
+
+  const recentOnly = await store.listInstances({ from: new Date(Date.now() - 24 * 60 * 60 * 1000) });
+  if (recentOnly.length !== 2) {
+    throw new Error("time window filter did not exclude older instance");
+  }
+
   const pagedFirst = await store.listInstancesPaged({ definitionIds: [created.id], limit: 1 });
   if (pagedFirst.rows.length !== 1 || pagedFirst.hasNextPage !== true) {
     throw new Error("listInstancesPaged did not page correctly (first page)");
   }
   const nextCursor = encodeCursor(pagedFirst.cursorOffset + pagedFirst.rows.length);
   const pagedSecond = await store.listInstancesPaged({ definitionIds: [created.id], limit: 1, after: nextCursor });
-  if (pagedSecond.rows.length !== 1 || pagedSecond.hasNextPage !== false) {
-    throw new Error("listInstancesPaged did not page correctly (second page)");
+  if (pagedSecond.rows.length !== 1) {
+    throw new Error("listInstancesPaged did not page correctly (second page rows)");
+  }
+  const thirdCursor = encodeCursor(pagedSecond.cursorOffset + pagedSecond.rows.length);
+  const pagedThird = await store.listInstancesPaged({ definitionIds: [created.id], limit: 1, after: thirdCursor });
+  if (pagedThird.rows.length !== 1 || pagedThird.hasNextPage !== false) {
+    throw new Error("listInstancesPaged did not page correctly (third page)");
   }
 
   const resolved = await store.updateInstanceStatus(instance.id, "RESOLVED");

@@ -360,6 +360,72 @@ test("signals GraphQL exposes seeded definitions and instances", async ({ reques
   ).toBeTruthy();
 });
 
+test("signalInstancesPage supports filters and pagination", async ({ request }) => {
+  const token = await fetchKeycloakToken(request);
+  const firstPage = await graphql<{
+    signalInstancesPage: {
+      rows: Array<{
+        id: string;
+        definitionSlug: string;
+        definitionTitle: string;
+        entityRef: string;
+        entityCdmModelId?: string | null;
+        entityCdmId?: string | null;
+        status: string;
+        severity: string;
+      }>;
+      hasNextPage: boolean;
+      cursor: string | null;
+    };
+  }>(
+    request,
+    token,
+    `
+      query SignalsPaged($first: Int!, $after: String) {
+        signalInstancesPage(first: $first, after: $after, filter: { status: [OPEN] }) {
+          rows {
+            id
+            definitionSlug
+            definitionTitle
+            entityRef
+            entityCdmModelId
+            entityCdmId
+            status
+            severity
+          }
+          hasNextPage
+          cursor
+        }
+      }
+    `,
+    { first: 1, after: null },
+  );
+
+  expect(firstPage.signalInstancesPage.rows.length).toBe(1);
+  expect(firstPage.signalInstancesPage.rows[0].definitionSlug.length).toBeGreaterThan(0);
+  expect(firstPage.signalInstancesPage.rows[0].entityRef.startsWith("cdm.")).toBeTruthy();
+
+  if (firstPage.signalInstancesPage.hasNextPage && firstPage.signalInstancesPage.cursor) {
+    const secondPage = await graphql<{
+      signalInstancesPage: { rows: Array<{ id: string }>; hasNextPage: boolean; cursor: string | null };
+    }>(
+      request,
+      token,
+      `
+        query SignalsPaged($first: Int!, $after: String) {
+          signalInstancesPage(first: $first, after: $after, filter: { status: [OPEN] }) {
+            rows { id }
+            hasNextPage
+            cursor
+          }
+        }
+      `,
+      { first: 1, after: firstPage.signalInstancesPage.cursor },
+    );
+    expect(secondPage.signalInstancesPage.rows.length).toBeGreaterThan(0);
+  }
+});
+
 test("metadata viewer role cannot mutate endpoints", async ({ page, request }) => {
   const endpointName = `Viewer Endpoint ${Date.now()}`;
   const viewerEndpoint = await registerEndpointViaApi(request, endpointName);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { Role } from "../auth/AuthProvider";
 import { fetchMetadataGraphQL } from "../metadata/api";
 import {
@@ -11,6 +11,7 @@ import {
   CDM_WORK_PROJECTS_QUERY,
   CDM_WORK_PROJECT_CONNECTION_QUERY,
   CDM_WORK_USERS_QUERY,
+  SIGNALS_FOR_ENTITY_QUERY,
 } from "../metadata/queries";
 import type {
   CdmWorkComment,
@@ -27,6 +28,7 @@ import type {
   CdmWorkUser,
   CdmWorkUserConnection,
   GraphPageInfo,
+  SignalInstanceRow,
 } from "../metadata/types";
 import { useDebouncedValue } from "../metadata/hooks";
 
@@ -94,6 +96,7 @@ const ENTITY_SEARCH_PLACEHOLDER: Record<CdmWorkEntityKind, string> = {
 };
 
 export function CdmWorkListView({ metadataEndpoint, authToken }: CdmWorkListViewProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState<CdmWorkProject[]>([]);
   const [datasets, setDatasets] = useState<CdmWorkDataset[]>([]);
   const [records, setRecords] = useState<WorkRow[]>([]);
@@ -252,6 +255,32 @@ export function CdmWorkListView({ metadataEndpoint, authToken }: CdmWorkListView
     loadItemDetail(selectedRow && selectedRow.kind === "ITEM" ? selectedRow : null);
   }, [selectedRow, loadItemDetail]);
 
+  useEffect(() => {
+    const selectedId = searchParams.get("selected");
+    if (!selectedId) {
+      return;
+    }
+    const match = records.find((row) => row.cdmId === selectedId);
+    if (match && (selectedRow?.cdmId !== match.cdmId || selectedRow.kind !== match.kind)) {
+      setSelectedRow(match);
+    }
+  }, [records, searchParams, selectedRow]);
+
+  useEffect(() => {
+    const current = searchParams.get("selected");
+    if (selectedRow?.kind === "ITEM" && selectedRow.cdmId) {
+      if (current !== selectedRow.cdmId) {
+        const next = new URLSearchParams(searchParams);
+        next.set("selected", selectedRow.cdmId);
+        setSearchParams(next, { replace: true });
+      }
+    } else if (current) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("selected");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, selectedRow, setSearchParams]);
+
   if (!metadataEndpoint) {
     return <EmptyState title="Metadata endpoint not configured" description="Cannot load CDM Work data." />;
   }
@@ -338,6 +367,8 @@ export function CdmWorkListView({ metadataEndpoint, authToken }: CdmWorkListView
           detailLoading={detailLoading}
           datasetLookup={datasetLookup}
           projects={projects}
+          metadataEndpoint={metadataEndpoint}
+          headers={headers}
         />
       </div>
     </div>
@@ -480,13 +511,56 @@ function WorkDetailPanel({
   detailLoading,
   datasetLookup,
   projects,
+  metadataEndpoint,
+  headers,
 }: {
   row: WorkRow | null;
   detail: CdmWorkItemDetail | null;
   detailLoading: boolean;
   datasetLookup: Map<string, CdmWorkDataset>;
   projects: CdmWorkProject[];
+  metadataEndpoint: string | null;
+  headers: { token?: string };
 }) {
+  const [signals, setSignals] = useState<SignalInstanceRow[]>([]);
+  const [signalsLoading, setSignalsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSignals = async () => {
+      if (!metadataEndpoint || !row || row.kind !== "ITEM" || !row.cdmId) {
+        setSignals([]);
+        return;
+      }
+      setSignalsLoading(true);
+      try {
+        const entityRef = `cdm.work.item:${row.cdmId}`;
+        const resp = await fetchMetadataGraphQL<{ signalInstancesPage: { rows: SignalInstanceRow[] } }>(
+          metadataEndpoint,
+          SIGNALS_FOR_ENTITY_QUERY,
+          { entityRef, first: 5 },
+          undefined,
+          headers,
+        );
+        if (!cancelled) {
+          setSignals(resp.signalInstancesPage?.rows ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSignals([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSignalsLoading(false);
+        }
+      }
+    };
+    loadSignals();
+    return () => {
+      cancelled = true;
+    };
+  }, [metadataEndpoint, headers, row]);
+
   if (!row) {
     return (
       <aside
@@ -656,6 +730,13 @@ function WorkDetailPanel({
       </div>
       {row.kind === "ITEM" || row.kind === "COMMENT" || row.kind === "WORKLOG" ? (
         <>
+          {row.kind === "ITEM" && row.cdmId ? (
+            <SignalsSummaryCard
+              entityRef={`cdm.work.item:${row.cdmId}`}
+              signals={signals}
+              loading={signalsLoading}
+            />
+          ) : null}
           <SectionHeading label="Raw CDM record" className="mt-6" />
           <pre className="mt-2 max-h-72 overflow-auto rounded-2xl bg-slate-900/90 p-3 text-xs text-emerald-100">
             {JSON.stringify(rawPayload, null, 2)}
@@ -680,6 +761,52 @@ function SectionHeading({ label, className }: { label: string; className?: strin
     <p className={`text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 ${className ?? ""}`}>
       {label}
     </p>
+  );
+}
+
+function SignalsSummaryCard({
+  entityRef,
+  signals,
+  loading,
+}: {
+  entityRef: string;
+  signals: SignalInstanceRow[];
+  loading: boolean;
+}) {
+  return (
+    <div className="mt-6 rounded-2xl border border-slate-200 bg-white/80 p-3 dark:border-slate-700 dark:bg-slate-900/40" data-testid="cdm-work-signals">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">Signals</p>
+          <p className="text-sm text-slate-600 dark:text-slate-200">Recent signals for this work item</p>
+        </div>
+        <Link
+          to={`/signals?entityRef=${encodeURIComponent(entityRef)}`}
+          className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+        >
+          View all
+        </Link>
+      </div>
+      {loading ? (
+        <p className="mt-3 text-xs text-slate-500">Loading signals…</p>
+      ) : signals.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">No signals found for this entity.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
+          {signals.slice(0, 3).map((signal) => (
+            <li key={signal.id} className="flex items-center justify-between gap-3 py-2" data-testid="cdm-work-signal-row">
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{signal.summary}</p>
+                <p className="text-xs text-slate-500">{signal.definitionSlug}</p>
+              </div>
+              <span className="rounded-full border border-slate-300 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 dark:border-slate-600 dark:text-slate-200">
+                {signal.severity}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

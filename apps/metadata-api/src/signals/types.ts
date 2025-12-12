@@ -54,9 +54,16 @@ export type SignalInstanceFilter = {
   definitionIds?: string[];
   definitionSlugs?: string[];
   entityRefs?: string[];
+  entityRef?: string;
   entityKind?: string;
+  entityKinds?: string[];
   status?: SignalInstanceStatus[];
   severity?: SignalSeverity[];
+  sourceFamily?: string[];
+  policyKind?: string[];
+  definitionSearch?: string | null;
+  from?: Date | string;
+  to?: Date | string;
   limit?: number;
 };
 
@@ -68,6 +75,7 @@ export type SignalInstancePage = {
 
 export type SignalInstancePageFilter = SignalInstanceFilter & {
   after?: string | null;
+  limit?: number;
 };
 
 export type CreateSignalDefinitionInput = Omit<

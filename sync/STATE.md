@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-signals-extensibility-and-packs-v1 (in-progress @ 2025-12-11T16:55Z)
+signals-surfaces-and-filters-v1 (in-progress @ 2025-12-11T18:25Z)
 
 ## Last Run
-- slug: signals-extensibility-and-packs-v1
+- slug: signals-surfaces-and-filters-v1
 - status: in-progress
-- duration: ~0.5h
-- tests: signalStore/signalEvaluator (tsx) green with elevated perms; ci-check pending
+- duration: ~1.5h
+- tests: signalStore/signalEvaluator (tsx) passing; API build OK; Playwright not run
 - commits: none
-- decisions: 3
-- next_step: run pnpm ci-check (stack + Playwright) and close slug
+- decisions: 0
+- next_step: run Playwright (signals-ui + metadata-auth) to validate filters/navigation and signals surfacing end-to-end
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,10 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-11T19:14Z run in-progress (signals-surfaces-and-filters-v1, signal unit tests/build passing after filter/paging fixes; Playwright pending)
+- 2025-12-11T18:25Z run in-progress (signals-surfaces-and-filters-v1, Signals UI wiring + inline cards done; tests blocked by tsx EPERM)
+- 2025-12-11T18:17Z run in-progress (signals-surfaces-and-filters-v1, GraphQL pagination/filter + Signals UI/detail surfacing added; tests blocked by tsx EPERM)
+- 2025-12-11T17:36Z run started (signals-surfaces-and-filters-v1, boot + context sync)
 - 2025-12-11T16:55Z run in-progress (signals-extensibility-and-packs-v1, signals tests green + docs refreshed; ci-check pending stack/Playwright)
 - 2025-12-11T16:32Z run in-progress (signals-extensibility-and-packs-v1, implMode/registry/generic filter + packs seeded; signals tests blocked by tsx IPC)
 - 2025-12-11T15:54Z run started (signals-extensibility-and-packs-v1, boot + context sync)

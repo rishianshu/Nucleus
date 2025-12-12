@@ -1201,9 +1201,15 @@ type ProvisionCdmSinkResult {
   type SignalInstance {
     id: ID!
     definition: SignalDefinition!
+    definitionSlug: String!
+    definitionTitle: String!
+    sourceFamily: String
+    policyKind: String
     status: SignalInstanceStatus!
     entityRef: String!
     entityKind: String!
+    entityCdmModelId: String
+    entityCdmId: String
     severity: SignalSeverity!
     summary: String!
     details: JSON
@@ -1213,6 +1219,28 @@ type ProvisionCdmSinkResult {
     sourceRunId: String
     createdAt: DateTime!
     updatedAt: DateTime!
+  }
+
+  input SignalInstanceFilter {
+    definitionSlugs: [String!]
+    definitionIds: [ID!]
+    entityRefs: [String!]
+    entityRef: String
+    entityKind: String
+    entityKinds: [String!]
+    status: [SignalInstanceStatus!]
+    severity: [SignalSeverity!]
+    sourceFamily: [String!]
+    policyKind: [String!]
+    definitionSearch: String
+    from: DateTime
+    to: DateTime
+  }
+
+  type SignalInstancePage {
+    rows: [SignalInstance!]!
+    hasNextPage: Boolean!
+    cursor: String
   }
 
   type SignalSkippedDefinition {
@@ -1248,7 +1276,16 @@ type ProvisionCdmSinkResult {
       status: [SignalInstanceStatus!]
       severity: [SignalSeverity!]
       limit: Int
+      filter: SignalInstanceFilter
+      first: Int
+      after: String
     ): [SignalInstance!]!
+    signalInstancesPage(
+      filter: SignalInstanceFilter
+      first: Int = 50
+      after: String
+    ): SignalInstancePage!
+    signalsForEntity(entityRef: String!): [SignalInstance!]!
     signalInstance(id: ID!): SignalInstance
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
@@ -1732,6 +1769,64 @@ export function createResolvers(
       collection,
     }, resolveTemporalClient);
   };
+
+  type GraphQLSignalInstanceFilterInput = {
+    definitionSlugs?: string[] | null;
+    definitionIds?: string[] | null;
+    entityRefs?: string[] | null;
+    entityRef?: string | null;
+    entityKind?: string | null;
+    entityKinds?: string[] | null;
+    status?: string[] | null;
+    severity?: string[] | null;
+    sourceFamily?: string[] | null;
+    policyKind?: string[] | null;
+    definitionSearch?: string | null;
+    from?: string | null;
+    to?: string | null;
+  };
+
+  function mergeSignalInstanceFilter(
+    args: {
+      definitionSlugs?: string[] | null;
+      definitionIds?: string[] | null;
+      entityRefs?: string[] | null;
+      entityRef?: string | null;
+      entityKind?: string | null;
+      entityKinds?: string[] | null;
+      status?: string[] | null;
+      severity?: string[] | null;
+      limit?: number | null;
+      filter?: GraphQLSignalInstanceFilterInput | null;
+    },
+  ): SignalInstanceFilter {
+    const input = args.filter ?? {};
+    const mergedDefinitionSlugs = [...(args.definitionSlugs ?? []), ...(input.definitionSlugs ?? [])].filter(Boolean);
+    const mergedDefinitionIds = [...(args.definitionIds ?? []), ...(input.definitionIds ?? [])].filter(Boolean);
+    const mergedEntityRefs = [...(args.entityRefs ?? []), ...(input.entityRefs ?? [])].filter(Boolean);
+    const mergedEntityKinds = [...(args.entityKinds ?? []), ...(input.entityKinds ?? [])].filter(Boolean);
+    const fallbackEntityKind = args.entityKind ?? input.entityKind ?? undefined;
+    if (fallbackEntityKind && !mergedEntityKinds.length) {
+      mergedEntityKinds.push(fallbackEntityKind);
+    }
+
+    return {
+      definitionSlugs: mergedDefinitionSlugs.length ? mergedDefinitionSlugs : undefined,
+      definitionIds: mergedDefinitionIds.length ? mergedDefinitionIds : undefined,
+      entityRefs: mergedEntityRefs.length ? mergedEntityRefs : undefined,
+      entityRef: input.entityRef ?? args.entityRef ?? undefined,
+      entityKind: fallbackEntityKind ?? undefined,
+      entityKinds: mergedEntityKinds.length ? mergedEntityKinds : undefined,
+      status: coerceSignalInstanceStatus(args.status ?? input.status ?? null),
+      severity: coerceSignalSeverity(args.severity ?? input.severity ?? null),
+      sourceFamily: input.sourceFamily ?? undefined,
+      policyKind: input.policyKind ?? undefined,
+      definitionSearch: input.definitionSearch ?? null,
+      from: input.from ?? undefined,
+      to: input.to ?? undefined,
+      limit: args.limit ?? undefined,
+    };
+  }
   return {
     DateTime: DateTimeResolver,
     JSON: JSONResolver as GraphQLScalarType,
@@ -1790,20 +1885,63 @@ export function createResolvers(
           entityKind?: string | null;
           status?: string[] | null;
           severity?: string[] | null;
+          filter?: GraphQLSignalInstanceFilterInput | null;
           limit?: number | null;
+          first?: number | null;
+          after?: string | null;
         },
         ctx: ResolverContext,
       ) => {
         enforceReadAccess(ctx);
-        const filter: SignalInstanceFilter = {
-          definitionSlugs: args.definitionSlugs ?? undefined,
-          definitionIds: args.definitionIds ?? undefined,
-          entityRefs: args.entityRefs ?? undefined,
-          entityKind: args.entityKind ?? undefined,
-          status: coerceSignalInstanceStatus(args.status),
-          severity: coerceSignalSeverity(args.severity),
-          limit: args.limit ?? undefined,
+        const limit = Math.min(Math.max(args.first ?? args.limit ?? 50, 1), 200);
+        const filter: SignalInstanceFilter = mergeSignalInstanceFilter({
+          ...args,
+          limit,
+        });
+        const usePaged = Boolean(args.after) && typeof signalStore.listInstancesPaged === "function";
+        const instances = usePaged
+          ? (await signalStore.listInstancesPaged?.({ ...filter, after: args.after ?? null }))?.rows ?? []
+          : await signalStore.listInstances(filter);
+        return Promise.all(
+          instances.map(async (instance) => {
+            const definition =
+              instance.definition ?? (await signalStore.getDefinition(instance.definitionId)) ?? undefined;
+            return mapSignalInstanceToGraphQL(instance, definition);
+          }),
+        );
+      },
+      signalInstancesPage: async (
+        _parent: unknown,
+        args: { filter?: GraphQLSignalInstanceFilterInput | null; first?: number | null; after?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const limit = Math.min(Math.max(args.first ?? 50, 1), 200);
+        const filter = mergeSignalInstanceFilter({ ...args, limit });
+        const page = await signalStore.listInstancesPaged?.({ ...filter, after: args.after ?? null, limit });
+        if (!page) {
+          return { rows: [], hasNextPage: false, cursor: null };
+        }
+        const rows = await Promise.all(
+          page.rows.map(async (instance) => {
+            const definition =
+              instance.definition ?? (await signalStore.getDefinition(instance.definitionId)) ?? undefined;
+            return mapSignalInstanceToGraphQL(instance, definition);
+          }),
+        );
+        const nextCursor = page.hasNextPage ? encodeCursor(page.cursorOffset + rows.length) : null;
+        return {
+          rows,
+          hasNextPage: page.hasNextPage,
+          cursor: nextCursor,
         };
+      },
+      signalsForEntity: async (_parent: unknown, args: { entityRef: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        const filter: SignalInstanceFilter = mergeSignalInstanceFilter({
+          entityRef: args.entityRef,
+          limit: 200,
+        });
         const instances = await signalStore.listInstances(filter);
         return Promise.all(
           instances.map(async (instance) => {
@@ -7880,6 +8018,20 @@ function coerceSignalSeverity(values?: string[] | null): SignalSeverity[] | unde
   return filtered.length ? filtered : undefined;
 }
 
+function parseEntityRef(entityRef: string): { modelId: string | null; cdmId: string | null } {
+  const separatorIndex = entityRef.indexOf(":");
+  if (separatorIndex === -1) {
+    return { modelId: null, cdmId: entityRef || null };
+  }
+  const modelId = entityRef.slice(0, separatorIndex) || null;
+  const cdmId = entityRef.slice(separatorIndex + 1) || null;
+  return { modelId, cdmId };
+}
+
+function encodeCursor(offset: number): string {
+  return Buffer.from(String(Math.max(0, offset))).toString("base64");
+}
+
 function mapSignalDefinitionToGraphQL(def: SignalDefinition) {
   return {
     ...def,
@@ -7897,9 +8049,16 @@ function mapSignalInstanceToGraphQL(instance: SignalInstance, definition?: Signa
       extensions: { code: "E_SIGNAL_DEFINITION_MISSING" },
     });
   }
+  const parsedRef = parseEntityRef(instance.entityRef);
   return {
     ...instance,
     definition: mapSignalDefinitionToGraphQL(resolvedDefinition),
+    definitionSlug: resolvedDefinition.slug,
+    definitionTitle: resolvedDefinition.title,
+    sourceFamily: resolvedDefinition.sourceFamily ?? null,
+    policyKind: resolvedDefinition.policyKind ?? null,
+    entityCdmModelId: parsedRef.modelId,
+    entityCdmId: parsedRef.cdmId,
     firstSeenAt: instance.firstSeenAt.toISOString(),
     lastSeenAt: instance.lastSeenAt.toISOString(),
     resolvedAt: instance.resolvedAt ? instance.resolvedAt.toISOString() : null,

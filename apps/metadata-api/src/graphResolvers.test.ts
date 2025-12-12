@@ -471,6 +471,8 @@ const SAMPLE_WORK_ITEM_ROW: CdmWorkItemRow = {
   priority: "High",
   assignee_cdm_id: "cdm:work:user:jira:assignee",
   reporter_cdm_id: "cdm:work:user:jira:reporter",
+  source_id: "ENG-1",
+  source_url: "https://jira.example.com/browse/ENG-1",
   created_at: new Date("2024-01-02T00:00:00Z"),
   updated_at: new Date("2024-01-03T00:00:00Z"),
   closed_at: null,
@@ -485,6 +487,7 @@ const SAMPLE_WORK_ITEM_ROW: CdmWorkItemRow = {
     },
     rawFields: { key: "ENG-1" },
   },
+  raw_source: {},
 };
 
 const SAMPLE_WORK_COMMENT_ROW: CdmWorkCommentRow = {

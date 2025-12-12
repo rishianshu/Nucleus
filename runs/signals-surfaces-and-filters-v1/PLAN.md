@@ -1,0 +1,4 @@
+- Implement Signals GraphQL exploration with filters/pagination and entity helper.
+- Build Signals UI view with filters, table, and navigation actions.
+- Surface signals on CDM work/doc detail pages and link back to Signals view.
+- Add tests (GraphQL + Playwright) and run targeted checks.

@@ -914,3 +914,61 @@ export const CDM_ENTITY_QUERY = `
     }
   }
 `;
+export const SIGNAL_DEFINITIONS_QUERY = `
+  query SignalDefinitions {
+    signalDefinitions {
+      id
+      slug
+      title
+      sourceFamily
+      entityKind
+      policyKind
+      severity
+    }
+  }
+`;
+export const SIGNAL_INSTANCES_PAGE_QUERY = `
+  query SignalInstancesPage($filter: SignalInstanceFilter, $first: Int, $after: String) {
+    signalInstancesPage(filter: $filter, first: $first, after: $after) {
+      rows {
+        id
+        definitionSlug
+        definitionTitle
+        sourceFamily
+        policyKind
+        status
+        entityRef
+        entityKind
+        entityCdmModelId
+        entityCdmId
+        severity
+        summary
+        lastSeenAt
+        createdAt
+        updatedAt
+      }
+      hasNextPage
+      cursor
+    }
+  }
+`;
+export const SIGNALS_FOR_ENTITY_QUERY = `
+  query SignalsForEntity($entityRef: String!, $first: Int) {
+    signalInstancesPage(filter: { entityRef: $entityRef }, first: $first) {
+      rows {
+        id
+        definitionSlug
+        definitionTitle
+        severity
+        status
+        summary
+        lastSeenAt
+        entityRef
+        entityCdmModelId
+        entityCdmId
+      }
+      hasNextPage
+      cursor
+    }
+  }
+`;

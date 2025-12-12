@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { fetchMetadataGraphQL } from "../metadata/api";
-import { CDM_ENTITY_CONNECTION_QUERY, CDM_ENTITY_QUERY, CDM_DOCS_DATASETS_QUERY } from "../metadata/queries";
-import type { CdmEntity, CdmEntityConnection, CdmDocsDataset } from "../metadata/types";
+import { CDM_ENTITY_CONNECTION_QUERY, CDM_ENTITY_QUERY, CDM_DOCS_DATASETS_QUERY, SIGNALS_FOR_ENTITY_QUERY } from "../metadata/queries";
+import type { CdmEntity, CdmEntityConnection, CdmDocsDataset, SignalInstanceRow } from "../metadata/types";
 import { useDebouncedValue } from "../metadata/hooks";
 
 type DocsListResponse = {
@@ -293,7 +293,12 @@ export function CdmDocsListView({ metadataEndpoint, authToken }: CdmDocsListView
       </div>
       <div className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
         {selectedEntity ? (
-          <DocDetailCard entity={selectedEntity} datasetLookup={datasetLookup} />
+          <DocDetailCard
+            entity={selectedEntity}
+            datasetLookup={datasetLookup}
+            metadataEndpoint={metadataEndpoint}
+            authToken={authToken}
+          />
         ) : (
           <EmptyState title="Select a doc" description="Choose a document to view metadata and content excerpts." />
         )}
@@ -320,7 +325,57 @@ function FilterBlock({ label, children }: { label: string; children: React.React
   );
 }
 
-function DocDetailCard({ entity, datasetLookup }: { entity: CdmEntity; datasetLookup: Map<string, CdmDocsDataset> }) {
+function SignalsInlineSummary({ signals, loading, entityRef }: { signals: SignalInstanceRow[]; loading: boolean; entityRef: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3 dark:border-slate-700 dark:bg-slate-900/40" data-testid="cdm-doc-signals">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">Signals</p>
+          <p className="text-xs text-slate-600 dark:text-slate-300">Recent signals for this document</p>
+        </div>
+        <Link
+          to={`/signals?entityRef=${encodeURIComponent(entityRef)}`}
+          className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-900 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200"
+        >
+          View all
+        </Link>
+      </div>
+      {loading ? (
+        <p className="mt-2 text-xs text-slate-500">Loading signals…</p>
+      ) : signals.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">No signals for this document.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
+          {signals.slice(0, 3).map((signal) => (
+            <li key={signal.id} className="flex items-center justify-between gap-3 py-2" data-testid="cdm-doc-signal-row">
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{signal.summary}</p>
+                <p className="text-xs text-slate-500">{signal.definitionSlug}</p>
+              </div>
+              <span className="rounded-full border border-slate-300 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600 dark:border-slate-600 dark:text-slate-200">
+                {signal.severity}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function DocDetailCard({
+  entity,
+  datasetLookup,
+  metadataEndpoint,
+  authToken,
+}: {
+  entity: CdmEntity;
+  datasetLookup: Map<string, CdmDocsDataset>;
+  metadataEndpoint: string | null;
+  authToken?: string | null;
+}) {
+  const [signals, setSignals] = useState<SignalInstanceRow[]>([]);
+  const [signalsLoading, setSignalsLoading] = useState(false);
   const datasetId =
     entity.docDatasetId ??
     (typeof entity.data?.datasetId === "string" ? (entity.data.datasetId as string) : null) ??
@@ -335,6 +390,41 @@ function DocDetailCard({ entity, datasetLookup }: { entity: CdmEntity; datasetLo
   const updatedAt = entity.docUpdatedAt ?? entity.updatedAt;
   const location = entity.docLocation ?? (typeof entity.data?.path === "string" ? (entity.data.path as string) : null);
   const metadata = entity.rawSource ?? entity.data ?? {};
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSignals = async () => {
+      if (!metadataEndpoint || !entity.cdmId) {
+        setSignals([]);
+        return;
+      }
+      setSignalsLoading(true);
+      try {
+        const resp = await fetchMetadataGraphQL<{ signalInstancesPage: { rows: SignalInstanceRow[] } }>(
+          metadataEndpoint,
+          SIGNALS_FOR_ENTITY_QUERY,
+          { entityRef: `cdm.doc.item:${entity.cdmId}`, first: 5 },
+          undefined,
+          { token: authToken ?? undefined },
+        );
+        if (!cancelled) {
+          setSignals(resp.signalInstancesPage?.rows ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSignals([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSignalsLoading(false);
+        }
+      }
+    };
+    loadSignals();
+    return () => {
+      cancelled = true;
+    };
+  }, [metadataEndpoint, authToken, entity.cdmId]);
 
   const detailRows = [
     { label: "Project / Workspace", value: formatProjectLabel(entity) },
@@ -377,6 +467,11 @@ function DocDetailCard({ entity, datasetLookup }: { entity: CdmEntity; datasetLo
           </a>
         )}
       </div>
+      <SignalsInlineSummary
+        signals={signals}
+        loading={signalsLoading}
+        entityRef={`cdm.doc.item:${entity.cdmId}`}
+      />
       <dl className="space-y-4 text-sm">
         {detailRows.map((row) => (
           <div key={row.label}>

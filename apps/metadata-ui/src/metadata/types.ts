@@ -260,6 +260,40 @@ export type CdmDocsDataset = {
   endpointName: string;
 };
 
+export type SignalDefinitionSummary = {
+  id: string;
+  slug: string;
+  title: string;
+  sourceFamily?: string | null;
+  entityKind?: string | null;
+  policyKind?: string | null;
+  severity: string;
+};
+
+export type SignalInstanceRow = {
+  id: string;
+  definitionSlug: string;
+  definitionTitle: string;
+  sourceFamily?: string | null;
+  policyKind?: string | null;
+  status: string;
+  entityRef: string;
+  entityKind: string;
+  entityCdmModelId?: string | null;
+  entityCdmId?: string | null;
+  severity: string;
+  summary: string;
+  lastSeenAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type SignalInstancePage = {
+  rows: SignalInstanceRow[];
+  hasNextPage: boolean;
+  cursor?: string | null;
+};
+
 export type CdmWorkItem = {
   cdmId: string;
   sourceSystem: string;

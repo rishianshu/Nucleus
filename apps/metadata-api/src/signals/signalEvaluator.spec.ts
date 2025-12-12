@@ -41,12 +41,17 @@ class FakeSignalStore implements SignalStore {
       if (filter?.implMode && filter.implMode.length > 0 && !filter.implMode.includes(def.implMode)) {
         return false;
       }
-      if (filter?.entityKind && filter.entityKind.length > 0 && !filter.entityKind.includes(def.entityKind)) {
-        return false;
+      if (filter?.entityKind && filter.entityKind.length > 0) {
+        if (typeof def.entityKind !== "string" || !filter.entityKind.includes(def.entityKind)) {
+          return false;
+        }
       }
       if (filter?.sourceFamily && filter.sourceFamily.length > 0) {
-        const family = def.sourceFamily ?? null;
-        if (!family || !filter.sourceFamily.includes(family)) {
+        const family = def.sourceFamily;
+        if (typeof family !== "string") {
+          return false;
+        }
+        if (!filter.sourceFamily.includes(family)) {
           return false;
         }
       }
@@ -492,7 +497,14 @@ async function testDefinitionErrorIsolation() {
   ];
 
   class ThrowingDocStore extends FakeDocStore {
-    override async listDocItems() {
+    override async listDocItems(_args?: {
+      projectId?: string | null;
+      filter?: Record<string, unknown> | null;
+      first?: number | null;
+      after?: string | null;
+      secured?: boolean | null;
+      accessPrincipalIds?: string[] | null;
+    }): Promise<{ rows: CdmDocItemRow[]; cursorOffset: number; hasNextPage: boolean }> {
       throw new Error("doc store failure");
     }
   }
@@ -719,6 +731,8 @@ function buildWorkRow(input: Partial<CdmWorkItemRow> & { cdm_id: string; source_
   return {
     cdm_id: input.cdm_id,
     source_system: input.source_system ?? "jira",
+    source_id: input.source_id ?? input.source_issue_key,
+    source_url: input.source_url ?? `https://example/issues/${input.source_issue_key}`,
     source_issue_key: input.source_issue_key,
     project_cdm_id: input.project_cdm_id ?? "project-1",
     summary: input.summary ?? input.source_issue_key,
@@ -734,6 +748,7 @@ function buildWorkRow(input: Partial<CdmWorkItemRow> & { cdm_id: string; source_
     assignee_display_name: input.assignee_display_name ?? null,
     assignee_email: input.assignee_email ?? null,
     properties: input.properties ?? {},
+    raw_source: input.raw_source ?? {},
   } satisfies CdmWorkItemRow;
 }
 
@@ -742,6 +757,8 @@ function buildDocRow(input: Partial<CdmDocItemRow> & { cdm_id: string }) {
     cdm_id: input.cdm_id,
     source_system: input.source_system ?? "confluence",
     source_item_id: input.source_item_id ?? input.cdm_id,
+    source_id: input.source_id ?? input.source_item_id ?? input.cdm_id,
+    source_url: input.source_url ?? input.url ?? "https://example/wiki/page",
     space_cdm_id: input.space_cdm_id ?? "space-1",
     space_key: input.space_key ?? "SPACE",
     space_name: input.space_name ?? "Space",
@@ -759,6 +776,7 @@ function buildDocRow(input: Partial<CdmDocItemRow> & { cdm_id: string }) {
     properties: input.properties ?? {},
     dataset_id: input.dataset_id ?? "confluence.page",
     endpoint_id: input.endpoint_id ?? "endpoint-doc",
+    raw_source: input.raw_source ?? {},
   } satisfies CdmDocItemRow;
 }
 

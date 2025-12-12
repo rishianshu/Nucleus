@@ -69,16 +69,61 @@ function buildInstanceWhere(filter?: SignalInstanceFilter) {
   const definitionIds = filter?.definitionIds && filter.definitionIds.length ? { in: filter.definitionIds } : undefined;
   const definitionSlugs =
     filter?.definitionSlugs && filter.definitionSlugs.length ? { slug: { in: filter.definitionSlugs } } : undefined;
-  const entityRefs = filter?.entityRefs && filter.entityRefs.length ? { in: filter.entityRefs } : undefined;
+  const entityRefs = (() => {
+    const combined = [
+      ...(filter?.entityRefs ?? []),
+      ...(filter?.entityRef ? [filter.entityRef] : []),
+    ].filter(Boolean);
+    return combined.length ? { in: combined } : undefined;
+  })();
   const statusFilter = filter?.status && filter.status.length ? { in: filter.status } : undefined;
   const severityFilter = filter?.severity && filter.severity.length ? { in: filter.severity } : undefined;
+  const sourceFamilyFilter = filter?.sourceFamily && filter.sourceFamily.length ? { in: filter.sourceFamily } : undefined;
+  const policyKindFilter = filter?.policyKind && filter.policyKind.length ? { in: filter.policyKind } : undefined;
+  const entityKindValues = filter?.entityKinds && filter.entityKinds.length ? { in: filter.entityKinds } : undefined;
+  const timeRange: { gte?: Date; lte?: Date } = {};
+  if (filter?.from) {
+    timeRange.gte = toDate(filter.from);
+  }
+  if (filter?.to) {
+    timeRange.lte = toDate(filter.to);
+  }
+  const definitionClauses: any[] = [];
+  const baseDefinitionFilter: Record<string, unknown> = {};
+  if (definitionSlugs) {
+    Object.assign(baseDefinitionFilter, definitionSlugs);
+  }
+  if (sourceFamilyFilter) {
+    baseDefinitionFilter.sourceFamily = sourceFamilyFilter;
+  }
+  if (policyKindFilter) {
+    baseDefinitionFilter.policyKind = policyKindFilter;
+  }
+  if (Object.keys(baseDefinitionFilter).length > 0) {
+    definitionClauses.push(baseDefinitionFilter);
+  }
+  if (filter?.definitionSearch && filter.definitionSearch.trim().length > 0) {
+    const search = filter.definitionSearch.trim();
+    definitionClauses.push({
+      OR: [
+        { slug: { contains: search, mode: "insensitive" } },
+        { title: { contains: search, mode: "insensitive" } },
+      ],
+    });
+  }
+  const definition = definitionClauses.length
+    ? {
+        AND: definitionClauses,
+      }
+    : definitionSlugs;
   return {
     definitionId: definitionIds,
-    definition: definitionSlugs,
+    definition,
     entityRef: entityRefs,
-    entityKind: filter?.entityKind ?? undefined,
+    entityKind: entityKindValues ?? filter?.entityKind ?? undefined,
     status: statusFilter,
     severity: severityFilter,
+    lastSeenAt: Object.keys(timeRange).length ? timeRange : undefined,
   };
 }
 

@@ -1,4 +1,5 @@
-import { APIRequestContext, expect } from "@playwright/test";
+import { APIRequestContext, expect, type Page } from "@playwright/test";
+import { loginViaKeycloak, metadataBase } from "./webAuth";
 
 const keycloakBase = process.env.KEYCLOAK_BASE_URL ?? "http://localhost:8081";
 const keycloakRealm = process.env.KEYCLOAK_REALM ?? "nucleus";
@@ -63,6 +64,28 @@ export function ensureCatalogSeed(request: APIRequestContext): Promise<void> {
     catalogSeedPromise = seedCatalogDataset(request);
   }
   return catalogSeedPromise;
+}
+
+export async function openMetadataWorkspace(page: Page, credentials?: { username?: string; password?: string }) {
+  await loginViaKeycloak(page, credentials);
+  const metadataTab = page.getByRole("button", { name: "Metadata" });
+  if (await metadataTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await metadataTab.click();
+  } else {
+    await page.goto(`${metadataBase}/`, { waitUntil: "domcontentloaded" });
+  }
+  await ensureWorkspaceReady(page);
+}
+
+export async function ensureWorkspaceReady(page: Page) {
+  const errorBanner = page.getByTestId("metadata-error-banner");
+  if (await errorBanner.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await errorBanner.click({ force: true }).catch(() => {});
+    await page.getByRole("button", { name: "Refresh" }).click();
+  }
+  const registerButton = page.getByTestId("metadata-register-open").first();
+  const registerForm = page.locator("[data-testid='metadata-register-form']");
+  await expect(registerButton.or(registerForm)).toBeVisible({ timeout: 20_000 });
 }
 
 async function seedCatalogDataset(request: APIRequestContext): Promise<void> {
