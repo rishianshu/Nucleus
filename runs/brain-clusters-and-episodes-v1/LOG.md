@@ -1,0 +1,2 @@
+2025-12-12T10:57:15Z | start | done: booted brain-clusters-and-episodes-v1 run and verified intents/runs artifacts exist | next: follow RESUME protocol (read PLAN/LOG/TODO + intent/spec) | risks: none yet
+2025-12-12T11:16:33Z {done: added kg.cluster registry update/migration, implemented ClusterBuilder/Read with vector search + graph write, and ran new cluster tests via node --import tsx; next: update STATE/STORY and outline follow-ups (full ci-check pending); risks: ci-check/stack not run so broader regressions unverified}

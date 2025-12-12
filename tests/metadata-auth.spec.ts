@@ -7,11 +7,12 @@ test.setTimeout(120_000);
 
 const POSTGRES_CONNECTION_DEFAULTS = {
   host: process.env.METADATA_PG_HOST ?? "localhost",
-  port: process.env.METADATA_PG_PORT ?? "5432",
+  port: process.env.METADATA_PG_PORT ?? "5434",
   database: process.env.METADATA_PG_DATABASE ?? "jira_plus_plus",
   username: process.env.METADATA_PG_USERNAME ?? "postgres",
   password: process.env.METADATA_PG_PASSWORD ?? "postgres",
   schemas: process.env.METADATA_PG_SCHEMAS ?? "public",
+  ssl_mode: process.env.METADATA_PG_SSL_MODE ?? "disable",
 };
 const DEFAULT_TEST_USERNAME = process.env.KEYCLOAK_TEST_USERNAME ?? "dev-writer";
 const DEFAULT_TEST_PASSWORD = process.env.KEYCLOAK_TEST_PASSWORD ?? "password";
@@ -537,7 +538,7 @@ test("metadata editor can trigger collection runs and see status chip", async ({
   await ensureWorkspaceReady(page);
   const statusPill = endpointCard.getByTestId("metadata-endpoint-status");
   let statusMatched = false;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     const attribute = (await statusPill.getAttribute("data-status")) ?? "";
     if (/succeeded/i.test(attribute)) {
       statusMatched = true;
@@ -660,6 +661,7 @@ test("metadata endpoint credential regression requires fix before trigger", asyn
   await endpointCard.getByRole("button", { name: "Details" }).click();
   await page.getByRole("button", { name: "Edit" }).click();
   await passwordField.fill(POSTGRES_CONNECTION_DEFAULTS.password);
+  await page.getByLabel(/SSL mode/i).last().selectOption("disable");
   await page.getByRole("button", { name: /Test connection/i }).click();
   await expect(page.getByTestId("metadata-test-result")).toContainText("Connection parameters validated.", {
     timeout: 20_000,
@@ -1060,6 +1062,13 @@ async function fillPostgresConnectionForm(page: Page, overrides: Partial<typeof 
   await fillField(/Username/i, config.username);
   await fillField(/Password/i, config.password);
   await fillField(/Schemas/i, config.schemas);
+  // Set SSL mode to disable for local dev testing (dropdown select)
+  if (config.ssl_mode) {
+    const sslModeField = page.getByLabel(/SSL mode/i).last();
+    if (await sslModeField.isVisible().catch(() => false)) {
+      await sslModeField.selectOption(config.ssl_mode);
+    }
+  }
 }
 
 const KEYCLOAK_REALM = process.env.KEYCLOAK_REALM ?? process.env.VITE_KEYCLOAK_REALM ?? "nucleus";

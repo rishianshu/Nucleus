@@ -1,0 +1,3 @@
+2025-12-12T14:27:55Z | start | done: booted brain-episodes-read-api-v1 run, verified intents/runs artifacts exist | next: follow RESUME protocol (read PLAN/LOG/TODO + intent/spec) | risks: none yet
+2025-12-12T14:49:38Z {done: added BrainEpisode schema/resolvers with KG/Signals hydration + new integration tests; next: update STATE/STORY and handoff (full ci-check still pending); risks: broad ci-check not run this run}
+2025-12-12T14:50:48Z {done: attempted `pnpm --filter @apps/metadata-api test:brain`; next: rerun brain test suite once metadata Postgres (localhost:5434) is available; risks: vector index tests require DB and currently fail with connection errors}

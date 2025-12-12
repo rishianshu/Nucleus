@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-brain-vector-index-foundation-v1 (in-progress @ 2025-12-12T09:09Z)
+brain-episodes-read-api-v1 (in-progress @ 2025-12-12T14:50Z)
 
 ## Last Run
-- slug: brain-vector-index-foundation-v1
+- slug: brain-episodes-read-api-v1
 - status: in-progress
-- duration: ~0.6h
-- tests: not run (pgvector stack not started)
+- duration: ~0.4h
+- tests: node --import tsx --test src/brain/brainEpisodesRead.test.ts; test:brain failing (metadata DB offline @ localhost:5434)
 - commits: none
-- decisions: 3
-- next_step: run prisma generate/migrate + `pnpm --filter @apps/metadata-api test:brain` or full ci-check
+- decisions: 2
+- next_step: rerun `pnpm --filter @apps/metadata-api test:brain`/ci-check once metadata Postgres is available; hand off if needed
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-12T14:50Z run in-progress (brain-episodes-read-api-v1, BrainEpisode schema/resolvers + KG/Signals hydration added with integration tests; test:brain blocked by missing metadata Postgres at localhost:5434)
+- 2025-12-12T11:16Z run success (brain-clusters-and-episodes-v1, cluster builder/read + registry migration + cluster tests via node --import tsx; ci-check pending)
 - 2025-12-12T07:50Z run success (kg-cdm-and-signals-bridge-v1, tsx kg bridge suites green)
 - 2025-12-12T09:09Z run in-progress (brain-vector-index-foundation-v1, migrations/stores/indexer/search/tests added; db validation pending)
 - 2025-12-12T06:27Z run success (kg-meta-registry-and-write-api-v1, pnpm ci-check + mypy green after stack restart)

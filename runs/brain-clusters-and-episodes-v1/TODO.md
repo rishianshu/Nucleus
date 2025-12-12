@@ -1,0 +1,1 @@
+- Run `pnpm ci-check` / broader suites once stack and Postgres/Temporal services are available (current run only covered cluster tests via node --import tsx).

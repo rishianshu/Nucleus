@@ -84,6 +84,7 @@ import {
   startOneDriveAuth,
 } from "./onedriveAuth.js";
 import { DefaultSignalEvaluator, type SignalEvaluator } from "./signals/evaluator.js";
+import { BrainEpisodeReadService, ClusterReadService, type ClusterRead } from "./brain/index.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -1256,6 +1257,46 @@ type ProvisionCdmSinkResult {
     instancesResolved: Int!
   }
 
+  type BrainEpisodeMember {
+    nodeId: ID!
+    nodeType: String!
+    entityKind: String!
+    cdmModelId: String
+    title: String
+    summary: String
+    projectKey: String
+    docUrl: String
+    workKey: String
+  }
+
+  type BrainEpisodeSignal {
+    id: ID!
+    severity: String!
+    status: String!
+    summary: String!
+    definitionSlug: String!
+  }
+
+  type BrainEpisode {
+    id: ID!
+    tenantId: String!
+    projectKey: String!
+    clusterKind: String!
+    size: Int!
+    createdAt: String!
+    updatedAt: String!
+    windowStart: String
+    windowEnd: String
+    summary: String
+    members: [BrainEpisodeMember!]!
+    signals: [BrainEpisodeSignal!]!
+  }
+
+  type BrainEpisodesConnection {
+    nodes: [BrainEpisode!]!
+    totalCount: Int!
+  }
+
   type Query {
     health: Health!
     metadataDomains: [MetadataDomain!]!
@@ -1287,6 +1328,19 @@ type ProvisionCdmSinkResult {
     ): SignalInstancePage!
     signalsForEntity(entityRef: String!): [SignalInstance!]!
     signalInstance(id: ID!): SignalInstance
+    brainEpisodes(
+      tenantId: String!
+      projectKey: String!
+      windowStart: String
+      windowEnd: String
+      limit: Int = 20
+      offset: Int = 0
+    ): BrainEpisodesConnection!
+    brainEpisode(
+      tenantId: String!
+      projectKey: String!
+      id: ID!
+    ): BrainEpisode
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
     kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
@@ -1373,6 +1427,8 @@ export function createResolvers(
     cdmProvisioner?: typeof provisionCdmSinkTables;
     temporalClientFactory?: typeof getTemporalClient;
     prismaClient?: Awaited<ReturnType<typeof getPrismaClient>>;
+    signalStore?: SignalStore;
+    clusterRead?: ClusterRead;
   },
 ) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
@@ -1390,7 +1446,27 @@ export function createResolvers(
     saveIngestionUnitConfig: options?.ingestionConfigStore?.saveIngestionUnitConfig ?? saveIngestionUnitConfig,
   };
   const resolvePrismaClient = async () => options?.prismaClient ?? (await getPrismaClient());
-  const signalStore: SignalStore = new PrismaSignalStore(resolvePrismaClient);
+  const signalStore: SignalStore = options?.signalStore ?? new PrismaSignalStore(resolvePrismaClient);
+  let clusterRead: ClusterRead | null = options?.clusterRead ?? null;
+  let brainEpisodeService: BrainEpisodeReadService | null = null;
+
+  const resolveClusterRead = async (): Promise<ClusterRead> => {
+    if (clusterRead) {
+      return clusterRead;
+    }
+    const graphStore = await resolveGraphStore();
+    clusterRead = new ClusterReadService(graphStore);
+    return clusterRead;
+  };
+
+  const resolveBrainEpisodeService = async (): Promise<BrainEpisodeReadService> => {
+    if (brainEpisodeService) {
+      return brainEpisodeService;
+    }
+    const [graphStore, resolvedClusterRead] = await Promise.all([resolveGraphStore(), resolveClusterRead()]);
+    brainEpisodeService = new BrainEpisodeReadService(graphStore, resolvedClusterRead, signalStore);
+    return brainEpisodeService;
+  };
 
   const fetchCatalogDatasetRecord = async (
     datasetId: string,
@@ -1622,6 +1698,37 @@ export function createResolvers(
   };
   let lastTemplateRefreshFailureAt = 0;
   let fallbackTemplatesSeeded = false;
+  let backgroundRefreshInProgress = false;
+  const refreshTemplatesInBackground = (storeRef: MetadataStore, family?: "JDBC" | "HTTP" | "STREAM") => {
+    if (backgroundRefreshInProgress) {
+      return; // avoid parallel background refreshes
+    }
+    backgroundRefreshInProgress = true;
+    void (async () => {
+      try {
+        const { client, taskQueue } = await resolveTemporalClient();
+        const templates = await withTimeout(
+          client.workflow.execute(WORKFLOW_NAMES.listEndpointTemplates, {
+            taskQueue,
+            workflowId: `metadata-endpoint-templates-bg-${randomUUID()}`,
+            args: [{ family }],
+          }),
+          TEMPLATE_REFRESH_TIMEOUT_MS,
+          "metadata.endpointTemplates.backgroundRefresh",
+        );
+        if (Array.isArray(templates) && templates.length > 0) {
+          await storeRef.saveEndpointTemplates(
+            templates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
+          );
+        }
+      } catch (error) {
+        lastTemplateRefreshFailureAt = Date.now();
+        console.warn("[metadata.endpointTemplates] background refresh failed", error);
+      } finally {
+        backgroundRefreshInProgress = false;
+      }
+    })();
+  };
   const fetchEndpointTemplates = async (family?: "JDBC" | "HTTP" | "STREAM") => {
     let cached = applyTemplateOverrides(
       (await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[],
@@ -1646,11 +1753,21 @@ export function createResolvers(
       return fallback;
     };
     const now = Date.now();
-      if (cached.length > 0 && now - lastTemplateRefreshFailureAt < TEMPLATE_REFRESH_BACKOFF_MS) {
-        return filterTemplatesByFamily(cached, family);
+    // Always return cached templates immediately if available to avoid blocking
+    if (cached.length > 0) {
+      // Schedule background refresh if not in backoff period (fire-and-forget)
+      if (
+        now - lastTemplateRefreshFailureAt >= TEMPLATE_REFRESH_BACKOFF_MS &&
+        !FAKE_COLLECTIONS_ENABLED &&
+        process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED !== "1"
+      ) {
+        void refreshTemplatesInBackground(store, family);
       }
-      if (FAKE_COLLECTIONS_ENABLED || process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
-        return useCachedOrFallback();
+      return filterTemplatesByFamily(cached, family);
+    }
+    // No cached templates - must try refresh synchronously or use fallback
+    if (FAKE_COLLECTIONS_ENABLED || process.env.METADATA_ENDPOINT_TEMPLATE_REFRESH_DISABLED === "1") {
+      return useCachedOrFallback();
     }
     try {
       const { client, taskQueue } = await resolveTemporalClient();
@@ -1960,6 +2077,47 @@ export function createResolvers(
         const definition =
           instance.definition ?? (await signalStore.getDefinition(instance.definitionId)) ?? undefined;
         return mapSignalInstanceToGraphQL(instance, definition);
+      },
+      brainEpisodes: async (
+        _parent: unknown,
+        args: {
+          tenantId: string;
+          projectKey: string;
+          windowStart?: string | null;
+          windowEnd?: string | null;
+          limit?: number | null;
+          offset?: number | null;
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        enforceBrainScope(ctx, args.tenantId, args.projectKey);
+        const service = await resolveBrainEpisodeService();
+        const { nodes, totalCount } = await service.listEpisodes({
+          tenantId: args.tenantId,
+          projectKey: args.projectKey,
+          windowStart: parseOptionalDate(args.windowStart ?? null),
+          windowEnd: parseOptionalDate(args.windowEnd ?? null),
+          limit: clampBrainEpisodeLimit(args.limit),
+          offset: Math.max(0, args.offset ?? 0),
+          actorId: ctx.userId,
+        });
+        return { nodes, totalCount };
+      },
+      brainEpisode: async (
+        _parent: unknown,
+        args: { tenantId: string; projectKey: string; id: string },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        enforceBrainScope(ctx, args.tenantId, args.projectKey);
+        const service = await resolveBrainEpisodeService();
+        return service.getEpisode({
+          tenantId: args.tenantId,
+          projectKey: args.projectKey,
+          id: args.id,
+          actorId: ctx.userId,
+        });
       },
       graphNodes: async (_parent: unknown, args: { filter?: GraphQLGraphNodeFilter | null }, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
@@ -4110,6 +4268,28 @@ function enforceWriteAccess(context: ResolverContext, minimumRole: RoleTier = "e
   requireRole(context, minimumRole);
 }
 
+function enforceBrainScope(context: ResolverContext, tenantId: string, projectKey: string) {
+  if (context.auth.tenantId && context.auth.tenantId !== tenantId) {
+    throw new GraphQLError("Tenant scope mismatch for Brain query.", { extensions: { code: "E_ROLE_FORBIDDEN" } });
+  }
+  if (context.auth.projectId && context.auth.projectId !== projectKey) {
+    throw new GraphQLError("Project scope mismatch for Brain query.", { extensions: { code: "E_ROLE_FORBIDDEN" } });
+  }
+}
+
+function parseOptionalDate(value?: string | null): Date | undefined {
+  if (!value || typeof value !== "string") {
+    return undefined;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function clampBrainEpisodeLimit(limit?: number | null): number {
+  const normalized = typeof limit === "number" && Number.isFinite(limit) ? limit : 20;
+  return Math.min(Math.max(normalized, 1), 200);
+}
+
 type GraphQLMetadataEndpointInput = {
   id?: string | null;
   sourceId?: string | null;
@@ -4253,15 +4433,28 @@ async function buildCatalogDatasetConnection(
     Boolean(input.endpointId && input.endpointId.trim().length > 0) ||
     Boolean(input.labels && input.labels.length > 0) ||
     Boolean(input.unlabeledOnly);
-  const records = await prisma.metadataRecord.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: limit + 1,
-    include: {
-      project: true,
-    },
-    ...pagination,
-  });
+  let records: Array<typeof prisma.metadataRecord.$inferSelect & { project?: typeof prisma.metadataProject.$inferSelect | null }>;
+  try {
+    records = await prisma.metadataRecord.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit + 1,
+      include: {
+        project: true,
+      },
+      ...pagination,
+    });
+  } catch (err) {
+    // Handle orphaned records where project relation fails
+    console.warn("[catalogDatasetConnection] Project relation error, falling back to query without include", err);
+    const rawRecords = await prisma.metadataRecord.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit + 1,
+      ...pagination,
+    });
+    records = rawRecords.map((r: typeof rawRecords[0]) => ({ ...r, project: null }));
+  }
   let mapped: CatalogDataset[] = records
     .map(mapCatalogRecordToDataset)
     .filter((dataset: CatalogDataset | null): dataset is CatalogDataset => Boolean(dataset));

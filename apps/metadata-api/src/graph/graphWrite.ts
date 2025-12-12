@@ -121,9 +121,9 @@ export const DEFAULT_NODE_TYPE_SEEDS: KgNodeTypeRecord[] = [
     family: "cluster",
     description: "Cluster node representing grouping",
     idPrefix: "kg.cluster:",
-    requiredProps: [],
-    optionalProps: ["algo", "score"],
-    indexedProps: ["label"],
+    requiredProps: ["tenantId", "projectKey", "clusterKind", "seedNodeIds", "size", "createdAt", "updatedAt"],
+    optionalProps: ["summary", "windowStart", "windowEnd", "score", "algo"],
+    indexedProps: ["tenantId", "projectKey", "clusterKind"],
   },
 ];
 

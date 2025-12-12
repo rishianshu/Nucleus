@@ -1,0 +1,1 @@
+- Rerun `pnpm --filter @apps/metadata-api test:brain` after bringing up the metadata Postgres on localhost:5434 (vector index tests currently fail with connection errors).

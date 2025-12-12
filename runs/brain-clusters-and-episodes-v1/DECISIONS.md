@@ -1,0 +1,3 @@
+- Cluster node IDs are generated from a sha1 hash of tenant/project/window + member set to keep clustering idempotent across runs.
+- Cluster properties use the default clusterKind "work-doc-episode" with algo label "vector-neighbors-v1" for traceability.
+- `test:brain` now runs via `node --import tsx --test ...` (instead of direct `tsx`) to avoid IPC permission errors and include the new cluster suites.

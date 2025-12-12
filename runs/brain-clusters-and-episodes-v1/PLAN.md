@@ -1,0 +1,4 @@
+- [x] Verify KG registry assets for kg.cluster + IN_CLUSTER and align migration/seeds.
+- [x] Implement ClusterBuilder/Read using BrainVectorSearch + GraphWrite with deterministic IDs.
+- [x] Add cluster registry/build/idempotency/read tests and run them via `node --import tsx --test`.
+- [ ] Run broader `pnpm ci-check` / full suites once stack availability is confirmed.

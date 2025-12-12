@@ -22,7 +22,7 @@ export async function seedCdmData() {
     process.env.CDM_WORK_DATABASE_URL ??
     buildMetadataPgUrl() ??
     process.env.METADATA_DATABASE_URL ??
-    "postgresql://postgres:postgres@localhost:5434/postgres?schema=metadata";
+    "postgresql://postgres:postgres@localhost:5434/postgres?schema=metadata&sslmode=disable";
   if (!connectionUrl) {
     console.warn("[cdm-seed] Missing CDM_WORK_DATABASE_URL or METADATA_DATABASE_URL; skipping seed.");
     return;
@@ -50,7 +50,7 @@ function buildMetadataPgUrl(): string | null {
   if (!host || !port || !database || !username || !password) {
     return null;
   }
-  return `postgresql://${username}:${password}@${host}:${port}/${database}`;
+  return `postgresql://${username}:${password}@${host}:${port}/${database}?sslmode=disable`;
 }
 
 async function createTables(pool: Pool, schema: string, prefix: string) {

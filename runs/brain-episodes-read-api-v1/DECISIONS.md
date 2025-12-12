@@ -1,0 +1,2 @@
+- `brainEpisodes` and `brainEpisode` enforce tenantId/projectKey equality with the caller’s auth context to prevent cross-tenant reads.
+- Episode listing clamps limit to [1,200] (default 20), sorts by cluster recency, and hydrates members/signals strictly from KG `IN_CLUSTER`/`HAS_SIGNAL` edges plus the signal store for definition slugs.

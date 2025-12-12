@@ -1,0 +1,4 @@
+- [x] Extend metadata-api GraphQL schema/resolvers with `brainEpisodes`/`brainEpisode` backed by ClusterRead and tenant/project scoping.
+- [x] Implement BrainEpisode hydration (KG cluster properties, members, HAS_SIGNAL edges + signal store definition slugs).
+- [x] Add integration coverage for list/detail/scoping/consistency via `node --import tsx --test src/brain/brainEpisodesRead.test.ts`.
+- [ ] Rerun `pnpm --filter @apps/metadata-api test:brain`/ci-check after bringing up metadata Postgres (vector index suites currently blocked).

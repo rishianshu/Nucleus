@@ -61,3 +61,29 @@ export interface BrainVectorSearch {
     profileKindIn?: string[];
   }): Promise<Array<{ nodeId: string; score: number; profileId: string }>>;
 }
+
+export type ClusterSummary = {
+  clusterNodeId: string;
+  clusterKind: string;
+  memberNodeIds: string[];
+};
+
+export interface ClusterBuilder {
+  buildClustersForProject(args: {
+    tenantId: string;
+    projectKey: string;
+    windowStart?: Date;
+    windowEnd?: Date;
+    maxSeeds?: number;
+    maxClusterSize?: number;
+  }): Promise<{ clustersCreated: number; membersLinked: number }>;
+}
+
+export interface ClusterRead {
+  listClustersForProject(args: {
+    tenantId: string;
+    projectKey: string;
+    windowStart?: Date;
+    windowEnd?: Date;
+  }): Promise<ClusterSummary[]>;
+}

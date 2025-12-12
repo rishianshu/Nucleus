@@ -3213,5 +3213,14 @@
     },
     "version": "f79d26f63b344f17b5f245052c82eaa2",
     "updatedAt": "2025-12-10T15:58:43.912Z"
+  },
+  "ingest::global-playwright-jira-temporal-mj2upf81-2b243ec3a7f1419c802ee41b22e7f980::endpoint::86723d9f6edf434b86d64c6667d266b1::unit::jira.projects::sink::kb": {
+    "value": {
+      "lastRunId": "051ce5af-601b-49c5-8a18-cc0e33b32ce3",
+      "lastError": "Activity task failed",
+      "lastUpdatedAt": "2025-12-12T13:28:58.347Z"
+    },
+    "version": "b9acb7a76b9940f4bc97f6089132905c",
+    "updatedAt": "2025-12-12T13:28:58.348Z"
   }
 }

@@ -1494,7 +1494,12 @@ export class PrismaMetadataStore implements MetadataStore {
     }
     const resolved = await this.resolveProjectId(normalized);
     if (resolved && resolved !== normalized) {
-      return resolved;
+      // Verify the resolved project actually exists before returning
+      const resolvedExists = await projectClient.findUnique({ where: { id: resolved } });
+      if (resolvedExists) {
+        return resolved;
+      }
+      // Resolved project doesn't exist anymore, fall through to create
     }
     if (resolved === normalized) {
       const exists = await projectClient.findUnique({ where: { id: normalized } });
