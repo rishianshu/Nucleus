@@ -1,0 +1,2 @@
+2025-12-12T08:46:28Z | start | done: booted brain-vector-index-foundation-v1 run and verified intents/runs artifacts exist | next: follow RUNCARD RESUME protocol (PLAN/LOG/TODO + intent/spec) | risks: none yet
+2025-12-12T09:09:01Z {done: added vector index schema/migrations, implemented stores/indexer/search, and created AC1-AC4 tests, next: consider running @apps/metadata-api test:brain or prisma generate/migrate then update STATE/STORY, risks: db/pgvector paths unvalidated in this run}

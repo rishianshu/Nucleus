@@ -309,6 +309,45 @@ model SignalInstance {
   @@index([entityKind, status, severity])
 }
 
+model VectorIndexProfile {
+  id             String   @id
+  family         String
+  description    String?
+  nodeType       String   @map("node_type")
+  textSource     Json     @map("text_source")
+  embeddingModel String   @map("embedding_model")
+  chunking       Json?    @map("chunking")
+  profileKind    String   @map("profile_kind")
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  entries        VectorIndexEntry[]
+
+  @@map("vector_index_profiles")
+}
+
+model VectorIndexEntry {
+  id           String             @id @default(uuid())
+  nodeId       String             @map("node_id")
+  profileId    String             @map("profile_id")
+  chunkId      String             @map("chunk_id")
+  embedding    Unsupported("vector")
+  tenantId     String             @map("tenant_id")
+  projectKey   String?            @map("project_key")
+  profileKind  String             @map("profile_kind")
+  sourceSystem String?            @map("source_system")
+  rawMetadata  Json?              @map("raw_metadata")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  profile      VectorIndexProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([nodeId, profileId, chunkId])
+  @@index([profileId, tenantId])
+  @@index([projectKey])
+  @@index([profileKind])
+  @@map("vector_index_entries")
+}
+
 enum SignalStatus {
   ACTIVE
   DISABLED

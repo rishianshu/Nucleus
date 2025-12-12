@@ -1,0 +1,2 @@
+- [ ] Run `pnpm prisma:generate:metadata`, apply migrations, and execute `pnpm --filter @apps/metadata-api test:brain` against a pgvector-enabled Postgres instance.
+- [ ] Validate new vector index flows under the full `pnpm ci-check` stack once DB/services are available.

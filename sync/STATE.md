@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-kg-cdm-and-signals-bridge-v1 (success @ 2025-12-12T07:50Z)
+brain-vector-index-foundation-v1 (in-progress @ 2025-12-12T09:09Z)
 
 ## Last Run
-- slug: kg-cdm-and-signals-bridge-v1
-- status: success
+- slug: brain-vector-index-foundation-v1
+- status: in-progress
 - duration: ~0.6h
-- tests: tsx kg bridge tests (cdm/doc/signal projection, idempotency, visibility) green
+- tests: not run (pgvector stack not started)
 - commits: none
-- decisions: 0
-- next_step: monitor CI/cron wiring needs
+- decisions: 3
+- next_step: run prisma generate/migrate + `pnpm --filter @apps/metadata-api test:brain` or full ci-check
 
 ## Global Queue
 TODAY:
@@ -21,6 +21,7 @@ LATER:
 - 
 
 - 2025-12-12T07:50Z run success (kg-cdm-and-signals-bridge-v1, tsx kg bridge suites green)
+- 2025-12-12T09:09Z run in-progress (brain-vector-index-foundation-v1, migrations/stores/indexer/search/tests added; db validation pending)
 - 2025-12-12T06:27Z run success (kg-meta-registry-and-write-api-v1, pnpm ci-check + mypy green after stack restart)
 - 2025-12-12T06:06Z run in-progress (kg-meta-registry-and-write-api-v1, prisma migrate succeeded; ci-check failing metadata-auth tests: connection test + too many clients)
 - 2025-12-12T05:47Z run in-progress (kg-meta-registry-and-write-api-v1, prisma client regen; migrate failed; ci-check blocked by docker)

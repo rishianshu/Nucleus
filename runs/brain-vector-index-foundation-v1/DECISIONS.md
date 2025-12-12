@@ -1,0 +1,3 @@
+- Vector index columns use pgvector(1536) to align with embedding models like text-embedding-3-small.
+- NodeIndexer reads GraphNode properties based on profile textSource (field/path) and falls back to summary/body/text/content when missing.
+- BrainVectorSearch expands profileKind filters across matching profiles, embedding per profile and merging sorted results.

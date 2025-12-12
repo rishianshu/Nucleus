@@ -156,6 +156,7 @@ run_step "applying metadata migrations" pnpm migrate:metadata
 run_step "building metadata api" pnpm --filter @apps/metadata-api build
 run_step "building metadata ui" pnpm --filter @apps/metadata-ui build
 run_step "running signal store unit tests" dotenv -e .env -- pnpm --filter @apps/metadata-api test:signals
+run_step "running brain vector index tests" dotenv -e .env -- pnpm --filter @apps/metadata-api test:brain
 PW_SHARD_ARGS=()
 if [[ -n "${PLAYWRIGHT_SHARD:-}" ]]; then
   PW_SHARD_ARGS+=(--shard "$PLAYWRIGHT_SHARD")
