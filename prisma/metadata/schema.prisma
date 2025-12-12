@@ -229,6 +229,38 @@ model GraphEdge {
   @@index([targetLogicalKey])
 }
 
+model KgNodeType {
+  id             String   @id
+  family         String
+  description    String?
+  idPrefix       String?
+  requiredProps  String[] @default([])
+  optionalProps  String[] @default([])
+  indexedProps   String[] @default([])
+  labelTemplate  String?
+  icon           String?
+
+  outgoingEdgeTypes KgEdgeType[] @relation("FromNodeType")
+  incomingEdgeTypes KgEdgeType[] @relation("ToNodeType")
+}
+
+model KgEdgeType {
+  id             String   @id
+  fromNodeTypeId String
+  fromNodeTypes  String[] @default([])
+  toNodeTypeId   String
+  direction      String   @default("out")
+  description    String?
+  multiplicity   String?
+  symmetric      Boolean  @default(false)
+
+  fromNodeType KgNodeType @relation("FromNodeType", fields: [fromNodeTypeId], references: [id], onDelete: Cascade)
+  toNodeType   KgNodeType @relation("ToNodeType", fields: [toNodeTypeId], references: [id], onDelete: Cascade)
+
+  @@index([fromNodeTypeId])
+  @@index([toNodeTypeId])
+}
+
 model SignalDefinition {
   id             String           @id @default(uuid())
   slug           String           @unique

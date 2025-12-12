@@ -1,0 +1,5 @@
+2025-12-12T05:00:57Z {done: booting kg-meta-registry-and-write-api-v1, next: review intent/spec/acceptance + plan, risks: none}
+2025-12-12T05:27:33Z {progress: registry migrations + GraphWrite validation + tests added, next: update STATE/story and wrap up, risks: prisma client/regenerate needed after schema changes}
+2025-12-12T05:47:03Z {progress: prisma client regenerated; migrate failed (no Postgres at localhost:5434); ci-check blocked by docker permission, next: rerun migrate/ci-check when infra available, risks: env needs DB + docker access}
+2025-12-12T06:06:40Z {progress: prisma migrate succeeded; pnpm ci-check failed (metadata-auth playwright: postgres template connection test issues, too many clients during seed), next: investigate connection test/pg client limits and rerun ci-check, risks: auth suite still red}
+2025-12-12T06:27:47Z {progress: pnpm ci-check now green after stack restart; metadata-auth/lifecycle Playwright passing; mypy green, next: update state + handoff, risks: none}

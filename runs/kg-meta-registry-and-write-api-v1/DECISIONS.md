@@ -1,0 +1,2 @@
+- Registry edge types support additional allowed source node types via `fromNodeTypes` (used for HAS_SIGNAL/IN_CLUSTER seeds).
+- GraphWrite uses nodeType + nodeId to build logical keys for idempotent node upserts.

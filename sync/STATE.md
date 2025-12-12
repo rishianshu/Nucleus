@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-signals-surfaces-and-filters-v1 (in-progress @ 2025-12-11T18:25Z)
+kg-meta-registry-and-write-api-v1 (success @ 2025-12-12T06:27Z)
 
 ## Last Run
-- slug: signals-surfaces-and-filters-v1
-- status: in-progress
-- duration: ~1.5h
-- tests: signalStore/signalEvaluator (tsx) passing; API build OK; Playwright not run
+- slug: kg-meta-registry-and-write-api-v1
+- status: success
+- duration: ~2.1h
+- tests: pnpm ci-check green (metadata-auth + lifecycle Playwright) and mypy green; prisma migrate applied
 - commits: none
-- decisions: 0
-- next_step: run Playwright (signals-ui + metadata-auth) to validate filters/navigation and signals surfacing end-to-end
+- decisions: 2
+- next_step: handoff complete
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,10 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-12T06:27Z run success (kg-meta-registry-and-write-api-v1, pnpm ci-check + mypy green after stack restart)
+- 2025-12-12T06:06Z run in-progress (kg-meta-registry-and-write-api-v1, prisma migrate succeeded; ci-check failing metadata-auth tests: connection test + too many clients)
+- 2025-12-12T05:47Z run in-progress (kg-meta-registry-and-write-api-v1, prisma client regen; migrate failed; ci-check blocked by docker)
+- 2025-12-12T05:27Z run in-progress (kg-meta-registry-and-write-api-v1, registry migrations + GraphWrite validation + targeted tsx tests; ci-check pending)
 - 2025-12-11T19:14Z run in-progress (signals-surfaces-and-filters-v1, signal unit tests/build passing after filter/paging fixes; Playwright pending)
 - 2025-12-11T18:25Z run in-progress (signals-surfaces-and-filters-v1, Signals UI wiring + inline cards done; tests blocked by tsx EPERM)
 - 2025-12-11T18:17Z run in-progress (signals-surfaces-and-filters-v1, GraphQL pagination/filter + Signals UI/detail surfacing added; tests blocked by tsx EPERM)

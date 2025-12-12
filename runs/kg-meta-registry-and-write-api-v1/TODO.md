@@ -1,0 +1,2 @@
+- Regenerate metadata Prisma client after schema changes (`pnpm prisma:generate:metadata`) and apply migrations. (done)
+- Run `pnpm ci-check` to exercise full stack after registry/GraphWrite updates. (done; ci-check green after stack restart)

@@ -38,6 +38,12 @@ async function loadClient(): Promise<any> {
 
 function ensureMetadataDatabaseUrl() {
   if (process.env.METADATA_DATABASE_URL) {
+    // Ensure connection_limit is set to prevent pool exhaustion
+    const existingUrl = new URL(process.env.METADATA_DATABASE_URL);
+    if (!existingUrl.searchParams.has("connection_limit")) {
+      existingUrl.searchParams.set("connection_limit", "10");
+      process.env.METADATA_DATABASE_URL = existingUrl.toString();
+    }
     return;
   }
   const base = process.env.DATABASE_URL;
@@ -47,8 +53,9 @@ function ensureMetadataDatabaseUrl() {
   try {
     const url = new URL(base);
     url.searchParams.set("schema", "metadata");
+    url.searchParams.set("connection_limit", "10");
     process.env.METADATA_DATABASE_URL = url.toString();
   } catch {
-    process.env.METADATA_DATABASE_URL = `${base}?schema=metadata`;
+    process.env.METADATA_DATABASE_URL = `${base}?schema=metadata&connection_limit=10`;
   }
 }
