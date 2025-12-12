@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createGraphStore, FileMetadataStore, type GraphStore, type TenantContext } from "@metadata/core";
+import { createGraphStore, FileMetadataStore, type GraphStore, type MetadataStore, type TenantContext } from "@metadata/core";
 import {
   DEFAULT_EDGE_TYPE_SEEDS,
   DEFAULT_NODE_TYPE_SEEDS,
@@ -14,6 +14,7 @@ import {
 export type GraphWriteFixture = {
   graphWrite: GraphWriteService;
   graphStore: GraphStore;
+  metadataStore: MetadataStore;
   registry: InMemoryKgRegistry;
   tenant: TenantContext;
   cleanup: () => Promise<void>;
@@ -38,5 +39,5 @@ export async function createGraphWriteFixture(options?: {
   const cleanup = async () => {
     await rm(rootDir, { recursive: true, force: true });
   };
-  return { graphWrite, graphStore, registry, tenant, cleanup };
+  return { graphWrite, graphStore, metadataStore, registry, tenant, cleanup };
 }

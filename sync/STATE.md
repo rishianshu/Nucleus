@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-kg-meta-registry-and-write-api-v1 (success @ 2025-12-12T06:27Z)
+kg-cdm-and-signals-bridge-v1 (success @ 2025-12-12T07:50Z)
 
 ## Last Run
-- slug: kg-meta-registry-and-write-api-v1
+- slug: kg-cdm-and-signals-bridge-v1
 - status: success
-- duration: ~2.1h
-- tests: pnpm ci-check green (metadata-auth + lifecycle Playwright) and mypy green; prisma migrate applied
+- duration: ~0.6h
+- tests: tsx kg bridge tests (cdm/doc/signal projection, idempotency, visibility) green
 - commits: none
-- decisions: 2
-- next_step: handoff complete
+- decisions: 0
+- next_step: monitor CI/cron wiring needs
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-12T07:50Z run success (kg-cdm-and-signals-bridge-v1, tsx kg bridge suites green)
 - 2025-12-12T06:27Z run success (kg-meta-registry-and-write-api-v1, pnpm ci-check + mypy green after stack restart)
 - 2025-12-12T06:06Z run in-progress (kg-meta-registry-and-write-api-v1, prisma migrate succeeded; ci-check failing metadata-auth tests: connection test + too many clients)
 - 2025-12-12T05:47Z run in-progress (kg-meta-registry-and-write-api-v1, prisma client regen; migrate failed; ci-check blocked by docker)
