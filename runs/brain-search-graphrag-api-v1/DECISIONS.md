@@ -1,0 +1,1 @@
+- Defaulted brainSearch to use a deterministic HashingEmbeddingProvider so runtime/tests avoid external embedding calls.

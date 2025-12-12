@@ -59,13 +59,24 @@ export interface BrainVectorSearch {
     tenantId: string;
     projectKeyIn?: string[];
     profileKindIn?: string[];
-  }): Promise<Array<{ nodeId: string; score: number; profileId: string }>>;
+  }): Promise<BrainVectorSearchHit[]>;
 }
 
 export type ClusterSummary = {
   clusterNodeId: string;
   clusterKind: string;
   memberNodeIds: string[];
+};
+
+export type BrainVectorSearchHit = {
+  nodeId: string;
+  score: number;
+  profileId: string;
+  profileKind?: string | null;
+  projectKey?: string | null;
+  sourceSystem?: string | null;
+  tenantId?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export interface ClusterBuilder {

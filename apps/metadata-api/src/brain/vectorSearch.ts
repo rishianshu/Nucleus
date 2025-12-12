@@ -1,7 +1,13 @@
 import { getPrismaClient } from "../prismaClient.js";
 import { PrismaIndexProfileStore } from "./indexProfileStore.js";
 import { PrismaVectorIndexStore } from "./vectorIndexStore.js";
-import type { BrainVectorSearch, EmbeddingProvider, IndexProfileStore, VectorIndexStore } from "./types.js";
+import type {
+  BrainVectorSearch,
+  BrainVectorSearchHit,
+  EmbeddingProvider,
+  IndexProfileStore,
+  VectorIndexStore,
+} from "./types.js";
 
 type PrismaClientInstance = Awaited<ReturnType<typeof getPrismaClient>>;
 
@@ -29,7 +35,7 @@ export class BrainVectorSearchService implements BrainVectorSearch {
     tenantId: string;
     projectKeyIn?: string[];
     profileKindIn?: string[];
-  }): Promise<Array<{ nodeId: string; score: number; profileId: string }>> {
+  }): Promise<BrainVectorSearchHit[]> {
     const baseProfile = await this.profileStore.getProfile(args.profileId);
     if (!baseProfile) {
       throw new Error(`Index profile not found: ${args.profileId}`);
@@ -43,7 +49,7 @@ export class BrainVectorSearchService implements BrainVectorSearch {
         targetProfiles.push(baseProfile);
       }
     }
-    const combinedResults: Array<{ nodeId: string; score: number; profileId: string }> = [];
+    const combinedResults: BrainVectorSearchHit[] = [];
     const embeddings = await Promise.all(
       targetProfiles.map(async (profile) => {
         const [vector] = await this.embeddingProvider.embedText(profile.embeddingModel, [args.queryText]);
@@ -65,7 +71,16 @@ export class BrainVectorSearchService implements BrainVectorSearch {
         },
       });
       combinedResults.push(
-        ...results.map((result) => ({ nodeId: result.nodeId, score: result.score, profileId: profile.id })),
+        ...results.map((result) => ({
+          nodeId: result.nodeId,
+          score: result.score,
+          profileId: profile.id,
+          profileKind: (result.metadata?.profileKind as string | undefined) ?? profile.profileKind,
+          projectKey: (result.metadata?.projectKey as string | null | undefined) ?? null,
+          sourceSystem: (result.metadata?.sourceSystem as string | null | undefined) ?? null,
+          tenantId: (result.metadata?.tenantId as string | null | undefined) ?? null,
+          metadata: result.metadata ?? null,
+        })),
       );
     }
     combinedResults.sort((a, b) => b.score - a.score);

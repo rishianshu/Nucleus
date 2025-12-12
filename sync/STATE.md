@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-brain-episodes-read-api-v1 (in-progress @ 2025-12-12T14:50Z)
+brain-search-graphrag-api-v1 (in-progress @ 2025-12-12T16:37Z)
 
 ## Last Run
-- slug: brain-episodes-read-api-v1
+- slug: brain-search-graphrag-api-v1
 - status: in-progress
-- duration: ~0.4h
-- tests: node --import tsx --test src/brain/brainEpisodesRead.test.ts; test:brain failing (metadata DB offline @ localhost:5434)
+- duration: ~0.6h
+- tests: pnpm exec node --import tsx --test src/brain/brainSearch.test.ts; pnpm --filter @apps/metadata-api build; pnpm --filter @apps/metadata-api test:brain (fails: metadata Postgres missing @ localhost:5434)
 - commits: none
-- decisions: 2
-- next_step: rerun `pnpm --filter @apps/metadata-api test:brain`/ci-check once metadata Postgres is available; hand off if needed
+- decisions: 1
+- next_step: rerun `pnpm --filter @apps/metadata-api test:brain`/`pnpm ci-check` once metadata Postgres is available; continue GraphRAG acceptance verification
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-12T16:37Z run in-progress (brain-search-graphrag-api-v1, brainSearch schema/service + prompt pack + deterministic tests added; test:brain blocked by missing metadata Postgres at localhost:5434)
 - 2025-12-12T14:50Z run in-progress (brain-episodes-read-api-v1, BrainEpisode schema/resolvers + KG/Signals hydration added with integration tests; test:brain blocked by missing metadata Postgres at localhost:5434)
 - 2025-12-12T11:16Z run success (brain-clusters-and-episodes-v1, cluster builder/read + registry migration + cluster tests via node --import tsx; ci-check pending)
 - 2025-12-12T07:50Z run success (kg-cdm-and-signals-bridge-v1, tsx kg bridge suites green)

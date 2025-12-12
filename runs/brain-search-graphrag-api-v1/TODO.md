@@ -1,0 +1,1 @@
+- Re-run `pnpm --filter @apps/metadata-api test:brain` and `pnpm ci-check` once metadata Postgres (localhost:5434) is available; current failures stem from missing DB.

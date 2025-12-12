@@ -1,0 +1,3 @@
+- [x] Review existing brain/vector/KG modules and requirements; outline brainSearch pipeline and schema additions.
+- [x] Implement brainSearch GraphQL schema/resolver plus supporting services enforcing filters and GraphRAG pipeline output.
+- [ ] Add deterministic tests for AC1-AC4 (vector hits, graph expansion, episodes, promptPack) and run checks (ci-check or targeted).

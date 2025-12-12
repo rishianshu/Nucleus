@@ -84,7 +84,20 @@ import {
   startOneDriveAuth,
 } from "./onedriveAuth.js";
 import { DefaultSignalEvaluator, type SignalEvaluator } from "./signals/evaluator.js";
-import { BrainEpisodeReadService, ClusterReadService, type ClusterRead } from "./brain/index.js";
+import {
+  BrainEpisodeReadService,
+  BrainSearchService,
+  BrainVectorSearchService,
+  ClusterReadService,
+  HashingEmbeddingProvider,
+  PrismaIndexProfileStore,
+  PrismaVectorIndexStore,
+  type BrainSearchOptions,
+  type ClusterRead,
+  type EmbeddingProvider,
+  type IndexProfileStore,
+  type VectorIndexStore,
+} from "./brain/index.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -1297,6 +1310,77 @@ type ProvisionCdmSinkResult {
     totalCount: Int!
   }
 
+  input BrainSearchFilterInput {
+    tenantId: String!
+    projectKey: String
+    profileKindIn: [String!]
+    secured: Boolean = true
+  }
+
+  input BrainSearchOptionsInput {
+    topK: Int = 20
+    maxEpisodes: Int = 10
+    expandDepth: Int = 1
+    maxNodes: Int = 200
+    includeEpisodes: Boolean = true
+    includeSignals: Boolean = true
+    includeClusters: Boolean = true
+  }
+
+  type BrainSearchHit {
+    nodeId: ID!
+    nodeType: String!
+    profileId: String!
+    profileKind: String!
+    score: Float!
+    title: String
+    url: String
+  }
+
+  type BrainGraphNode {
+    nodeId: ID!
+    nodeType: String!
+    label: String
+    properties: JSON
+  }
+
+  type BrainGraphEdge {
+    edgeType: String!
+    fromNodeId: ID!
+    toNodeId: ID!
+    properties: JSON
+  }
+
+  type BrainSearchEpisode {
+    clusterNodeId: ID!
+    clusterKind: String!
+    projectKey: String!
+    score: Float!
+    size: Int!
+    memberNodeIds: [ID!]!
+  }
+
+  type BrainRagPassage {
+    sourceNodeId: ID!
+    sourceKind: String!
+    text: String!
+    url: String
+  }
+
+  type BrainPromptPack {
+    contextMarkdown: String!
+    citations: JSON!
+  }
+
+  type BrainSearchResult {
+    hits: [BrainSearchHit!]!
+    episodes: [BrainSearchEpisode!]!
+    graphNodes: [BrainGraphNode!]!
+    graphEdges: [BrainGraphEdge!]!
+    passages: [BrainRagPassage!]!
+    promptPack: BrainPromptPack!
+  }
+
   type Query {
     health: Health!
     metadataDomains: [MetadataDomain!]!
@@ -1341,6 +1425,11 @@ type ProvisionCdmSinkResult {
       projectKey: String!
       id: ID!
     ): BrainEpisode
+    brainSearch(
+      queryText: String!
+      filter: BrainSearchFilterInput!
+      options: BrainSearchOptionsInput
+    ): BrainSearchResult!
     graphNodes(filter: GraphNodeFilter): [GraphNode!]!
     graphEdges(filter: GraphEdgeFilter): [GraphEdge!]!
     kbNodes(type: String, scope: GraphScopeInput, search: String, first: Int = 25, after: ID): KbNodeConnection!
@@ -1429,6 +1518,11 @@ export function createResolvers(
     prismaClient?: Awaited<ReturnType<typeof getPrismaClient>>;
     signalStore?: SignalStore;
     clusterRead?: ClusterRead;
+    brainSearchService?: BrainSearchService;
+    brainVectorSearch?: BrainVectorSearchService;
+    brainEmbeddingProvider?: EmbeddingProvider;
+    brainIndexProfileStore?: IndexProfileStore;
+    brainVectorIndexStore?: VectorIndexStore;
   },
 ) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
@@ -1449,6 +1543,7 @@ export function createResolvers(
   const signalStore: SignalStore = options?.signalStore ?? new PrismaSignalStore(resolvePrismaClient);
   let clusterRead: ClusterRead | null = options?.clusterRead ?? null;
   let brainEpisodeService: BrainEpisodeReadService | null = null;
+  let brainSearchService: BrainSearchService | null = options?.brainSearchService ?? null;
 
   const resolveClusterRead = async (): Promise<ClusterRead> => {
     if (clusterRead) {
@@ -1466,6 +1561,25 @@ export function createResolvers(
     const [graphStore, resolvedClusterRead] = await Promise.all([resolveGraphStore(), resolveClusterRead()]);
     brainEpisodeService = new BrainEpisodeReadService(graphStore, resolvedClusterRead, signalStore);
     return brainEpisodeService;
+  };
+
+  const resolveBrainSearchService = async (): Promise<BrainSearchService> => {
+    if (brainSearchService) {
+      return brainSearchService;
+    }
+    const graphStore = await resolveGraphStore();
+    const vectorSearch =
+      options?.brainVectorSearch ??
+      new BrainVectorSearchService({
+        embeddingProvider: options?.brainEmbeddingProvider ?? new HashingEmbeddingProvider(),
+        profileStore: options?.brainIndexProfileStore ?? new PrismaIndexProfileStore(resolvePrismaClient),
+        vectorStore: options?.brainVectorIndexStore ?? new PrismaVectorIndexStore(resolvePrismaClient),
+      });
+    brainSearchService = new BrainSearchService({
+      graphStore,
+      vectorSearch,
+    });
+    return brainSearchService;
   };
 
   const fetchCatalogDatasetRecord = async (
@@ -2116,6 +2230,35 @@ export function createResolvers(
           tenantId: args.tenantId,
           projectKey: args.projectKey,
           id: args.id,
+          actorId: ctx.userId,
+        });
+      },
+      brainSearch: async (
+        _parent: unknown,
+        args: {
+          queryText: string;
+          filter: { tenantId: string; projectKey?: string | null; profileKindIn?: string[] | null; secured?: boolean | null };
+          options?: BrainSearchOptions | null;
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const tenantId = args.filter?.tenantId;
+        if (!tenantId) {
+          throw new GraphQLError("tenantId is required for brainSearch", { extensions: { code: "E_BAD_INPUT" } });
+        }
+        const projectKey = args.filter.projectKey ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID;
+        enforceBrainScope(ctx, tenantId, projectKey);
+        const service = await resolveBrainSearchService();
+        return service.search({
+          queryText: args.queryText,
+          filter: {
+            tenantId,
+            projectKey,
+            profileKindIn: args.filter.profileKindIn ?? undefined,
+            secured: args.filter.secured ?? undefined,
+          },
+          options: args.options ?? undefined,
           actorId: ctx.userId,
         });
       },

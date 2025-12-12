@@ -161,9 +161,14 @@ export class BrainEpisodeReadService {
     const signals = await this.loadSignals([...memberNodeIds, cluster.id], tenant);
     const tenantId = this.resolveTenantId(cluster) ?? tenant.tenantId;
     const createdAt =
-      toIsoString(properties.createdAt ?? (cluster as any).createdAt) ?? new Date().toISOString();
+      toIsoString((properties.createdAt as string | Date | null | undefined) ?? (cluster as any).createdAt) ??
+      new Date().toISOString();
     const updatedAt =
-      toIsoString(properties.updatedAt ?? (cluster as any).updatedAt ?? properties.createdAt) ?? createdAt;
+      toIsoString(
+        (properties.updatedAt as string | Date | null | undefined) ??
+          (cluster as any).updatedAt ??
+          (properties.createdAt as string | Date | null | undefined),
+      ) ?? createdAt;
     return {
       id: cluster.id,
       tenantId,
@@ -172,8 +177,8 @@ export class BrainEpisodeReadService {
       size: this.coerceNumber(properties.size) ?? members.length,
       createdAt,
       updatedAt,
-      windowStart: toIsoString(properties.windowStart) ?? undefined,
-      windowEnd: toIsoString(properties.windowEnd) ?? undefined,
+      windowStart: toIsoString(properties.windowStart as string | Date | null | undefined) ?? undefined,
+      windowEnd: toIsoString(properties.windowEnd as string | Date | null | undefined) ?? undefined,
       summary: this.normalizeString(properties.summary ?? cluster.displayName) ?? undefined,
       members,
       signals,
@@ -366,8 +371,8 @@ export class BrainEpisodeReadService {
     return null;
   }
 
-  private normalizeString(value?: string | null): string | null {
-    if (!value) {
+  private normalizeString(value?: unknown): string | null {
+    if (value === undefined || value === null) {
       return null;
     }
     const str = String(value).trim();

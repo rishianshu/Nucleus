@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getPrismaClient } from "../prismaClient.js";
 import type { EmbeddingProvider } from "./types.js";
+import { buildOneHotVector, hashTextToVector } from "./embeddingUtils.js";
 import { VECTOR_DIMENSION } from "./vectorIndexStore.js";
 
 export const prismaPromise = getPrismaClient();
@@ -18,17 +19,7 @@ export class FakeEmbeddingProvider implements EmbeddingProvider {
   }
 }
 
-export function buildOneHotVector(position = 0, magnitude = 1): number[] {
-  const vector = new Array<number>(VECTOR_DIMENSION).fill(0);
-  const normalized = Math.max(0, Math.min(VECTOR_DIMENSION - 1, position));
-  vector[normalized] = magnitude;
-  return vector;
-}
-
-export function hashTextToVector(text: string): number[] {
-  const seed = Array.from(text).reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return buildOneHotVector(seed % VECTOR_DIMENSION, 1);
-}
+export { buildOneHotVector, hashTextToVector };
 
 export function buildDenseVector(seed: number): number[] {
   return Array.from({ length: VECTOR_DIMENSION }, (_, idx) => Number(((seed + idx % 5) / (VECTOR_DIMENSION + idx + 1)).toFixed(6)));
