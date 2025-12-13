@@ -24,6 +24,15 @@ service UCLService {
   
   // GetSchema returns the schema for a dataset.
   rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+
+  // ProbeEndpointCapabilities performs a capability handshake.
+  rpc ProbeEndpointCapabilities(ProbeCapabilitiesRequest) returns (ProbeCapabilitiesResponse);
+
+  // StartOperation starts a long-running connector workflow.
+  rpc StartOperation(StartOperationRequest) returns (StartOperationResponse);
+
+  // GetOperation polls long-running workflow state.
+  rpc GetOperation(GetOperationRequest) returns (OperationState);
 }
 
 // ===== Templates =====
@@ -63,6 +72,7 @@ message EndpointTemplate {
   string descriptor_version = 21;
   string min_version = 22;
   string max_version = 23;
+  AuthDescriptor auth = 24;
 }
 
 message Capability {
@@ -79,6 +89,25 @@ message ConnectionConfig {
 message ProbingPlan {
   repeated ProbingMethod methods = 1;
   string fallback_message = 2;
+}
+
+message AuthDescriptor {
+  repeated AuthModeDescriptor modes = 1;
+  ProfileBindingDescriptor profile_binding = 2;
+}
+
+message AuthModeDescriptor {
+  string mode = 1;
+  string label = 2;
+  repeated string required_fields = 3;
+  repeated string scopes = 4;
+  bool interactive = 5;
+}
+
+message ProfileBindingDescriptor {
+  bool supported = 1;
+  repeated string principal_kinds = 2;
+  string notes = 3;
 }
 
 message ProbingMethod {
@@ -154,6 +183,14 @@ message TestConnectionResponse {
   map<string, string> details = 7;
 }
 
+message ErrorDetail {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+  repeated string required_scopes = 4;
+  string resolution_hint = 5;
+}
+
 // ===== Validation =====
 
 message ValidateConfigRequest {
@@ -217,3 +254,68 @@ message SchemaField {
   int32 length = 8;
 }
 
+// ===== Capability Probe =====
+
+message ProbeCapabilitiesRequest {
+  string template_id = 1;
+  string endpoint_id = 2;
+  map<string, string> parameters = 3;
+}
+
+message CapabilityProbeResult {
+  repeated string capabilities = 1;
+  map<string, string> constraints = 2;
+  AuthDescriptor auth = 3;
+  repeated string supported_operations = 4;
+  ErrorDetail error = 5;
+}
+
+message ProbeCapabilitiesResponse {
+  CapabilityProbeResult result = 1;
+}
+
+// ===== Long-running Operations =====
+
+enum OperationKind {
+  OPERATION_KIND_UNSPECIFIED = 0;
+  METADATA_RUN = 1;
+  PREVIEW_RUN = 2;
+  INGESTION_RUN = 3;
+}
+
+enum OperationStatus {
+  OPERATION_STATUS_UNSPECIFIED = 0;
+  QUEUED = 1;
+  RUNNING = 2;
+  SUCCEEDED = 3;
+  FAILED = 4;
+  CANCELLED = 5;
+}
+
+message StartOperationRequest {
+  string template_id = 1;
+  string endpoint_id = 2;
+  OperationKind kind = 3;
+  map<string, string> parameters = 4;
+  string idempotency_key = 5;
+}
+
+message StartOperationResponse {
+  string operation_id = 1;
+  OperationState state = 2;
+}
+
+message GetOperationRequest {
+  string operation_id = 1;
+}
+
+message OperationState {
+  string operation_id = 1;
+  OperationKind kind = 2;
+  OperationStatus status = 3;
+  int64 started_at = 4;
+  int64 completed_at = 5;
+  bool retryable = 6;
+  ErrorDetail error = 7;
+  map<string, string> stats = 8;
+}

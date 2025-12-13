@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v6.33.1
-// source: proto/ucl.proto
+// source: ucl.proto
 
 package uclpb
 
@@ -21,6 +21,116 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type OperationKind int32
+
+const (
+	OperationKind_OPERATION_KIND_UNSPECIFIED OperationKind = 0
+	OperationKind_METADATA_RUN               OperationKind = 1
+	OperationKind_PREVIEW_RUN                OperationKind = 2
+	OperationKind_INGESTION_RUN              OperationKind = 3
+)
+
+// Enum value maps for OperationKind.
+var (
+	OperationKind_name = map[int32]string{
+		0: "OPERATION_KIND_UNSPECIFIED",
+		1: "METADATA_RUN",
+		2: "PREVIEW_RUN",
+		3: "INGESTION_RUN",
+	}
+	OperationKind_value = map[string]int32{
+		"OPERATION_KIND_UNSPECIFIED": 0,
+		"METADATA_RUN":               1,
+		"PREVIEW_RUN":                2,
+		"INGESTION_RUN":              3,
+	}
+)
+
+func (x OperationKind) Enum() *OperationKind {
+	p := new(OperationKind)
+	*p = x
+	return p
+}
+
+func (x OperationKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OperationKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_ucl_proto_enumTypes[0].Descriptor()
+}
+
+func (OperationKind) Type() protoreflect.EnumType {
+	return &file_ucl_proto_enumTypes[0]
+}
+
+func (x OperationKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OperationKind.Descriptor instead.
+func (OperationKind) EnumDescriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{0}
+}
+
+type OperationStatus int32
+
+const (
+	OperationStatus_OPERATION_STATUS_UNSPECIFIED OperationStatus = 0
+	OperationStatus_QUEUED                       OperationStatus = 1
+	OperationStatus_RUNNING                      OperationStatus = 2
+	OperationStatus_SUCCEEDED                    OperationStatus = 3
+	OperationStatus_FAILED                       OperationStatus = 4
+	OperationStatus_CANCELLED                    OperationStatus = 5
+)
+
+// Enum value maps for OperationStatus.
+var (
+	OperationStatus_name = map[int32]string{
+		0: "OPERATION_STATUS_UNSPECIFIED",
+		1: "QUEUED",
+		2: "RUNNING",
+		3: "SUCCEEDED",
+		4: "FAILED",
+		5: "CANCELLED",
+	}
+	OperationStatus_value = map[string]int32{
+		"OPERATION_STATUS_UNSPECIFIED": 0,
+		"QUEUED":                       1,
+		"RUNNING":                      2,
+		"SUCCEEDED":                    3,
+		"FAILED":                       4,
+		"CANCELLED":                    5,
+	}
+)
+
+func (x OperationStatus) Enum() *OperationStatus {
+	p := new(OperationStatus)
+	*p = x
+	return p
+}
+
+func (x OperationStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OperationStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_ucl_proto_enumTypes[1].Descriptor()
+}
+
+func (OperationStatus) Type() protoreflect.EnumType {
+	return &file_ucl_proto_enumTypes[1]
+}
+
+func (x OperationStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OperationStatus.Descriptor instead.
+func (OperationStatus) EnumDescriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{1}
+}
+
 type ListTemplatesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional filter by endpoint family (JDBC, HTTP, STREAM)
@@ -31,7 +141,7 @@ type ListTemplatesRequest struct {
 
 func (x *ListTemplatesRequest) Reset() {
 	*x = ListTemplatesRequest{}
-	mi := &file_proto_ucl_proto_msgTypes[0]
+	mi := &file_ucl_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -43,7 +153,7 @@ func (x *ListTemplatesRequest) String() string {
 func (*ListTemplatesRequest) ProtoMessage() {}
 
 func (x *ListTemplatesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[0]
+	mi := &file_ucl_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -56,7 +166,7 @@ func (x *ListTemplatesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTemplatesRequest.ProtoReflect.Descriptor instead.
 func (*ListTemplatesRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{0}
+	return file_ucl_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ListTemplatesRequest) GetFamily() string {
@@ -75,7 +185,7 @@ type ListTemplatesResponse struct {
 
 func (x *ListTemplatesResponse) Reset() {
 	*x = ListTemplatesResponse{}
-	mi := &file_proto_ucl_proto_msgTypes[1]
+	mi := &file_ucl_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -87,7 +197,7 @@ func (x *ListTemplatesResponse) String() string {
 func (*ListTemplatesResponse) ProtoMessage() {}
 
 func (x *ListTemplatesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[1]
+	mi := &file_ucl_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -100,7 +210,7 @@ func (x *ListTemplatesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTemplatesResponse.ProtoReflect.Descriptor instead.
 func (*ListTemplatesResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{1}
+	return file_ucl_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ListTemplatesResponse) GetTemplates() []*EndpointTemplate {
@@ -128,21 +238,22 @@ type EndpointTemplate struct {
 	DocsUrl           string            `protobuf:"bytes,13,opt,name=docs_url,json=docsUrl,proto3" json:"docs_url,omitempty"`
 	AgentPrompt       string            `protobuf:"bytes,14,opt,name=agent_prompt,json=agentPrompt,proto3" json:"agent_prompt,omitempty"`
 	DefaultLabels     []string          `protobuf:"bytes,15,rep,name=default_labels,json=defaultLabels,proto3" json:"default_labels,omitempty"`
-	SampleConfig      map[string]string `protobuf:"bytes,16,rep,name=sample_config,json=sampleConfig,proto3" json:"sample_config,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Connection        map[string]string `protobuf:"bytes,17,rep,name=connection,proto3" json:"connection,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Probing           map[string]string `protobuf:"bytes,18,rep,name=probing,proto3" json:"probing,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Extras            map[string]string `protobuf:"bytes,19,rep,name=extras,proto3" json:"extras,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Capabilities      *Capabilities     `protobuf:"bytes,20,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Capabilities      []*Capability     `protobuf:"bytes,16,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Connection        *ConnectionConfig `protobuf:"bytes,17,opt,name=connection,proto3" json:"connection,omitempty"`
+	Probing           *ProbingPlan      `protobuf:"bytes,18,opt,name=probing,proto3" json:"probing,omitempty"`
+	SampleConfig      string            `protobuf:"bytes,19,opt,name=sample_config,json=sampleConfig,proto3" json:"sample_config,omitempty"`
+	Extras            map[string]string `protobuf:"bytes,20,rep,name=extras,proto3" json:"extras,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	DescriptorVersion string            `protobuf:"bytes,21,opt,name=descriptor_version,json=descriptorVersion,proto3" json:"descriptor_version,omitempty"`
 	MinVersion        string            `protobuf:"bytes,22,opt,name=min_version,json=minVersion,proto3" json:"min_version,omitempty"`
 	MaxVersion        string            `protobuf:"bytes,23,opt,name=max_version,json=maxVersion,proto3" json:"max_version,omitempty"`
+	Auth              *AuthDescriptor   `protobuf:"bytes,24,opt,name=auth,proto3" json:"auth,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *EndpointTemplate) Reset() {
 	*x = EndpointTemplate{}
-	mi := &file_proto_ucl_proto_msgTypes[2]
+	mi := &file_ucl_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -154,7 +265,7 @@ func (x *EndpointTemplate) String() string {
 func (*EndpointTemplate) ProtoMessage() {}
 
 func (x *EndpointTemplate) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[2]
+	mi := &file_ucl_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -167,7 +278,7 @@ func (x *EndpointTemplate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointTemplate.ProtoReflect.Descriptor instead.
 func (*EndpointTemplate) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{2}
+	return file_ucl_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *EndpointTemplate) GetId() string {
@@ -275,37 +386,37 @@ func (x *EndpointTemplate) GetDefaultLabels() []string {
 	return nil
 }
 
-func (x *EndpointTemplate) GetSampleConfig() map[string]string {
+func (x *EndpointTemplate) GetCapabilities() []*Capability {
 	if x != nil {
-		return x.SampleConfig
+		return x.Capabilities
 	}
 	return nil
 }
 
-func (x *EndpointTemplate) GetConnection() map[string]string {
+func (x *EndpointTemplate) GetConnection() *ConnectionConfig {
 	if x != nil {
 		return x.Connection
 	}
 	return nil
 }
 
-func (x *EndpointTemplate) GetProbing() map[string]string {
+func (x *EndpointTemplate) GetProbing() *ProbingPlan {
 	if x != nil {
 		return x.Probing
 	}
 	return nil
 }
 
+func (x *EndpointTemplate) GetSampleConfig() string {
+	if x != nil {
+		return x.SampleConfig
+	}
+	return ""
+}
+
 func (x *EndpointTemplate) GetExtras() map[string]string {
 	if x != nil {
 		return x.Extras
-	}
-	return nil
-}
-
-func (x *EndpointTemplate) GetCapabilities() *Capabilities {
-	if x != nil {
-		return x.Capabilities
 	}
 	return nil
 }
@@ -331,34 +442,37 @@ func (x *EndpointTemplate) GetMaxVersion() string {
 	return ""
 }
 
-// Capabilities describes what the endpoint supports
-type Capabilities struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	SupportsFull        bool                   `protobuf:"varint,1,opt,name=supports_full,json=supportsFull,proto3" json:"supports_full,omitempty"`
-	SupportsIncremental bool                   `protobuf:"varint,2,opt,name=supports_incremental,json=supportsIncremental,proto3" json:"supports_incremental,omitempty"`
-	SupportsCountProbe  bool                   `protobuf:"varint,3,opt,name=supports_count_probe,json=supportsCountProbe,proto3" json:"supports_count_probe,omitempty"`
-	SupportsPreview     bool                   `protobuf:"varint,4,opt,name=supports_preview,json=supportsPreview,proto3" json:"supports_preview,omitempty"`
-	SupportsMetadata    bool                   `protobuf:"varint,5,opt,name=supports_metadata,json=supportsMetadata,proto3" json:"supports_metadata,omitempty"`
-	DefaultFetchSize    int32                  `protobuf:"varint,6,opt,name=default_fetch_size,json=defaultFetchSize,proto3" json:"default_fetch_size,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+func (x *EndpointTemplate) GetAuth() *AuthDescriptor {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
 }
 
-func (x *Capabilities) Reset() {
-	*x = Capabilities{}
-	mi := &file_proto_ucl_proto_msgTypes[3]
+type Capability struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Capability) Reset() {
+	*x = Capability{}
+	mi := &file_ucl_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Capabilities) String() string {
+func (x *Capability) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Capabilities) ProtoMessage() {}
+func (*Capability) ProtoMessage() {}
 
-func (x *Capabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[3]
+func (x *Capability) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -369,69 +483,452 @@ func (x *Capabilities) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Capabilities.ProtoReflect.Descriptor instead.
-func (*Capabilities) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{3}
+// Deprecated: Use Capability.ProtoReflect.Descriptor instead.
+func (*Capability) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *Capabilities) GetSupportsFull() bool {
+func (x *Capability) GetKey() string {
 	if x != nil {
-		return x.SupportsFull
+		return x.Key
+	}
+	return ""
+}
+
+func (x *Capability) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *Capability) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+type ConnectionConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UrlTemplate   string                 `protobuf:"bytes,1,opt,name=url_template,json=urlTemplate,proto3" json:"url_template,omitempty"`
+	DefaultVerb   string                 `protobuf:"bytes,2,opt,name=default_verb,json=defaultVerb,proto3" json:"default_verb,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectionConfig) Reset() {
+	*x = ConnectionConfig{}
+	mi := &file_ucl_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectionConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectionConfig) ProtoMessage() {}
+
+func (x *ConnectionConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectionConfig.ProtoReflect.Descriptor instead.
+func (*ConnectionConfig) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ConnectionConfig) GetUrlTemplate() string {
+	if x != nil {
+		return x.UrlTemplate
+	}
+	return ""
+}
+
+func (x *ConnectionConfig) GetDefaultVerb() string {
+	if x != nil {
+		return x.DefaultVerb
+	}
+	return ""
+}
+
+type ProbingPlan struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Methods         []*ProbingMethod       `protobuf:"bytes,1,rep,name=methods,proto3" json:"methods,omitempty"`
+	FallbackMessage string                 `protobuf:"bytes,2,opt,name=fallback_message,json=fallbackMessage,proto3" json:"fallback_message,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProbingPlan) Reset() {
+	*x = ProbingPlan{}
+	mi := &file_ucl_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbingPlan) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbingPlan) ProtoMessage() {}
+
+func (x *ProbingPlan) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbingPlan.ProtoReflect.Descriptor instead.
+func (*ProbingPlan) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ProbingPlan) GetMethods() []*ProbingMethod {
+	if x != nil {
+		return x.Methods
+	}
+	return nil
+}
+
+func (x *ProbingPlan) GetFallbackMessage() string {
+	if x != nil {
+		return x.FallbackMessage
+	}
+	return ""
+}
+
+type AuthDescriptor struct {
+	state          protoimpl.MessageState    `protogen:"open.v1"`
+	Modes          []*AuthModeDescriptor     `protobuf:"bytes,1,rep,name=modes,proto3" json:"modes,omitempty"`
+	ProfileBinding *ProfileBindingDescriptor `protobuf:"bytes,2,opt,name=profile_binding,json=profileBinding,proto3" json:"profile_binding,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AuthDescriptor) Reset() {
+	*x = AuthDescriptor{}
+	mi := &file_ucl_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthDescriptor) ProtoMessage() {}
+
+func (x *AuthDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthDescriptor.ProtoReflect.Descriptor instead.
+func (*AuthDescriptor) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *AuthDescriptor) GetModes() []*AuthModeDescriptor {
+	if x != nil {
+		return x.Modes
+	}
+	return nil
+}
+
+func (x *AuthDescriptor) GetProfileBinding() *ProfileBindingDescriptor {
+	if x != nil {
+		return x.ProfileBinding
+	}
+	return nil
+}
+
+type AuthModeDescriptor struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Mode           string                 `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
+	Label          string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	RequiredFields []string               `protobuf:"bytes,3,rep,name=required_fields,json=requiredFields,proto3" json:"required_fields,omitempty"`
+	Scopes         []string               `protobuf:"bytes,4,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	Interactive    bool                   `protobuf:"varint,5,opt,name=interactive,proto3" json:"interactive,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AuthModeDescriptor) Reset() {
+	*x = AuthModeDescriptor{}
+	mi := &file_ucl_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthModeDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthModeDescriptor) ProtoMessage() {}
+
+func (x *AuthModeDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthModeDescriptor.ProtoReflect.Descriptor instead.
+func (*AuthModeDescriptor) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AuthModeDescriptor) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *AuthModeDescriptor) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *AuthModeDescriptor) GetRequiredFields() []string {
+	if x != nil {
+		return x.RequiredFields
+	}
+	return nil
+}
+
+func (x *AuthModeDescriptor) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *AuthModeDescriptor) GetInteractive() bool {
+	if x != nil {
+		return x.Interactive
 	}
 	return false
 }
 
-func (x *Capabilities) GetSupportsIncremental() bool {
+type ProfileBindingDescriptor struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Supported      bool                   `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`
+	PrincipalKinds []string               `protobuf:"bytes,2,rep,name=principal_kinds,json=principalKinds,proto3" json:"principal_kinds,omitempty"`
+	Notes          string                 `protobuf:"bytes,3,opt,name=notes,proto3" json:"notes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ProfileBindingDescriptor) Reset() {
+	*x = ProfileBindingDescriptor{}
+	mi := &file_ucl_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileBindingDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileBindingDescriptor) ProtoMessage() {}
+
+func (x *ProfileBindingDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[8]
 	if x != nil {
-		return x.SupportsIncremental
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileBindingDescriptor.ProtoReflect.Descriptor instead.
+func (*ProfileBindingDescriptor) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ProfileBindingDescriptor) GetSupported() bool {
+	if x != nil {
+		return x.Supported
 	}
 	return false
 }
 
-func (x *Capabilities) GetSupportsCountProbe() bool {
+func (x *ProfileBindingDescriptor) GetPrincipalKinds() []string {
 	if x != nil {
-		return x.SupportsCountProbe
+		return x.PrincipalKinds
+	}
+	return nil
+}
+
+func (x *ProfileBindingDescriptor) GetNotes() string {
+	if x != nil {
+		return x.Notes
+	}
+	return ""
+}
+
+type ProbingMethod struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Key                 string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Label               string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Strategy            string                 `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	Statement           string                 `protobuf:"bytes,4,opt,name=statement,proto3" json:"statement,omitempty"`
+	Description         string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Requires            []string               `protobuf:"bytes,6,rep,name=requires,proto3" json:"requires,omitempty"`
+	ReturnsVersion      bool                   `protobuf:"varint,7,opt,name=returns_version,json=returnsVersion,proto3" json:"returns_version,omitempty"`
+	ReturnsCapabilities []string               `protobuf:"bytes,8,rep,name=returns_capabilities,json=returnsCapabilities,proto3" json:"returns_capabilities,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ProbingMethod) Reset() {
+	*x = ProbingMethod{}
+	mi := &file_ucl_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbingMethod) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbingMethod) ProtoMessage() {}
+
+func (x *ProbingMethod) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbingMethod.ProtoReflect.Descriptor instead.
+func (*ProbingMethod) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ProbingMethod) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *ProbingMethod) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *ProbingMethod) GetStrategy() string {
+	if x != nil {
+		return x.Strategy
+	}
+	return ""
+}
+
+func (x *ProbingMethod) GetStatement() string {
+	if x != nil {
+		return x.Statement
+	}
+	return ""
+}
+
+func (x *ProbingMethod) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *ProbingMethod) GetRequires() []string {
+	if x != nil {
+		return x.Requires
+	}
+	return nil
+}
+
+func (x *ProbingMethod) GetReturnsVersion() bool {
+	if x != nil {
+		return x.ReturnsVersion
 	}
 	return false
 }
 
-func (x *Capabilities) GetSupportsPreview() bool {
+func (x *ProbingMethod) GetReturnsCapabilities() []string {
 	if x != nil {
-		return x.SupportsPreview
+		return x.ReturnsCapabilities
 	}
-	return false
-}
-
-func (x *Capabilities) GetSupportsMetadata() bool {
-	if x != nil {
-		return x.SupportsMetadata
-	}
-	return false
-}
-
-func (x *Capabilities) GetDefaultFetchSize() int32 {
-	if x != nil {
-		return x.DefaultFetchSize
-	}
-	return 0
+	return nil
 }
 
 type FieldDescriptor struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // string, number, boolean, secret
-	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
-	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	Required      bool                   `protobuf:"varint,5,opt,name=required,proto3" json:"required,omitempty"`
-	DefaultValue  string                 `protobuf:"bytes,6,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Options       []string               `protobuf:"bytes,7,rep,name=options,proto3" json:"options,omitempty"` // For enum fields
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Name         string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type         string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // string, number, boolean, secret
+	Label        string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	Description  string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	Required     bool                   `protobuf:"varint,5,opt,name=required,proto3" json:"required,omitempty"`
+	DefaultValue string                 `protobuf:"bytes,6,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Options      []string               `protobuf:"bytes,7,rep,name=options,proto3" json:"options,omitempty"` // For enum fields
+	// Extended metadata
+	Placeholder   string       `protobuf:"bytes,8,opt,name=placeholder,proto3" json:"placeholder,omitempty"`
+	Regex         string       `protobuf:"bytes,9,opt,name=regex,proto3" json:"regex,omitempty"`
+	HelpText      string       `protobuf:"bytes,10,opt,name=help_text,json=helpText,proto3" json:"help_text,omitempty"`
+	Semantic      string       `protobuf:"bytes,11,opt,name=semantic,proto3" json:"semantic,omitempty"`
+	Advanced      bool         `protobuf:"varint,12,opt,name=advanced,proto3" json:"advanced,omitempty"`
+	Sensitive     bool         `protobuf:"varint,13,opt,name=sensitive,proto3" json:"sensitive,omitempty"`
+	DependsOn     string       `protobuf:"bytes,14,opt,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	DependsValue  string       `protobuf:"bytes,15,opt,name=depends_value,json=dependsValue,proto3" json:"depends_value,omitempty"`
+	VisibleWhen   *VisibleWhen `protobuf:"bytes,16,opt,name=visible_when,json=visibleWhen,proto3" json:"visible_when,omitempty"`
+	MinValue      int64        `protobuf:"varint,17,opt,name=min_value,json=minValue,proto3" json:"min_value,omitempty"`
+	MaxValue      int64        `protobuf:"varint,18,opt,name=max_value,json=maxValue,proto3" json:"max_value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FieldDescriptor) Reset() {
 	*x = FieldDescriptor{}
-	mi := &file_proto_ucl_proto_msgTypes[4]
+	mi := &file_ucl_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -443,7 +940,7 @@ func (x *FieldDescriptor) String() string {
 func (*FieldDescriptor) ProtoMessage() {}
 
 func (x *FieldDescriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[4]
+	mi := &file_ucl_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -456,7 +953,7 @@ func (x *FieldDescriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldDescriptor.ProtoReflect.Descriptor instead.
 func (*FieldDescriptor) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{4}
+	return file_ucl_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FieldDescriptor) GetName() string {
@@ -508,6 +1005,135 @@ func (x *FieldDescriptor) GetOptions() []string {
 	return nil
 }
 
+func (x *FieldDescriptor) GetPlaceholder() string {
+	if x != nil {
+		return x.Placeholder
+	}
+	return ""
+}
+
+func (x *FieldDescriptor) GetRegex() string {
+	if x != nil {
+		return x.Regex
+	}
+	return ""
+}
+
+func (x *FieldDescriptor) GetHelpText() string {
+	if x != nil {
+		return x.HelpText
+	}
+	return ""
+}
+
+func (x *FieldDescriptor) GetSemantic() string {
+	if x != nil {
+		return x.Semantic
+	}
+	return ""
+}
+
+func (x *FieldDescriptor) GetAdvanced() bool {
+	if x != nil {
+		return x.Advanced
+	}
+	return false
+}
+
+func (x *FieldDescriptor) GetSensitive() bool {
+	if x != nil {
+		return x.Sensitive
+	}
+	return false
+}
+
+func (x *FieldDescriptor) GetDependsOn() string {
+	if x != nil {
+		return x.DependsOn
+	}
+	return ""
+}
+
+func (x *FieldDescriptor) GetDependsValue() string {
+	if x != nil {
+		return x.DependsValue
+	}
+	return ""
+}
+
+func (x *FieldDescriptor) GetVisibleWhen() *VisibleWhen {
+	if x != nil {
+		return x.VisibleWhen
+	}
+	return nil
+}
+
+func (x *FieldDescriptor) GetMinValue() int64 {
+	if x != nil {
+		return x.MinValue
+	}
+	return 0
+}
+
+func (x *FieldDescriptor) GetMaxValue() int64 {
+	if x != nil {
+		return x.MaxValue
+	}
+	return 0
+}
+
+type VisibleWhen struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Field         string                 `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
+	Values        []string               `protobuf:"bytes,2,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VisibleWhen) Reset() {
+	*x = VisibleWhen{}
+	mi := &file_ucl_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VisibleWhen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VisibleWhen) ProtoMessage() {}
+
+func (x *VisibleWhen) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VisibleWhen.ProtoReflect.Descriptor instead.
+func (*VisibleWhen) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *VisibleWhen) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *VisibleWhen) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 type BuildConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TemplateId    string                 `protobuf:"bytes,1,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
@@ -519,7 +1145,7 @@ type BuildConfigRequest struct {
 
 func (x *BuildConfigRequest) Reset() {
 	*x = BuildConfigRequest{}
-	mi := &file_proto_ucl_proto_msgTypes[5]
+	mi := &file_ucl_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -531,7 +1157,7 @@ func (x *BuildConfigRequest) String() string {
 func (*BuildConfigRequest) ProtoMessage() {}
 
 func (x *BuildConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[5]
+	mi := &file_ucl_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -544,7 +1170,7 @@ func (x *BuildConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildConfigRequest.ProtoReflect.Descriptor instead.
 func (*BuildConfigRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{5}
+	return file_ucl_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *BuildConfigRequest) GetTemplateId() string {
@@ -580,7 +1206,7 @@ type BuildConfigResponse struct {
 
 func (x *BuildConfigResponse) Reset() {
 	*x = BuildConfigResponse{}
-	mi := &file_proto_ucl_proto_msgTypes[6]
+	mi := &file_ucl_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -592,7 +1218,7 @@ func (x *BuildConfigResponse) String() string {
 func (*BuildConfigResponse) ProtoMessage() {}
 
 func (x *BuildConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[6]
+	mi := &file_ucl_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -605,7 +1231,7 @@ func (x *BuildConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildConfigResponse.ProtoReflect.Descriptor instead.
 func (*BuildConfigResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{6}
+	return file_ucl_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BuildConfigResponse) GetSuccess() bool {
@@ -646,7 +1272,7 @@ type TestConnectionRequest struct {
 
 func (x *TestConnectionRequest) Reset() {
 	*x = TestConnectionRequest{}
-	mi := &file_proto_ucl_proto_msgTypes[7]
+	mi := &file_ucl_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -658,7 +1284,7 @@ func (x *TestConnectionRequest) String() string {
 func (*TestConnectionRequest) ProtoMessage() {}
 
 func (x *TestConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[7]
+	mi := &file_ucl_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -671,7 +1297,7 @@ func (x *TestConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestConnectionRequest.ProtoReflect.Descriptor instead.
 func (*TestConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{7}
+	return file_ucl_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TestConnectionRequest) GetTemplateId() string {
@@ -694,7 +1320,7 @@ type TestConnectionResponse struct {
 	Message   string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	Error     string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
 	LatencyMs int64                  `protobuf:"varint,4,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
-	// New fields for full Python CLI parity
+	// Extended fields for CLI parity
 	DetectedVersion string            `protobuf:"bytes,5,opt,name=detected_version,json=detectedVersion,proto3" json:"detected_version,omitempty"`
 	Capabilities    []string          `protobuf:"bytes,6,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	Details         map[string]string `protobuf:"bytes,7,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -704,7 +1330,7 @@ type TestConnectionResponse struct {
 
 func (x *TestConnectionResponse) Reset() {
 	*x = TestConnectionResponse{}
-	mi := &file_proto_ucl_proto_msgTypes[8]
+	mi := &file_ucl_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -716,7 +1342,7 @@ func (x *TestConnectionResponse) String() string {
 func (*TestConnectionResponse) ProtoMessage() {}
 
 func (x *TestConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[8]
+	mi := &file_ucl_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -729,7 +1355,7 @@ func (x *TestConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestConnectionResponse.ProtoReflect.Descriptor instead.
 func (*TestConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{8}
+	return file_ucl_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TestConnectionResponse) GetSuccess() bool {
@@ -781,6 +1407,82 @@ func (x *TestConnectionResponse) GetDetails() map[string]string {
 	return nil
 }
 
+type ErrorDetail struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Code           string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Message        string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Retryable      bool                   `protobuf:"varint,3,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	RequiredScopes []string               `protobuf:"bytes,4,rep,name=required_scopes,json=requiredScopes,proto3" json:"required_scopes,omitempty"`
+	ResolutionHint string                 `protobuf:"bytes,5,opt,name=resolution_hint,json=resolutionHint,proto3" json:"resolution_hint,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ErrorDetail) Reset() {
+	*x = ErrorDetail{}
+	mi := &file_ucl_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorDetail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorDetail) ProtoMessage() {}
+
+func (x *ErrorDetail) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorDetail.ProtoReflect.Descriptor instead.
+func (*ErrorDetail) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ErrorDetail) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ErrorDetail) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ErrorDetail) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+func (x *ErrorDetail) GetRequiredScopes() []string {
+	if x != nil {
+		return x.RequiredScopes
+	}
+	return nil
+}
+
+func (x *ErrorDetail) GetResolutionHint() string {
+	if x != nil {
+		return x.ResolutionHint
+	}
+	return ""
+}
+
 type ValidateConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EndpointId    string                 `protobuf:"bytes,1,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
@@ -791,7 +1493,7 @@ type ValidateConfigRequest struct {
 
 func (x *ValidateConfigRequest) Reset() {
 	*x = ValidateConfigRequest{}
-	mi := &file_proto_ucl_proto_msgTypes[9]
+	mi := &file_ucl_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -803,7 +1505,7 @@ func (x *ValidateConfigRequest) String() string {
 func (*ValidateConfigRequest) ProtoMessage() {}
 
 func (x *ValidateConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[9]
+	mi := &file_ucl_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -816,7 +1518,7 @@ func (x *ValidateConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateConfigRequest.ProtoReflect.Descriptor instead.
 func (*ValidateConfigRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{9}
+	return file_ucl_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ValidateConfigRequest) GetEndpointId() string {
@@ -844,7 +1546,7 @@ type ValidateConfigResponse struct {
 
 func (x *ValidateConfigResponse) Reset() {
 	*x = ValidateConfigResponse{}
-	mi := &file_proto_ucl_proto_msgTypes[10]
+	mi := &file_ucl_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +1558,7 @@ func (x *ValidateConfigResponse) String() string {
 func (*ValidateConfigResponse) ProtoMessage() {}
 
 func (x *ValidateConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[10]
+	mi := &file_ucl_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +1571,7 @@ func (x *ValidateConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateConfigResponse.ProtoReflect.Descriptor instead.
 func (*ValidateConfigResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{10}
+	return file_ucl_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ValidateConfigResponse) GetValid() bool {
@@ -903,7 +1605,7 @@ type ListDatasetsRequest struct {
 
 func (x *ListDatasetsRequest) Reset() {
 	*x = ListDatasetsRequest{}
-	mi := &file_proto_ucl_proto_msgTypes[11]
+	mi := &file_ucl_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +1617,7 @@ func (x *ListDatasetsRequest) String() string {
 func (*ListDatasetsRequest) ProtoMessage() {}
 
 func (x *ListDatasetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[11]
+	mi := &file_ucl_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1630,7 @@ func (x *ListDatasetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDatasetsRequest.ProtoReflect.Descriptor instead.
 func (*ListDatasetsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{11}
+	return file_ucl_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListDatasetsRequest) GetEndpointId() string {
@@ -954,7 +1656,7 @@ type ListDatasetsResponse struct {
 
 func (x *ListDatasetsResponse) Reset() {
 	*x = ListDatasetsResponse{}
-	mi := &file_proto_ucl_proto_msgTypes[12]
+	mi := &file_ucl_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1668,7 @@ func (x *ListDatasetsResponse) String() string {
 func (*ListDatasetsResponse) ProtoMessage() {}
 
 func (x *ListDatasetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[12]
+	mi := &file_ucl_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1681,7 @@ func (x *ListDatasetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDatasetsResponse.ProtoReflect.Descriptor instead.
 func (*ListDatasetsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{12}
+	return file_ucl_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListDatasetsResponse) GetDatasets() []*Dataset {
@@ -1009,7 +1711,7 @@ type Dataset struct {
 
 func (x *Dataset) Reset() {
 	*x = Dataset{}
-	mi := &file_proto_ucl_proto_msgTypes[13]
+	mi := &file_ucl_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1021,7 +1723,7 @@ func (x *Dataset) String() string {
 func (*Dataset) ProtoMessage() {}
 
 func (x *Dataset) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[13]
+	mi := &file_ucl_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1034,7 +1736,7 @@ func (x *Dataset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Dataset.ProtoReflect.Descriptor instead.
 func (*Dataset) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{13}
+	return file_ucl_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Dataset) GetId() string {
@@ -1125,7 +1827,7 @@ type GetSchemaRequest struct {
 
 func (x *GetSchemaRequest) Reset() {
 	*x = GetSchemaRequest{}
-	mi := &file_proto_ucl_proto_msgTypes[14]
+	mi := &file_ucl_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1137,7 +1839,7 @@ func (x *GetSchemaRequest) String() string {
 func (*GetSchemaRequest) ProtoMessage() {}
 
 func (x *GetSchemaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[14]
+	mi := &file_ucl_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1150,7 +1852,7 @@ func (x *GetSchemaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSchemaRequest.ProtoReflect.Descriptor instead.
 func (*GetSchemaRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{14}
+	return file_ucl_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetSchemaRequest) GetEndpointId() string {
@@ -1183,7 +1885,7 @@ type GetSchemaResponse struct {
 
 func (x *GetSchemaResponse) Reset() {
 	*x = GetSchemaResponse{}
-	mi := &file_proto_ucl_proto_msgTypes[15]
+	mi := &file_ucl_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1195,7 +1897,7 @@ func (x *GetSchemaResponse) String() string {
 func (*GetSchemaResponse) ProtoMessage() {}
 
 func (x *GetSchemaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[15]
+	mi := &file_ucl_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1208,7 +1910,7 @@ func (x *GetSchemaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSchemaResponse.ProtoReflect.Descriptor instead.
 func (*GetSchemaResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{15}
+	return file_ucl_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetSchemaResponse) GetFields() []*SchemaField {
@@ -1235,7 +1937,7 @@ type SchemaField struct {
 
 func (x *SchemaField) Reset() {
 	*x = SchemaField{}
-	mi := &file_proto_ucl_proto_msgTypes[16]
+	mi := &file_ucl_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1247,7 +1949,7 @@ func (x *SchemaField) String() string {
 func (*SchemaField) ProtoMessage() {}
 
 func (x *SchemaField) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ucl_proto_msgTypes[16]
+	mi := &file_ucl_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1260,7 +1962,7 @@ func (x *SchemaField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchemaField.ProtoReflect.Descriptor instead.
 func (*SchemaField) Descriptor() ([]byte, []int) {
-	return file_proto_ucl_proto_rawDescGZIP(), []int{16}
+	return file_ucl_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SchemaField) GetName() string {
@@ -1319,15 +2021,467 @@ func (x *SchemaField) GetLength() int32 {
 	return 0
 }
 
-var File_proto_ucl_proto protoreflect.FileDescriptor
+type ProbeCapabilitiesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TemplateId    string                 `protobuf:"bytes,1,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
+	EndpointId    string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	Parameters    map[string]string      `protobuf:"bytes,3,rep,name=parameters,proto3" json:"parameters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
 
-const file_proto_ucl_proto_rawDesc = "" +
+func (x *ProbeCapabilitiesRequest) Reset() {
+	*x = ProbeCapabilitiesRequest{}
+	mi := &file_ucl_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeCapabilitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeCapabilitiesRequest) ProtoMessage() {}
+
+func (x *ProbeCapabilitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeCapabilitiesRequest.ProtoReflect.Descriptor instead.
+func (*ProbeCapabilitiesRequest) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ProbeCapabilitiesRequest) GetTemplateId() string {
+	if x != nil {
+		return x.TemplateId
+	}
+	return ""
+}
+
+func (x *ProbeCapabilitiesRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *ProbeCapabilitiesRequest) GetParameters() map[string]string {
+	if x != nil {
+		return x.Parameters
+	}
+	return nil
+}
+
+type CapabilityProbeResult struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Capabilities        []string               `protobuf:"bytes,1,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Constraints         map[string]string      `protobuf:"bytes,2,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Auth                *AuthDescriptor        `protobuf:"bytes,3,opt,name=auth,proto3" json:"auth,omitempty"`
+	SupportedOperations []string               `protobuf:"bytes,4,rep,name=supported_operations,json=supportedOperations,proto3" json:"supported_operations,omitempty"`
+	Error               *ErrorDetail           `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *CapabilityProbeResult) Reset() {
+	*x = CapabilityProbeResult{}
+	mi := &file_ucl_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityProbeResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityProbeResult) ProtoMessage() {}
+
+func (x *CapabilityProbeResult) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityProbeResult.ProtoReflect.Descriptor instead.
+func (*CapabilityProbeResult) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *CapabilityProbeResult) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *CapabilityProbeResult) GetConstraints() map[string]string {
+	if x != nil {
+		return x.Constraints
+	}
+	return nil
+}
+
+func (x *CapabilityProbeResult) GetAuth() *AuthDescriptor {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
+}
+
+func (x *CapabilityProbeResult) GetSupportedOperations() []string {
+	if x != nil {
+		return x.SupportedOperations
+	}
+	return nil
+}
+
+func (x *CapabilityProbeResult) GetError() *ErrorDetail {
+	if x != nil {
+		return x.Error
+	}
+	return nil
+}
+
+type ProbeCapabilitiesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *CapabilityProbeResult `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeCapabilitiesResponse) Reset() {
+	*x = ProbeCapabilitiesResponse{}
+	mi := &file_ucl_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeCapabilitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeCapabilitiesResponse) ProtoMessage() {}
+
+func (x *ProbeCapabilitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeCapabilitiesResponse.ProtoReflect.Descriptor instead.
+func (*ProbeCapabilitiesResponse) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ProbeCapabilitiesResponse) GetResult() *CapabilityProbeResult {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+type StartOperationRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TemplateId     string                 `protobuf:"bytes,1,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
+	EndpointId     string                 `protobuf:"bytes,2,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	Kind           OperationKind          `protobuf:"varint,3,opt,name=kind,proto3,enum=ucl.v1.OperationKind" json:"kind,omitempty"`
+	Parameters     map[string]string      `protobuf:"bytes,4,rep,name=parameters,proto3" json:"parameters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	IdempotencyKey string                 `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *StartOperationRequest) Reset() {
+	*x = StartOperationRequest{}
+	mi := &file_ucl_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartOperationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartOperationRequest) ProtoMessage() {}
+
+func (x *StartOperationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartOperationRequest.ProtoReflect.Descriptor instead.
+func (*StartOperationRequest) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *StartOperationRequest) GetTemplateId() string {
+	if x != nil {
+		return x.TemplateId
+	}
+	return ""
+}
+
+func (x *StartOperationRequest) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *StartOperationRequest) GetKind() OperationKind {
+	if x != nil {
+		return x.Kind
+	}
+	return OperationKind_OPERATION_KIND_UNSPECIFIED
+}
+
+func (x *StartOperationRequest) GetParameters() map[string]string {
+	if x != nil {
+		return x.Parameters
+	}
+	return nil
+}
+
+func (x *StartOperationRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type StartOperationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperationId   string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	State         *OperationState        `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartOperationResponse) Reset() {
+	*x = StartOperationResponse{}
+	mi := &file_ucl_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartOperationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartOperationResponse) ProtoMessage() {}
+
+func (x *StartOperationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartOperationResponse.ProtoReflect.Descriptor instead.
+func (*StartOperationResponse) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *StartOperationResponse) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *StartOperationResponse) GetState() *OperationState {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+type GetOperationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperationId   string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOperationRequest) Reset() {
+	*x = GetOperationRequest{}
+	mi := &file_ucl_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOperationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOperationRequest) ProtoMessage() {}
+
+func (x *GetOperationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOperationRequest.ProtoReflect.Descriptor instead.
+func (*GetOperationRequest) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *GetOperationRequest) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+type OperationState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperationId   string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Kind          OperationKind          `protobuf:"varint,2,opt,name=kind,proto3,enum=ucl.v1.OperationKind" json:"kind,omitempty"`
+	Status        OperationStatus        `protobuf:"varint,3,opt,name=status,proto3,enum=ucl.v1.OperationStatus" json:"status,omitempty"`
+	StartedAt     int64                  `protobuf:"varint,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt   int64                  `protobuf:"varint,5,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	Retryable     bool                   `protobuf:"varint,6,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	Error         *ErrorDetail           `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	Stats         map[string]string      `protobuf:"bytes,8,rep,name=stats,proto3" json:"stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OperationState) Reset() {
+	*x = OperationState{}
+	mi := &file_ucl_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OperationState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OperationState) ProtoMessage() {}
+
+func (x *OperationState) ProtoReflect() protoreflect.Message {
+	mi := &file_ucl_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OperationState.ProtoReflect.Descriptor instead.
+func (*OperationState) Descriptor() ([]byte, []int) {
+	return file_ucl_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *OperationState) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *OperationState) GetKind() OperationKind {
+	if x != nil {
+		return x.Kind
+	}
+	return OperationKind_OPERATION_KIND_UNSPECIFIED
+}
+
+func (x *OperationState) GetStatus() OperationStatus {
+	if x != nil {
+		return x.Status
+	}
+	return OperationStatus_OPERATION_STATUS_UNSPECIFIED
+}
+
+func (x *OperationState) GetStartedAt() int64 {
+	if x != nil {
+		return x.StartedAt
+	}
+	return 0
+}
+
+func (x *OperationState) GetCompletedAt() int64 {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return 0
+}
+
+func (x *OperationState) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+func (x *OperationState) GetError() *ErrorDetail {
+	if x != nil {
+		return x.Error
+	}
+	return nil
+}
+
+func (x *OperationState) GetStats() map[string]string {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
+var File_ucl_proto protoreflect.FileDescriptor
+
+const file_ucl_proto_rawDesc = "" +
 	"\n" +
-	"\x0fproto/ucl.proto\x12\x06ucl.v1\".\n" +
+	"\tucl.proto\x12\x06ucl.v1\".\n" +
 	"\x14ListTemplatesRequest\x12\x16\n" +
 	"\x06family\x18\x01 \x01(\tR\x06family\"O\n" +
 	"\x15ListTemplatesResponse\x126\n" +
-	"\ttemplates\x18\x01 \x03(\v2\x18.ucl.v1.EndpointTemplateR\ttemplates\"\x96\t\n" +
+	"\ttemplates\x18\x01 \x03(\v2\x18.ucl.v1.EndpointTemplateR\ttemplates\"\xb6\a\n" +
 	"\x10EndpointTemplate\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06family\x18\x02 \x01(\tR\x06family\x12!\n" +
@@ -1346,38 +2500,56 @@ const file_proto_ucl_proto_rawDesc = "" +
 	"\x06driver\x18\f \x01(\tR\x06driver\x12\x19\n" +
 	"\bdocs_url\x18\r \x01(\tR\adocsUrl\x12!\n" +
 	"\fagent_prompt\x18\x0e \x01(\tR\vagentPrompt\x12%\n" +
-	"\x0edefault_labels\x18\x0f \x03(\tR\rdefaultLabels\x12O\n" +
-	"\rsample_config\x18\x10 \x03(\v2*.ucl.v1.EndpointTemplate.SampleConfigEntryR\fsampleConfig\x12H\n" +
+	"\x0edefault_labels\x18\x0f \x03(\tR\rdefaultLabels\x126\n" +
+	"\fcapabilities\x18\x10 \x03(\v2\x12.ucl.v1.CapabilityR\fcapabilities\x128\n" +
 	"\n" +
-	"connection\x18\x11 \x03(\v2(.ucl.v1.EndpointTemplate.ConnectionEntryR\n" +
-	"connection\x12?\n" +
-	"\aprobing\x18\x12 \x03(\v2%.ucl.v1.EndpointTemplate.ProbingEntryR\aprobing\x12<\n" +
-	"\x06extras\x18\x13 \x03(\v2$.ucl.v1.EndpointTemplate.ExtrasEntryR\x06extras\x128\n" +
-	"\fcapabilities\x18\x14 \x01(\v2\x14.ucl.v1.CapabilitiesR\fcapabilities\x12-\n" +
+	"connection\x18\x11 \x01(\v2\x18.ucl.v1.ConnectionConfigR\n" +
+	"connection\x12-\n" +
+	"\aprobing\x18\x12 \x01(\v2\x13.ucl.v1.ProbingPlanR\aprobing\x12#\n" +
+	"\rsample_config\x18\x13 \x01(\tR\fsampleConfig\x12<\n" +
+	"\x06extras\x18\x14 \x03(\v2$.ucl.v1.EndpointTemplate.ExtrasEntryR\x06extras\x12-\n" +
 	"\x12descriptor_version\x18\x15 \x01(\tR\x11descriptorVersion\x12\x1f\n" +
 	"\vmin_version\x18\x16 \x01(\tR\n" +
 	"minVersion\x12\x1f\n" +
 	"\vmax_version\x18\x17 \x01(\tR\n" +
-	"maxVersion\x1a?\n" +
-	"\x11SampleConfigEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
-	"\x0fConnectionEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a:\n" +
-	"\fProbingEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a9\n" +
+	"maxVersion\x12*\n" +
+	"\x04auth\x18\x18 \x01(\v2\x16.ucl.v1.AuthDescriptorR\x04auth\x1a9\n" +
 	"\vExtrasEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9e\x02\n" +
-	"\fCapabilities\x12#\n" +
-	"\rsupports_full\x18\x01 \x01(\bR\fsupportsFull\x121\n" +
-	"\x14supports_incremental\x18\x02 \x01(\bR\x13supportsIncremental\x120\n" +
-	"\x14supports_count_probe\x18\x03 \x01(\bR\x12supportsCountProbe\x12)\n" +
-	"\x10supports_preview\x18\x04 \x01(\bR\x0fsupportsPreview\x12+\n" +
-	"\x11supports_metadata\x18\x05 \x01(\bR\x10supportsMetadata\x12,\n" +
-	"\x12default_fetch_size\x18\x06 \x01(\x05R\x10defaultFetchSize\"\xcc\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"V\n" +
+	"\n" +
+	"Capability\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\"X\n" +
+	"\x10ConnectionConfig\x12!\n" +
+	"\furl_template\x18\x01 \x01(\tR\vurlTemplate\x12!\n" +
+	"\fdefault_verb\x18\x02 \x01(\tR\vdefaultVerb\"i\n" +
+	"\vProbingPlan\x12/\n" +
+	"\amethods\x18\x01 \x03(\v2\x15.ucl.v1.ProbingMethodR\amethods\x12)\n" +
+	"\x10fallback_message\x18\x02 \x01(\tR\x0ffallbackMessage\"\x8d\x01\n" +
+	"\x0eAuthDescriptor\x120\n" +
+	"\x05modes\x18\x01 \x03(\v2\x1a.ucl.v1.AuthModeDescriptorR\x05modes\x12I\n" +
+	"\x0fprofile_binding\x18\x02 \x01(\v2 .ucl.v1.ProfileBindingDescriptorR\x0eprofileBinding\"\xa1\x01\n" +
+	"\x12AuthModeDescriptor\x12\x12\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12'\n" +
+	"\x0frequired_fields\x18\x03 \x03(\tR\x0erequiredFields\x12\x16\n" +
+	"\x06scopes\x18\x04 \x03(\tR\x06scopes\x12 \n" +
+	"\vinteractive\x18\x05 \x01(\bR\vinteractive\"w\n" +
+	"\x18ProfileBindingDescriptor\x12\x1c\n" +
+	"\tsupported\x18\x01 \x01(\bR\tsupported\x12'\n" +
+	"\x0fprincipal_kinds\x18\x02 \x03(\tR\x0eprincipalKinds\x12\x14\n" +
+	"\x05notes\x18\x03 \x01(\tR\x05notes\"\x8b\x02\n" +
+	"\rProbingMethod\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1a\n" +
+	"\bstrategy\x18\x03 \x01(\tR\bstrategy\x12\x1c\n" +
+	"\tstatement\x18\x04 \x01(\tR\tstatement\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1a\n" +
+	"\brequires\x18\x06 \x03(\tR\brequires\x12'\n" +
+	"\x0freturns_version\x18\a \x01(\bR\x0ereturnsVersion\x121\n" +
+	"\x14returns_capabilities\x18\b \x03(\tR\x13returnsCapabilities\"\xad\x04\n" +
 	"\x0fFieldDescriptor\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x14\n" +
@@ -1385,7 +2557,23 @@ const file_proto_ucl_proto_rawDesc = "" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x1a\n" +
 	"\brequired\x18\x05 \x01(\bR\brequired\x12#\n" +
 	"\rdefault_value\x18\x06 \x01(\tR\fdefaultValue\x12\x18\n" +
-	"\aoptions\x18\a \x03(\tR\aoptions\"\xd8\x01\n" +
+	"\aoptions\x18\a \x03(\tR\aoptions\x12 \n" +
+	"\vplaceholder\x18\b \x01(\tR\vplaceholder\x12\x14\n" +
+	"\x05regex\x18\t \x01(\tR\x05regex\x12\x1b\n" +
+	"\thelp_text\x18\n" +
+	" \x01(\tR\bhelpText\x12\x1a\n" +
+	"\bsemantic\x18\v \x01(\tR\bsemantic\x12\x1a\n" +
+	"\badvanced\x18\f \x01(\bR\badvanced\x12\x1c\n" +
+	"\tsensitive\x18\r \x01(\bR\tsensitive\x12\x1d\n" +
+	"\n" +
+	"depends_on\x18\x0e \x01(\tR\tdependsOn\x12#\n" +
+	"\rdepends_value\x18\x0f \x01(\tR\fdependsValue\x126\n" +
+	"\fvisible_when\x18\x10 \x01(\v2\x13.ucl.v1.VisibleWhenR\vvisibleWhen\x12\x1b\n" +
+	"\tmin_value\x18\x11 \x01(\x03R\bminValue\x12\x1b\n" +
+	"\tmax_value\x18\x12 \x01(\x03R\bmaxValue\";\n" +
+	"\vVisibleWhen\x12\x14\n" +
+	"\x05field\x18\x01 \x01(\tR\x05field\x12\x16\n" +
+	"\x06values\x18\x02 \x03(\tR\x06values\"\xd8\x01\n" +
 	"\x12BuildConfigRequest\x12\x1f\n" +
 	"\vtemplate_id\x18\x01 \x01(\tR\n" +
 	"templateId\x12J\n" +
@@ -1424,7 +2612,13 @@ const file_proto_ucl_proto_rawDesc = "" +
 	"\adetails\x18\a \x03(\v2+.ucl.v1.TestConnectionResponse.DetailsEntryR\adetails\x1a:\n" +
 	"\fDetailsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb6\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xab\x01\n" +
+	"\vErrorDetail\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
+	"\tretryable\x18\x03 \x01(\bR\tretryable\x12'\n" +
+	"\x0frequired_scopes\x18\x04 \x03(\tR\x0erequiredScopes\x12'\n" +
+	"\x0fresolution_hint\x18\x05 \x01(\tR\x0eresolutionHint\"\xb6\x01\n" +
 	"\x15ValidateConfigRequest\x12\x1f\n" +
 	"\vendpoint_id\x18\x01 \x01(\tR\n" +
 	"endpointId\x12A\n" +
@@ -1481,7 +2675,75 @@ const file_proto_ucl_proto_rawDesc = "" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1c\n" +
 	"\tprecision\x18\x06 \x01(\x05R\tprecision\x12\x14\n" +
 	"\x05scale\x18\a \x01(\x05R\x05scale\x12\x16\n" +
-	"\x06length\x18\b \x01(\x05R\x06length2\xe9\x03\n" +
+	"\x06length\x18\b \x01(\x05R\x06length\"\xed\x01\n" +
+	"\x18ProbeCapabilitiesRequest\x12\x1f\n" +
+	"\vtemplate_id\x18\x01 \x01(\tR\n" +
+	"templateId\x12\x1f\n" +
+	"\vendpoint_id\x18\x02 \x01(\tR\n" +
+	"endpointId\x12P\n" +
+	"\n" +
+	"parameters\x18\x03 \x03(\v20.ucl.v1.ProbeCapabilitiesRequest.ParametersEntryR\n" +
+	"parameters\x1a=\n" +
+	"\x0fParametersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd7\x02\n" +
+	"\x15CapabilityProbeResult\x12\"\n" +
+	"\fcapabilities\x18\x01 \x03(\tR\fcapabilities\x12P\n" +
+	"\vconstraints\x18\x02 \x03(\v2..ucl.v1.CapabilityProbeResult.ConstraintsEntryR\vconstraints\x12*\n" +
+	"\x04auth\x18\x03 \x01(\v2\x16.ucl.v1.AuthDescriptorR\x04auth\x121\n" +
+	"\x14supported_operations\x18\x04 \x03(\tR\x13supportedOperations\x12)\n" +
+	"\x05error\x18\x05 \x01(\v2\x13.ucl.v1.ErrorDetailR\x05error\x1a>\n" +
+	"\x10ConstraintsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
+	"\x19ProbeCapabilitiesResponse\x125\n" +
+	"\x06result\x18\x01 \x01(\v2\x1d.ucl.v1.CapabilityProbeResultR\x06result\"\xbb\x02\n" +
+	"\x15StartOperationRequest\x12\x1f\n" +
+	"\vtemplate_id\x18\x01 \x01(\tR\n" +
+	"templateId\x12\x1f\n" +
+	"\vendpoint_id\x18\x02 \x01(\tR\n" +
+	"endpointId\x12)\n" +
+	"\x04kind\x18\x03 \x01(\x0e2\x15.ucl.v1.OperationKindR\x04kind\x12M\n" +
+	"\n" +
+	"parameters\x18\x04 \x03(\v2-.ucl.v1.StartOperationRequest.ParametersEntryR\n" +
+	"parameters\x12'\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\x1a=\n" +
+	"\x0fParametersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"i\n" +
+	"\x16StartOperationResponse\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12,\n" +
+	"\x05state\x18\x02 \x01(\v2\x16.ucl.v1.OperationStateR\x05state\"8\n" +
+	"\x13GetOperationRequest\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\"\x8d\x03\n" +
+	"\x0eOperationState\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12)\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x15.ucl.v1.OperationKindR\x04kind\x12/\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x17.ucl.v1.OperationStatusR\x06status\x12\x1d\n" +
+	"\n" +
+	"started_at\x18\x04 \x01(\x03R\tstartedAt\x12!\n" +
+	"\fcompleted_at\x18\x05 \x01(\x03R\vcompletedAt\x12\x1c\n" +
+	"\tretryable\x18\x06 \x01(\bR\tretryable\x12)\n" +
+	"\x05error\x18\a \x01(\v2\x13.ucl.v1.ErrorDetailR\x05error\x127\n" +
+	"\x05stats\x18\b \x03(\v2!.ucl.v1.OperationState.StatsEntryR\x05stats\x1a8\n" +
+	"\n" +
+	"StatsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*e\n" +
+	"\rOperationKind\x12\x1e\n" +
+	"\x1aOPERATION_KIND_UNSPECIFIED\x10\x00\x12\x10\n" +
+	"\fMETADATA_RUN\x10\x01\x12\x0f\n" +
+	"\vPREVIEW_RUN\x10\x02\x12\x11\n" +
+	"\rINGESTION_RUN\x10\x03*v\n" +
+	"\x0fOperationStatus\x12 \n" +
+	"\x1cOPERATION_STATUS_UNSPECIFIED\x10\x00\x12\n" +
+	"\n" +
+	"\x06QUEUED\x10\x01\x12\v\n" +
+	"\aRUNNING\x10\x02\x12\r\n" +
+	"\tSUCCEEDED\x10\x03\x12\n" +
+	"\n" +
+	"\x06FAILED\x10\x04\x12\r\n" +
+	"\tCANCELLED\x10\x052\xe1\x05\n" +
 	"\n" +
 	"UCLService\x12T\n" +
 	"\x15ListEndpointTemplates\x12\x1c.ucl.v1.ListTemplatesRequest\x1a\x1d.ucl.v1.ListTemplatesResponse\x12N\n" +
@@ -1489,109 +2751,154 @@ const file_proto_ucl_proto_rawDesc = "" +
 	"\x16TestEndpointConnection\x12\x1d.ucl.v1.TestConnectionRequest\x1a\x1e.ucl.v1.TestConnectionResponse\x12O\n" +
 	"\x0eValidateConfig\x12\x1d.ucl.v1.ValidateConfigRequest\x1a\x1e.ucl.v1.ValidateConfigResponse\x12I\n" +
 	"\fListDatasets\x12\x1b.ucl.v1.ListDatasetsRequest\x1a\x1c.ucl.v1.ListDatasetsResponse\x12@\n" +
-	"\tGetSchema\x12\x18.ucl.v1.GetSchemaRequest\x1a\x19.ucl.v1.GetSchemaResponseB'Z%github.com/nucleus/ucl-core/pkg/uclpbb\x06proto3"
+	"\tGetSchema\x12\x18.ucl.v1.GetSchemaRequest\x1a\x19.ucl.v1.GetSchemaResponse\x12`\n" +
+	"\x19ProbeEndpointCapabilities\x12 .ucl.v1.ProbeCapabilitiesRequest\x1a!.ucl.v1.ProbeCapabilitiesResponse\x12O\n" +
+	"\x0eStartOperation\x12\x1d.ucl.v1.StartOperationRequest\x1a\x1e.ucl.v1.StartOperationResponse\x12C\n" +
+	"\fGetOperation\x12\x1b.ucl.v1.GetOperationRequest\x1a\x16.ucl.v1.OperationStateB'Z%github.com/nucleus/ucl-core/pkg/uclpbb\x06proto3"
 
 var (
-	file_proto_ucl_proto_rawDescOnce sync.Once
-	file_proto_ucl_proto_rawDescData []byte
+	file_ucl_proto_rawDescOnce sync.Once
+	file_ucl_proto_rawDescData []byte
 )
 
-func file_proto_ucl_proto_rawDescGZIP() []byte {
-	file_proto_ucl_proto_rawDescOnce.Do(func() {
-		file_proto_ucl_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_ucl_proto_rawDesc), len(file_proto_ucl_proto_rawDesc)))
+func file_ucl_proto_rawDescGZIP() []byte {
+	file_ucl_proto_rawDescOnce.Do(func() {
+		file_ucl_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ucl_proto_rawDesc), len(file_ucl_proto_rawDesc)))
 	})
-	return file_proto_ucl_proto_rawDescData
+	return file_ucl_proto_rawDescData
 }
 
-var file_proto_ucl_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
-var file_proto_ucl_proto_goTypes = []any{
-	(*ListTemplatesRequest)(nil),   // 0: ucl.v1.ListTemplatesRequest
-	(*ListTemplatesResponse)(nil),  // 1: ucl.v1.ListTemplatesResponse
-	(*EndpointTemplate)(nil),       // 2: ucl.v1.EndpointTemplate
-	(*Capabilities)(nil),           // 3: ucl.v1.Capabilities
-	(*FieldDescriptor)(nil),        // 4: ucl.v1.FieldDescriptor
-	(*BuildConfigRequest)(nil),     // 5: ucl.v1.BuildConfigRequest
-	(*BuildConfigResponse)(nil),    // 6: ucl.v1.BuildConfigResponse
-	(*TestConnectionRequest)(nil),  // 7: ucl.v1.TestConnectionRequest
-	(*TestConnectionResponse)(nil), // 8: ucl.v1.TestConnectionResponse
-	(*ValidateConfigRequest)(nil),  // 9: ucl.v1.ValidateConfigRequest
-	(*ValidateConfigResponse)(nil), // 10: ucl.v1.ValidateConfigResponse
-	(*ListDatasetsRequest)(nil),    // 11: ucl.v1.ListDatasetsRequest
-	(*ListDatasetsResponse)(nil),   // 12: ucl.v1.ListDatasetsResponse
-	(*Dataset)(nil),                // 13: ucl.v1.Dataset
-	(*GetSchemaRequest)(nil),       // 14: ucl.v1.GetSchemaRequest
-	(*GetSchemaResponse)(nil),      // 15: ucl.v1.GetSchemaResponse
-	(*SchemaField)(nil),            // 16: ucl.v1.SchemaField
-	nil,                            // 17: ucl.v1.EndpointTemplate.SampleConfigEntry
-	nil,                            // 18: ucl.v1.EndpointTemplate.ConnectionEntry
-	nil,                            // 19: ucl.v1.EndpointTemplate.ProbingEntry
-	nil,                            // 20: ucl.v1.EndpointTemplate.ExtrasEntry
-	nil,                            // 21: ucl.v1.BuildConfigRequest.ParametersEntry
-	nil,                            // 22: ucl.v1.BuildConfigResponse.ConfigEntry
-	nil,                            // 23: ucl.v1.TestConnectionRequest.ParametersEntry
-	nil,                            // 24: ucl.v1.TestConnectionResponse.DetailsEntry
-	nil,                            // 25: ucl.v1.ValidateConfigRequest.ConfigEntry
-	nil,                            // 26: ucl.v1.ListDatasetsRequest.ConfigEntry
-	nil,                            // 27: ucl.v1.Dataset.MetadataEntry
-	nil,                            // 28: ucl.v1.GetSchemaRequest.ConfigEntry
+var file_ucl_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_ucl_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_ucl_proto_goTypes = []any{
+	(OperationKind)(0),                // 0: ucl.v1.OperationKind
+	(OperationStatus)(0),              // 1: ucl.v1.OperationStatus
+	(*ListTemplatesRequest)(nil),      // 2: ucl.v1.ListTemplatesRequest
+	(*ListTemplatesResponse)(nil),     // 3: ucl.v1.ListTemplatesResponse
+	(*EndpointTemplate)(nil),          // 4: ucl.v1.EndpointTemplate
+	(*Capability)(nil),                // 5: ucl.v1.Capability
+	(*ConnectionConfig)(nil),          // 6: ucl.v1.ConnectionConfig
+	(*ProbingPlan)(nil),               // 7: ucl.v1.ProbingPlan
+	(*AuthDescriptor)(nil),            // 8: ucl.v1.AuthDescriptor
+	(*AuthModeDescriptor)(nil),        // 9: ucl.v1.AuthModeDescriptor
+	(*ProfileBindingDescriptor)(nil),  // 10: ucl.v1.ProfileBindingDescriptor
+	(*ProbingMethod)(nil),             // 11: ucl.v1.ProbingMethod
+	(*FieldDescriptor)(nil),           // 12: ucl.v1.FieldDescriptor
+	(*VisibleWhen)(nil),               // 13: ucl.v1.VisibleWhen
+	(*BuildConfigRequest)(nil),        // 14: ucl.v1.BuildConfigRequest
+	(*BuildConfigResponse)(nil),       // 15: ucl.v1.BuildConfigResponse
+	(*TestConnectionRequest)(nil),     // 16: ucl.v1.TestConnectionRequest
+	(*TestConnectionResponse)(nil),    // 17: ucl.v1.TestConnectionResponse
+	(*ErrorDetail)(nil),               // 18: ucl.v1.ErrorDetail
+	(*ValidateConfigRequest)(nil),     // 19: ucl.v1.ValidateConfigRequest
+	(*ValidateConfigResponse)(nil),    // 20: ucl.v1.ValidateConfigResponse
+	(*ListDatasetsRequest)(nil),       // 21: ucl.v1.ListDatasetsRequest
+	(*ListDatasetsResponse)(nil),      // 22: ucl.v1.ListDatasetsResponse
+	(*Dataset)(nil),                   // 23: ucl.v1.Dataset
+	(*GetSchemaRequest)(nil),          // 24: ucl.v1.GetSchemaRequest
+	(*GetSchemaResponse)(nil),         // 25: ucl.v1.GetSchemaResponse
+	(*SchemaField)(nil),               // 26: ucl.v1.SchemaField
+	(*ProbeCapabilitiesRequest)(nil),  // 27: ucl.v1.ProbeCapabilitiesRequest
+	(*CapabilityProbeResult)(nil),     // 28: ucl.v1.CapabilityProbeResult
+	(*ProbeCapabilitiesResponse)(nil), // 29: ucl.v1.ProbeCapabilitiesResponse
+	(*StartOperationRequest)(nil),     // 30: ucl.v1.StartOperationRequest
+	(*StartOperationResponse)(nil),    // 31: ucl.v1.StartOperationResponse
+	(*GetOperationRequest)(nil),       // 32: ucl.v1.GetOperationRequest
+	(*OperationState)(nil),            // 33: ucl.v1.OperationState
+	nil,                               // 34: ucl.v1.EndpointTemplate.ExtrasEntry
+	nil,                               // 35: ucl.v1.BuildConfigRequest.ParametersEntry
+	nil,                               // 36: ucl.v1.BuildConfigResponse.ConfigEntry
+	nil,                               // 37: ucl.v1.TestConnectionRequest.ParametersEntry
+	nil,                               // 38: ucl.v1.TestConnectionResponse.DetailsEntry
+	nil,                               // 39: ucl.v1.ValidateConfigRequest.ConfigEntry
+	nil,                               // 40: ucl.v1.ListDatasetsRequest.ConfigEntry
+	nil,                               // 41: ucl.v1.Dataset.MetadataEntry
+	nil,                               // 42: ucl.v1.GetSchemaRequest.ConfigEntry
+	nil,                               // 43: ucl.v1.ProbeCapabilitiesRequest.ParametersEntry
+	nil,                               // 44: ucl.v1.CapabilityProbeResult.ConstraintsEntry
+	nil,                               // 45: ucl.v1.StartOperationRequest.ParametersEntry
+	nil,                               // 46: ucl.v1.OperationState.StatsEntry
 }
-var file_proto_ucl_proto_depIdxs = []int32{
-	2,  // 0: ucl.v1.ListTemplatesResponse.templates:type_name -> ucl.v1.EndpointTemplate
-	4,  // 1: ucl.v1.EndpointTemplate.fields:type_name -> ucl.v1.FieldDescriptor
-	17, // 2: ucl.v1.EndpointTemplate.sample_config:type_name -> ucl.v1.EndpointTemplate.SampleConfigEntry
-	18, // 3: ucl.v1.EndpointTemplate.connection:type_name -> ucl.v1.EndpointTemplate.ConnectionEntry
-	19, // 4: ucl.v1.EndpointTemplate.probing:type_name -> ucl.v1.EndpointTemplate.ProbingEntry
-	20, // 5: ucl.v1.EndpointTemplate.extras:type_name -> ucl.v1.EndpointTemplate.ExtrasEntry
-	3,  // 6: ucl.v1.EndpointTemplate.capabilities:type_name -> ucl.v1.Capabilities
-	21, // 7: ucl.v1.BuildConfigRequest.parameters:type_name -> ucl.v1.BuildConfigRequest.ParametersEntry
-	22, // 8: ucl.v1.BuildConfigResponse.config:type_name -> ucl.v1.BuildConfigResponse.ConfigEntry
-	23, // 9: ucl.v1.TestConnectionRequest.parameters:type_name -> ucl.v1.TestConnectionRequest.ParametersEntry
-	24, // 10: ucl.v1.TestConnectionResponse.details:type_name -> ucl.v1.TestConnectionResponse.DetailsEntry
-	25, // 11: ucl.v1.ValidateConfigRequest.config:type_name -> ucl.v1.ValidateConfigRequest.ConfigEntry
-	26, // 12: ucl.v1.ListDatasetsRequest.config:type_name -> ucl.v1.ListDatasetsRequest.ConfigEntry
-	13, // 13: ucl.v1.ListDatasetsResponse.datasets:type_name -> ucl.v1.Dataset
-	27, // 14: ucl.v1.Dataset.metadata:type_name -> ucl.v1.Dataset.MetadataEntry
-	28, // 15: ucl.v1.GetSchemaRequest.config:type_name -> ucl.v1.GetSchemaRequest.ConfigEntry
-	16, // 16: ucl.v1.GetSchemaResponse.fields:type_name -> ucl.v1.SchemaField
-	0,  // 17: ucl.v1.UCLService.ListEndpointTemplates:input_type -> ucl.v1.ListTemplatesRequest
-	5,  // 18: ucl.v1.UCLService.BuildEndpointConfig:input_type -> ucl.v1.BuildConfigRequest
-	7,  // 19: ucl.v1.UCLService.TestEndpointConnection:input_type -> ucl.v1.TestConnectionRequest
-	9,  // 20: ucl.v1.UCLService.ValidateConfig:input_type -> ucl.v1.ValidateConfigRequest
-	11, // 21: ucl.v1.UCLService.ListDatasets:input_type -> ucl.v1.ListDatasetsRequest
-	14, // 22: ucl.v1.UCLService.GetSchema:input_type -> ucl.v1.GetSchemaRequest
-	1,  // 23: ucl.v1.UCLService.ListEndpointTemplates:output_type -> ucl.v1.ListTemplatesResponse
-	6,  // 24: ucl.v1.UCLService.BuildEndpointConfig:output_type -> ucl.v1.BuildConfigResponse
-	8,  // 25: ucl.v1.UCLService.TestEndpointConnection:output_type -> ucl.v1.TestConnectionResponse
-	10, // 26: ucl.v1.UCLService.ValidateConfig:output_type -> ucl.v1.ValidateConfigResponse
-	12, // 27: ucl.v1.UCLService.ListDatasets:output_type -> ucl.v1.ListDatasetsResponse
-	15, // 28: ucl.v1.UCLService.GetSchema:output_type -> ucl.v1.GetSchemaResponse
-	23, // [23:29] is the sub-list for method output_type
-	17, // [17:23] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+var file_ucl_proto_depIdxs = []int32{
+	4,  // 0: ucl.v1.ListTemplatesResponse.templates:type_name -> ucl.v1.EndpointTemplate
+	12, // 1: ucl.v1.EndpointTemplate.fields:type_name -> ucl.v1.FieldDescriptor
+	5,  // 2: ucl.v1.EndpointTemplate.capabilities:type_name -> ucl.v1.Capability
+	6,  // 3: ucl.v1.EndpointTemplate.connection:type_name -> ucl.v1.ConnectionConfig
+	7,  // 4: ucl.v1.EndpointTemplate.probing:type_name -> ucl.v1.ProbingPlan
+	34, // 5: ucl.v1.EndpointTemplate.extras:type_name -> ucl.v1.EndpointTemplate.ExtrasEntry
+	8,  // 6: ucl.v1.EndpointTemplate.auth:type_name -> ucl.v1.AuthDescriptor
+	11, // 7: ucl.v1.ProbingPlan.methods:type_name -> ucl.v1.ProbingMethod
+	9,  // 8: ucl.v1.AuthDescriptor.modes:type_name -> ucl.v1.AuthModeDescriptor
+	10, // 9: ucl.v1.AuthDescriptor.profile_binding:type_name -> ucl.v1.ProfileBindingDescriptor
+	13, // 10: ucl.v1.FieldDescriptor.visible_when:type_name -> ucl.v1.VisibleWhen
+	35, // 11: ucl.v1.BuildConfigRequest.parameters:type_name -> ucl.v1.BuildConfigRequest.ParametersEntry
+	36, // 12: ucl.v1.BuildConfigResponse.config:type_name -> ucl.v1.BuildConfigResponse.ConfigEntry
+	37, // 13: ucl.v1.TestConnectionRequest.parameters:type_name -> ucl.v1.TestConnectionRequest.ParametersEntry
+	38, // 14: ucl.v1.TestConnectionResponse.details:type_name -> ucl.v1.TestConnectionResponse.DetailsEntry
+	39, // 15: ucl.v1.ValidateConfigRequest.config:type_name -> ucl.v1.ValidateConfigRequest.ConfigEntry
+	40, // 16: ucl.v1.ListDatasetsRequest.config:type_name -> ucl.v1.ListDatasetsRequest.ConfigEntry
+	23, // 17: ucl.v1.ListDatasetsResponse.datasets:type_name -> ucl.v1.Dataset
+	41, // 18: ucl.v1.Dataset.metadata:type_name -> ucl.v1.Dataset.MetadataEntry
+	42, // 19: ucl.v1.GetSchemaRequest.config:type_name -> ucl.v1.GetSchemaRequest.ConfigEntry
+	26, // 20: ucl.v1.GetSchemaResponse.fields:type_name -> ucl.v1.SchemaField
+	43, // 21: ucl.v1.ProbeCapabilitiesRequest.parameters:type_name -> ucl.v1.ProbeCapabilitiesRequest.ParametersEntry
+	44, // 22: ucl.v1.CapabilityProbeResult.constraints:type_name -> ucl.v1.CapabilityProbeResult.ConstraintsEntry
+	8,  // 23: ucl.v1.CapabilityProbeResult.auth:type_name -> ucl.v1.AuthDescriptor
+	18, // 24: ucl.v1.CapabilityProbeResult.error:type_name -> ucl.v1.ErrorDetail
+	28, // 25: ucl.v1.ProbeCapabilitiesResponse.result:type_name -> ucl.v1.CapabilityProbeResult
+	0,  // 26: ucl.v1.StartOperationRequest.kind:type_name -> ucl.v1.OperationKind
+	45, // 27: ucl.v1.StartOperationRequest.parameters:type_name -> ucl.v1.StartOperationRequest.ParametersEntry
+	33, // 28: ucl.v1.StartOperationResponse.state:type_name -> ucl.v1.OperationState
+	0,  // 29: ucl.v1.OperationState.kind:type_name -> ucl.v1.OperationKind
+	1,  // 30: ucl.v1.OperationState.status:type_name -> ucl.v1.OperationStatus
+	18, // 31: ucl.v1.OperationState.error:type_name -> ucl.v1.ErrorDetail
+	46, // 32: ucl.v1.OperationState.stats:type_name -> ucl.v1.OperationState.StatsEntry
+	2,  // 33: ucl.v1.UCLService.ListEndpointTemplates:input_type -> ucl.v1.ListTemplatesRequest
+	14, // 34: ucl.v1.UCLService.BuildEndpointConfig:input_type -> ucl.v1.BuildConfigRequest
+	16, // 35: ucl.v1.UCLService.TestEndpointConnection:input_type -> ucl.v1.TestConnectionRequest
+	19, // 36: ucl.v1.UCLService.ValidateConfig:input_type -> ucl.v1.ValidateConfigRequest
+	21, // 37: ucl.v1.UCLService.ListDatasets:input_type -> ucl.v1.ListDatasetsRequest
+	24, // 38: ucl.v1.UCLService.GetSchema:input_type -> ucl.v1.GetSchemaRequest
+	27, // 39: ucl.v1.UCLService.ProbeEndpointCapabilities:input_type -> ucl.v1.ProbeCapabilitiesRequest
+	30, // 40: ucl.v1.UCLService.StartOperation:input_type -> ucl.v1.StartOperationRequest
+	32, // 41: ucl.v1.UCLService.GetOperation:input_type -> ucl.v1.GetOperationRequest
+	3,  // 42: ucl.v1.UCLService.ListEndpointTemplates:output_type -> ucl.v1.ListTemplatesResponse
+	15, // 43: ucl.v1.UCLService.BuildEndpointConfig:output_type -> ucl.v1.BuildConfigResponse
+	17, // 44: ucl.v1.UCLService.TestEndpointConnection:output_type -> ucl.v1.TestConnectionResponse
+	20, // 45: ucl.v1.UCLService.ValidateConfig:output_type -> ucl.v1.ValidateConfigResponse
+	22, // 46: ucl.v1.UCLService.ListDatasets:output_type -> ucl.v1.ListDatasetsResponse
+	25, // 47: ucl.v1.UCLService.GetSchema:output_type -> ucl.v1.GetSchemaResponse
+	29, // 48: ucl.v1.UCLService.ProbeEndpointCapabilities:output_type -> ucl.v1.ProbeCapabilitiesResponse
+	31, // 49: ucl.v1.UCLService.StartOperation:output_type -> ucl.v1.StartOperationResponse
+	33, // 50: ucl.v1.UCLService.GetOperation:output_type -> ucl.v1.OperationState
+	42, // [42:51] is the sub-list for method output_type
+	33, // [33:42] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
-func init() { file_proto_ucl_proto_init() }
-func file_proto_ucl_proto_init() {
-	if File_proto_ucl_proto != nil {
+func init() { file_ucl_proto_init() }
+func file_ucl_proto_init() {
+	if File_ucl_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ucl_proto_rawDesc), len(file_proto_ucl_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   29,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ucl_proto_rawDesc), len(file_ucl_proto_rawDesc)),
+			NumEnums:      2,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_ucl_proto_goTypes,
-		DependencyIndexes: file_proto_ucl_proto_depIdxs,
-		MessageInfos:      file_proto_ucl_proto_msgTypes,
+		GoTypes:           file_ucl_proto_goTypes,
+		DependencyIndexes: file_ucl_proto_depIdxs,
+		EnumInfos:         file_ucl_proto_enumTypes,
+		MessageInfos:      file_ucl_proto_msgTypes,
 	}.Build()
-	File_proto_ucl_proto = out.File
-	file_proto_ucl_proto_goTypes = nil
-	file_proto_ucl_proto_depIdxs = nil
+	File_ucl_proto = out.File
+	file_ucl_proto_goTypes = nil
+	file_ucl_proto_depIdxs = nil
 }

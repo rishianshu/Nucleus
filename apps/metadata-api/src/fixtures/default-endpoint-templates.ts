@@ -266,6 +266,29 @@ export const DEFAULT_ENDPOINT_TEMPLATES: EndpointTemplate[] = [
         description: "Allows previewing Confluence page content directly from the catalog.",
       },
     ],
+    auth: {
+      modes: [
+        {
+          mode: "service",
+          label: "API token",
+          requiredFields: ["username", "api_token"],
+          scopes: [],
+          interactive: false,
+        },
+        {
+          mode: "delegated_auth_code_pkce",
+          label: "Sign in with Atlassian",
+          requiredFields: [],
+          scopes: ["read:confluence-space.summary"],
+          interactive: true,
+        },
+      ],
+      profileBinding: {
+        supported: true,
+        principalKinds: ["user"],
+        notes: "Bind Confluence access to the requesting Workspace user when delegated auth is used.",
+      },
+    },
     sampleConfig: {
       templateId: "http.confluence",
       parameters: {

@@ -26,7 +26,7 @@ import {
   listRegisteredIngestionSinkDescriptors,
 } from "@metadata/core";
 import { resolveKbLabel, humanizeKbIdentifier } from "@metadata/client";
-import type { EndpointBuildResult, EndpointTemplate, EndpointTestResult } from "./types.js";
+import type { EndpointAuthDescriptor, EndpointBuildResult, EndpointTemplate, EndpointTestResult } from "./types.js";
 import { getPrismaClient } from "./prismaClient.js";
 import { getTemporalClient } from "./temporal/client.js";
 import { WORKFLOW_NAMES } from "./temporal/workflows.js";
@@ -60,6 +60,14 @@ import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpo
 import { writeTransientState } from "./ingestion/transientState.js";
 import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
 import { CDM_MODEL_TABLES } from "./ingestion/cdmSink.js";
+import {
+  getOperation as getUclOperation,
+  probeEndpointCapabilities,
+  startOperation as startUclOperation,
+  type AuthDescriptor as UclAuthDescriptor,
+  type CapabilityProbeResult as UclCapabilityProbeResult,
+  type OperationState as UclOperationState,
+} from "./temporal/ucl-client.js";
 import {
   CdmWorkStore,
   encodeCursor as encodeWorkCursor,
@@ -726,6 +734,7 @@ export const typeDefs = `#graphql
     minVersion: String
     maxVersion: String
     probing: MetadataEndpointProbingPlan
+    auth: MetadataEndpointAuthDescriptor
     extras: JSON
   }
 
@@ -745,12 +754,72 @@ export const typeDefs = `#graphql
     returnsCapabilities: [String!]
   }
 
+  type MetadataEndpointAuthMode {
+    mode: String!
+    label: String
+    requiredFields: [String!]
+    scopes: [String!]
+    interactive: Boolean
+  }
+
+  type MetadataEndpointProfileBinding {
+    supported: Boolean!
+    principalKinds: [String!]
+    notes: String
+  }
+
+  type MetadataEndpointAuthDescriptor {
+    modes: [MetadataEndpointAuthMode!]
+    profileBinding: MetadataEndpointProfileBinding
+  }
+
   type MetadataEndpointTestResult {
     success: Boolean!
     message: String
     detectedVersion: String
     capabilities: [String!]
     details: JSON
+  }
+
+  type CapabilityProbeError {
+    code: String
+    message: String
+    retryable: Boolean
+    requiredScopes: [String!]
+    resolutionHint: String
+  }
+
+  type CapabilityProbeResult {
+    capabilities: [String!]!
+    supportedOperations: [String!]
+    constraints: JSON
+    auth: MetadataEndpointAuthDescriptor
+    error: CapabilityProbeError
+  }
+
+  input ProbeEndpointCapabilitiesInput {
+    templateId: ID
+    endpointId: ID
+    parameters: JSON
+  }
+
+  type MetadataOperationState {
+    operationId: ID!
+    kind: String
+    status: String!
+    startedAt: Float
+    completedAt: Float
+    retryable: Boolean
+    error: CapabilityProbeError
+    stats: JSON
+  }
+
+  input StartOperationInput {
+    endpointId: ID
+    templateId: ID
+    kind: String!
+    parameters: JSON
+    idempotencyKey: String
   }
 
   type OneDriveAuthSession {
@@ -1456,6 +1525,8 @@ type ProvisionCdmSinkResult {
     endpointBySourceId(sourceId: String!): MetadataEndpoint
     endpointDatasets(endpointId: ID!, domain: String, projectSlug: String, first: Int = 100, after: ID): [MetadataRecord!]!
     endpointTemplates(family: MetadataEndpointFamily): [MetadataEndpointTemplate!]!
+    probeEndpointCapabilities(input: ProbeEndpointCapabilitiesInput!): CapabilityProbeResult!
+    operationState(operationId: ID!): MetadataOperationState!
     ingestionUnits(endpointId: ID!): [IngestionUnit!]!
     ingestionSinks: [IngestionSink!]!
     ingestionStatuses(endpointId: ID!): [IngestionStatus!]!
@@ -1500,6 +1571,7 @@ type ProvisionCdmSinkResult {
     configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
     provisionCdmSink(input: ProvisionCdmSinkInput!): ProvisionCdmSinkResult!
     evaluateSignals(definitionSlugs: [String!], dryRun: Boolean): SignalEvaluationSummary!
+    startEndpointOperation(input: StartOperationInput!): MetadataOperationState!
   }
 `;
 
@@ -1523,6 +1595,11 @@ export function createResolvers(
     brainEmbeddingProvider?: EmbeddingProvider;
     brainIndexProfileStore?: IndexProfileStore;
     brainVectorIndexStore?: VectorIndexStore;
+    uclClient?: {
+      probeEndpointCapabilities?: typeof probeEndpointCapabilities;
+      startOperation?: typeof startUclOperation;
+      getOperation?: typeof getUclOperation;
+    };
   },
 ) {
   const resolveGraphStore = async () => options?.graphStore ?? (await getGraphStore());
@@ -1544,6 +1621,12 @@ export function createResolvers(
   let clusterRead: ClusterRead | null = options?.clusterRead ?? null;
   let brainEpisodeService: BrainEpisodeReadService | null = null;
   let brainSearchService: BrainSearchService | null = options?.brainSearchService ?? null;
+  const uclClient = {
+    probeEndpointCapabilities: options?.uclClient?.probeEndpointCapabilities ?? probeEndpointCapabilities,
+    startOperation: options?.uclClient?.startOperation ?? startUclOperation,
+    getOperation: options?.uclClient?.getOperation ?? getUclOperation,
+  };
+  const operationRuns: Map<string, UclOperationState> = new Map();
 
   const resolveClusterRead = async (): Promise<ClusterRead> => {
     if (clusterRead) {
@@ -1780,6 +1863,7 @@ export function createResolvers(
               collection: defaultCollection,
             },
             resolveTemporalClient,
+            async (input) => ensureCapabilitySupport(input, "metadata.run", ctx),
           );
         } catch (error) {
           if (!isCollectionInProgressError(error)) {
@@ -1911,6 +1995,145 @@ export function createResolvers(
     const templates = await fetchEndpointTemplates(undefined);
     return templates.find((entry) => entry.id === templateId);
   };
+  const mapCapabilityKey = (key: string): string => {
+    switch (key) {
+      case "metadata":
+        return "metadata.run";
+      case "preview":
+        return "preview.run";
+      case "ingestion":
+        return "ingestion.run";
+      case "endpoint.test_connection":
+        return key;
+      default:
+        return key;
+    }
+  };
+  const deriveCapabilityKeysFromTemplate = (template?: EndpointTemplate): string[] => {
+    if (!template) {
+      return [];
+    }
+    const mapped = (template.capabilities ?? [])
+      .map((entry) => (entry?.key ? mapCapabilityKey(entry.key) : null))
+      .filter((value): value is string => Boolean(value));
+    return mapped;
+  };
+  const normalizeAuthDescriptor = (auth: EndpointAuthDescriptor | UclAuthDescriptor | null | undefined): UclAuthDescriptor | undefined => {
+    if (!auth) {
+      return undefined;
+    }
+    return {
+      modes: auth.modes?.map((mode) => ({
+        mode: mode.mode,
+        label: mode.label ?? undefined,
+        requiredFields: mode.requiredFields ?? [],
+        scopes: mode.scopes ?? [],
+        interactive: mode.interactive ?? undefined,
+      })),
+      profileBinding: auth.profileBinding
+        ? {
+            supported: Boolean((auth.profileBinding as any).supported),
+            principalKinds: auth.profileBinding?.principalKinds ?? (auth as any).profile_binding?.principal_kinds,
+            notes: auth.profileBinding?.notes ?? undefined,
+          }
+        : undefined,
+    };
+  };
+  const deriveLocalCapabilities = async (
+    input: { templateId?: string | null; endpointId?: string | null },
+    ctx?: ResolverContext,
+  ): Promise<{ capabilities: string[]; auth?: EndpointTemplate["auth"] | null }> => {
+    const base = new Set<string>();
+    let template: EndpointTemplate | undefined;
+    if (input.templateId) {
+      template = await findTemplateById(input.templateId);
+    }
+    if (input.endpointId) {
+      const endpoints = await store.listEndpoints(ctx?.auth.projectId ?? undefined);
+      const endpoint = endpoints.find(
+        (entry) => entry.id === input.endpointId || entry.sourceId === input.endpointId,
+      );
+      if (endpoint?.capabilities?.length) {
+        endpoint.capabilities.forEach((capability) => {
+          if (typeof capability === "string") {
+            base.add(mapCapabilityKey(capability));
+          }
+        });
+      }
+      if (!template) {
+        const configTemplateId = parseTemplateId(endpoint?.config as Record<string, unknown>);
+        if (configTemplateId) {
+          template = await findTemplateById(configTemplateId);
+        }
+      }
+    }
+    deriveCapabilityKeysFromTemplate(template).forEach((capability) => base.add(capability));
+    return {
+      capabilities: Array.from(base),
+      auth: template?.auth ?? null,
+    };
+  };
+  const resolveCapabilityProbe = async (
+    input: { templateId?: string | null; endpointId?: string | null; parameters?: Record<string, string> | null },
+    ctx?: ResolverContext,
+  ): Promise<UclCapabilityProbeResult> => {
+    let probe: UclCapabilityProbeResult | null = null;
+    try {
+      probe = await uclClient.probeEndpointCapabilities({
+        templateId: input.templateId ?? undefined,
+        endpointId: input.endpointId ?? undefined,
+        parameters: input.parameters ?? undefined,
+      });
+    } catch (error) {
+      console.warn("[metadata.capabilityProbe] probe failed; using local fallback", {
+        error: error instanceof Error ? error.message : String(error),
+        templateId: input.templateId ?? null,
+        endpointId: input.endpointId ?? null,
+      });
+    }
+    const fallback = await deriveLocalCapabilities(input, ctx);
+    let capabilities = Array.from(new Set([...(probe?.capabilities ?? []), ...(fallback.capabilities ?? [])]));
+    if (!probe && capabilities.length === 0) {
+      capabilities = ["endpoint.test_connection"];
+    }
+    const supportedOperations = Array.from(new Set([...(probe?.supportedOperations ?? []), ...capabilities.filter(Boolean)]));
+    return {
+      capabilities,
+      supportedOperations,
+      constraints: probe?.constraints ?? undefined,
+      auth: normalizeAuthDescriptor(probe?.auth ?? fallback.auth ?? undefined),
+      error: probe?.error ?? null,
+    };
+  };
+  const ensureCapabilitySupport = async (
+    input: { templateId?: string | null; endpointId?: string | null; parameters?: Record<string, string> | null },
+    requiredCapability: string,
+    ctx: ResolverContext,
+  ): Promise<UclCapabilityProbeResult> => {
+    const probe = await resolveCapabilityProbe(input, ctx);
+    if (
+      !probe.capabilities.includes(requiredCapability) &&
+      !(probe.supportedOperations ?? []).includes(requiredCapability)
+    ) {
+      throw new GraphQLError(`Endpoint is missing capability: ${requiredCapability}`, {
+        extensions: { code: "E_CAPABILITY_MISSING", capability: requiredCapability },
+      });
+    }
+    return probe;
+  };
+  const resolveOperationCapability = (kind: string): string | null => {
+    const normalized = (kind ?? "").toUpperCase();
+    if (normalized.includes("METADATA")) {
+      return "metadata.run";
+    }
+    if (normalized.includes("PREVIEW")) {
+      return "preview.run";
+    }
+    if (normalized.includes("INGESTION")) {
+      return "ingestion.run";
+    }
+    return null;
+  };
   const listCollectionRunsForProject = async (
     ctx: ResolverContext,
     args: { filter?: MetadataCollectionRunFilter | null; limit?: number | null; after?: string | null },
@@ -1998,7 +2221,7 @@ export function createResolvers(
     return triggerCollectionForEndpoint(ctx, store, args.endpointId, {
       filters,
       collection,
-    }, resolveTemporalClient);
+    }, resolveTemporalClient, async (input) => ensureCapabilitySupport(input, "metadata.run", ctx));
   };
 
   type GraphQLSignalInstanceFilterInput = {
@@ -2850,6 +3073,36 @@ export function createResolvers(
         enforceReadAccess(ctx);
         return fetchEndpointTemplates(args.family ?? undefined);
       },
+      probeEndpointCapabilities: async (
+        _parent: unknown,
+        args: { input: { templateId?: string | null; endpointId?: string | null; parameters?: Record<string, unknown> | null } },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const parameters = normalizeStringRecord(args.input.parameters ?? null);
+        return resolveCapabilityProbe(
+          { templateId: args.input.templateId ?? null, endpointId: args.input.endpointId ?? null, parameters },
+          ctx,
+        );
+      },
+      operationState: async (_parent: unknown, args: { operationId: string }, ctx: ResolverContext) => {
+        enforceReadAccess(ctx);
+        let state: UclOperationState | null = null;
+        try {
+          state = await uclClient.getOperation(args.operationId);
+        } catch (error) {
+          console.warn("[metadata.operations] getOperation fallback", {
+            operationId: args.operationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          state = operationRuns.get(args.operationId) ?? null;
+        }
+        if (!state) {
+          throw new GraphQLError("Operation not found", { extensions: { code: "E_OPERATION_NOT_FOUND" } });
+        }
+        operationRuns.set(state.operationId, state);
+        return mapOperationStateForGraph(state);
+      },
       ingestionUnits: async (_parent: unknown, args: { endpointId: string }, ctx: ResolverContext) => {
         enforceIngestionAdmin(ctx);
         const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
@@ -3083,7 +3336,7 @@ export function createResolvers(
         return triggerCollectionForEndpoint(ctx, store, collection.endpointId, {
           filters,
           collection,
-        }, resolveTemporalClient);
+        }, resolveTemporalClient, async (input) => ensureCapabilitySupport(input, "metadata.run", ctx));
       },
       triggerEndpointCollection: triggerEndpointCollectionMutation,
       startIngestion: async (
@@ -3419,6 +3672,37 @@ export function createResolvers(
         });
         return summary;
       },
+      startEndpointOperation: async (
+        _parent: unknown,
+        args: {
+          input: {
+            endpointId?: string | null;
+            templateId?: string | null;
+            kind: string;
+            parameters?: Record<string, unknown> | null;
+            idempotencyKey?: string | null;
+          };
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceWriteAccess(ctx);
+        const parameters = normalizeStringRecord(args.input.parameters ?? null) ?? {};
+        const templateId = args.input.templateId ?? null;
+        const endpointId = args.input.endpointId ?? null;
+        const requiredCapability = resolveOperationCapability(args.input.kind);
+        if (requiredCapability) {
+          await ensureCapabilitySupport({ templateId, endpointId, parameters }, requiredCapability, ctx);
+        }
+        const result = await uclClient.startOperation({
+          templateId: templateId ?? undefined,
+          endpointId: endpointId ?? undefined,
+          kind: args.input.kind,
+          parameters,
+          idempotencyKey: args.input.idempotencyKey ?? undefined,
+        });
+        operationRuns.set(result.state.operationId, result.state);
+        return mapOperationStateForGraph(result.state);
+      },
       testMetadataEndpoint: async (_parent: unknown, args: { input: GraphQLMetadataEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
         const templateId = parseTemplateId(args.input.config);
@@ -3426,6 +3710,7 @@ export function createResolvers(
           return { success: false, message: "templateId required in config for testing." };
         }
         const parameters = parseTemplateParameters(args.input.config);
+        await ensureCapabilitySupport({ templateId, parameters, endpointId: null }, "endpoint.test_connection", ctx);
         const skipTest = ctx.bypassWrites || FAKE_COLLECTIONS_ENABLED || process.env.METADATA_SKIP_ENDPOINT_TESTS === "1";
         if (skipTest) {
           return {
@@ -3471,11 +3756,6 @@ export function createResolvers(
         if (!endpoint || !endpoint.url) {
           throw new Error("Source endpoint is not registered or missing connection URL");
         }
-        if (Array.isArray(endpoint.capabilities) && endpoint.capabilities.length > 0 && !endpoint.capabilities.includes("preview")) {
-          throw new GraphQLError("Endpoint does not expose the `preview` capability required for dataset previews.", {
-            extensions: { code: "E_CAPABILITY_MISSING" },
-          });
-        }
         const endpointConfig = normalizePayload(endpoint.config);
         const rawTemplateId = endpointConfig?.templateId;
         const templateId =
@@ -3490,6 +3770,12 @@ export function createResolvers(
           });
         }
         const parameters = normalizePayload(endpointConfig?.parameters) ?? {};
+        const probeParameters = normalizeStringRecord(parameters) ?? {};
+        await ensureCapabilitySupport(
+          { templateId, endpointId: sourceEndpointId, parameters: probeParameters },
+          "preview.run",
+          ctx,
+        );
         if (isOneDriveTemplate(templateId)) {
           const authMode = resolveOneDriveAuthMode(parameters);
           parameters.auth_mode = authMode;
@@ -3532,6 +3818,11 @@ export function createResolvers(
       testEndpoint: async (_parent: unknown, args: { input: GraphQLTestEndpointInput }, ctx: ResolverContext) => {
         enforceWriteAccess(ctx);
         const parameters = normalizeTestConnection(args.input.connection);
+        await ensureCapabilitySupport(
+          { templateId: args.input.templateId ?? null, endpointId: null, parameters },
+          "endpoint.test_connection",
+          ctx,
+        );
         if (hasPlaywrightInvalidCredentialsFromParameters(parameters)) {
           return {
             ok: false,
@@ -4847,6 +5138,33 @@ function normalizeEndpointListForGraphQL(
   return filtered.map((endpoint) => ({ ...endpoint, isDeleted: Boolean(endpoint.deletedAt) }));
 }
 
+function mapOperationStateForGraph(
+  state: UclOperationState | null,
+): {
+  operationId: string;
+  kind?: string | null;
+  status: string;
+  startedAt?: number | null;
+  completedAt?: number | null;
+  retryable?: boolean | null;
+  error?: UclOperationState["error"];
+  stats?: Record<string, string> | null;
+} | null {
+  if (!state) {
+    return null;
+  }
+  return {
+    operationId: state.operationId,
+    kind: state.kind ?? null,
+    status: state.status ?? "OPERATION_STATUS_UNSPECIFIED",
+    startedAt: state.startedAt ?? null,
+    completedAt: state.completedAt ?? null,
+    retryable: state.retryable ?? null,
+    error: state.error ?? null,
+    stats: state.stats ?? null,
+  };
+}
+
 function applyTemplateOverrides(templates: EndpointTemplate[]): EndpointTemplate[] {
   return templates.map((template) => {
     const override = TEMPLATE_OVERRIDES[template.id];
@@ -4862,6 +5180,7 @@ function applyTemplateOverrides(templates: EndpointTemplate[]): EndpointTemplate
       capabilities: override.capabilities ? [...override.capabilities] : template.capabilities ? [...template.capabilities] : [],
       connection: override.connection ?? template.connection,
       sampleConfig: override.sampleConfig ?? template.sampleConfig,
+      auth: override.auth ?? template.auth,
     };
   });
 }
@@ -4935,6 +5254,20 @@ function normalizeConfigObject(value: unknown): Record<string, unknown> | null {
   return { ...(value as Record<string, unknown>) };
 }
 
+function normalizeStringRecord(value: Record<string, unknown> | null | undefined): Record<string, string> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const entries: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry === undefined || entry === null) {
+      continue;
+    }
+    entries[key] = typeof entry === "string" ? entry : String(entry);
+  }
+  return Object.keys(entries).length > 0 ? entries : null;
+}
+
 async function triggerCollectionForEndpoint(
   ctx: ResolverContext,
   store: MetadataStore,
@@ -4947,6 +5280,7 @@ async function triggerCollectionForEndpoint(
     collection?: PrismaCollectionWithEndpoint | null;
   },
   resolveTemporalClientFn?: typeof getTemporalClient,
+  capabilityGuard?: (input: { templateId?: string | null; endpointId: string; parameters?: Record<string, string> | null }) => Promise<unknown>,
 ) {
   const prisma = await getPrismaClient();
   let endpoint = await prisma.metadataEndpoint.findUnique({ where: { id: endpointId } });
@@ -4996,9 +5330,12 @@ async function triggerCollectionForEndpoint(
       extensions: { code: "E_CONN_TEST_REQUIRED" },
     });
   }
-  if (Array.isArray(endpoint.capabilities) && endpoint.capabilities.length > 0 && !endpoint.capabilities.includes("metadata")) {
-    throw new GraphQLError("Endpoint is missing the required \"metadata\" capability.", {
-      extensions: { code: "E_CAPABILITY_MISSING" },
+  const templateIdForEndpoint = parseTemplateId(endpoint.config as Record<string, unknown>);
+  if (capabilityGuard) {
+    await capabilityGuard({
+      templateId: templateIdForEndpoint,
+      endpointId: endpoint.id,
+      parameters: endpointParameters,
     });
   }
   const collectionRecord =

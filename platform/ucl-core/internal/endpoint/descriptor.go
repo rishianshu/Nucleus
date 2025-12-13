@@ -25,6 +25,7 @@ type Descriptor struct {
 	Probing       *ProbingPlan
 	SampleConfig  map[string]any
 	Extras        map[string]any
+	Auth          *AuthDescriptor
 }
 
 // ConnectionConfig defines connection parameters.
@@ -65,7 +66,7 @@ type FieldDescriptor struct {
 	Sensitive    bool
 	Options      []*FieldOption
 	VisibleWhen  *VisibilityCondition
-	
+
 	// Extended metadata
 	Regex        string
 	HelpText     string
@@ -95,4 +96,26 @@ type CapabilityDescriptor struct {
 	Key         string
 	Label       string
 	Description string
+}
+
+// AuthDescriptor describes supported authentication flows.
+type AuthDescriptor struct {
+	Modes          []AuthModeDescriptor      `json:"modes"`
+	ProfileBinding *ProfileBindingDescriptor `json:"profileBinding,omitempty"`
+}
+
+// AuthModeDescriptor enumerates a specific auth mode (service, delegated, etc.).
+type AuthModeDescriptor struct {
+	Mode           string   `json:"mode"`
+	Label          string   `json:"label"`
+	RequiredFields []string `json:"requiredFields,omitempty"`
+	Scopes         []string `json:"scopes,omitempty"`
+	Interactive    bool     `json:"interactive,omitempty"`
+}
+
+// ProfileBindingDescriptor signals whether user-profile binding is supported.
+type ProfileBindingDescriptor struct {
+	Supported      bool     `json:"supported"`
+	PrincipalKinds []string `json:"principalKinds,omitempty"`
+	Notes          string   `json:"notes,omitempty"`
 }

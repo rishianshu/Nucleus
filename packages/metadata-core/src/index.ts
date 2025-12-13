@@ -102,6 +102,25 @@ export type MetadataEndpointProbingPlanDescriptor = {
   fallbackMessage?: string;
 };
 
+export type MetadataEndpointAuthModeDescriptor = {
+  mode: string;
+  label?: string;
+  requiredFields?: string[];
+  scopes?: string[];
+  interactive?: boolean;
+};
+
+export type MetadataEndpointProfileBindingDescriptor = {
+  supported: boolean;
+  principalKinds?: string[];
+  notes?: string;
+};
+
+export type MetadataEndpointAuthDescriptor = {
+  modes?: MetadataEndpointAuthModeDescriptor[];
+  profileBinding?: MetadataEndpointProfileBindingDescriptor | null;
+};
+
 export type MetadataEndpointTemplateDescriptor = {
   id: string;
   family: "JDBC" | "HTTP" | "STREAM";
@@ -121,6 +140,7 @@ export type MetadataEndpointTemplateDescriptor = {
   capabilities: MetadataEndpointCapabilityDescriptor[];
   sampleConfig?: Record<string, unknown>;
   connection?: MetadataEndpointConnectionTemplateDescriptor | null;
+  auth?: MetadataEndpointAuthDescriptor | null;
   descriptorVersion?: string;
   minVersion?: string;
   maxVersion?: string;

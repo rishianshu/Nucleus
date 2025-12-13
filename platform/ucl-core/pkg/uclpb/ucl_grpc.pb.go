@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v6.33.1
-// source: proto/ucl.proto
+// source: ucl.proto
 
 package uclpb
 
@@ -19,12 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UCLService_ListEndpointTemplates_FullMethodName  = "/ucl.v1.UCLService/ListEndpointTemplates"
-	UCLService_BuildEndpointConfig_FullMethodName    = "/ucl.v1.UCLService/BuildEndpointConfig"
-	UCLService_TestEndpointConnection_FullMethodName = "/ucl.v1.UCLService/TestEndpointConnection"
-	UCLService_ValidateConfig_FullMethodName         = "/ucl.v1.UCLService/ValidateConfig"
-	UCLService_ListDatasets_FullMethodName           = "/ucl.v1.UCLService/ListDatasets"
-	UCLService_GetSchema_FullMethodName              = "/ucl.v1.UCLService/GetSchema"
+	UCLService_ListEndpointTemplates_FullMethodName     = "/ucl.v1.UCLService/ListEndpointTemplates"
+	UCLService_BuildEndpointConfig_FullMethodName       = "/ucl.v1.UCLService/BuildEndpointConfig"
+	UCLService_TestEndpointConnection_FullMethodName    = "/ucl.v1.UCLService/TestEndpointConnection"
+	UCLService_ValidateConfig_FullMethodName            = "/ucl.v1.UCLService/ValidateConfig"
+	UCLService_ListDatasets_FullMethodName              = "/ucl.v1.UCLService/ListDatasets"
+	UCLService_GetSchema_FullMethodName                 = "/ucl.v1.UCLService/GetSchema"
+	UCLService_ProbeEndpointCapabilities_FullMethodName = "/ucl.v1.UCLService/ProbeEndpointCapabilities"
+	UCLService_StartOperation_FullMethodName            = "/ucl.v1.UCLService/StartOperation"
+	UCLService_GetOperation_FullMethodName              = "/ucl.v1.UCLService/GetOperation"
 )
 
 // UCLServiceClient is the client API for UCLService service.
@@ -46,6 +49,12 @@ type UCLServiceClient interface {
 	ListDatasets(ctx context.Context, in *ListDatasetsRequest, opts ...grpc.CallOption) (*ListDatasetsResponse, error)
 	// GetSchema returns the schema for a dataset.
 	GetSchema(ctx context.Context, in *GetSchemaRequest, opts ...grpc.CallOption) (*GetSchemaResponse, error)
+	// ProbeEndpointCapabilities performs a capability handshake.
+	ProbeEndpointCapabilities(ctx context.Context, in *ProbeCapabilitiesRequest, opts ...grpc.CallOption) (*ProbeCapabilitiesResponse, error)
+	// StartOperation starts a long-running connector workflow.
+	StartOperation(ctx context.Context, in *StartOperationRequest, opts ...grpc.CallOption) (*StartOperationResponse, error)
+	// GetOperation polls long-running workflow state.
+	GetOperation(ctx context.Context, in *GetOperationRequest, opts ...grpc.CallOption) (*OperationState, error)
 }
 
 type uCLServiceClient struct {
@@ -116,6 +125,36 @@ func (c *uCLServiceClient) GetSchema(ctx context.Context, in *GetSchemaRequest, 
 	return out, nil
 }
 
+func (c *uCLServiceClient) ProbeEndpointCapabilities(ctx context.Context, in *ProbeCapabilitiesRequest, opts ...grpc.CallOption) (*ProbeCapabilitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProbeCapabilitiesResponse)
+	err := c.cc.Invoke(ctx, UCLService_ProbeEndpointCapabilities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *uCLServiceClient) StartOperation(ctx context.Context, in *StartOperationRequest, opts ...grpc.CallOption) (*StartOperationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartOperationResponse)
+	err := c.cc.Invoke(ctx, UCLService_StartOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *uCLServiceClient) GetOperation(ctx context.Context, in *GetOperationRequest, opts ...grpc.CallOption) (*OperationState, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OperationState)
+	err := c.cc.Invoke(ctx, UCLService_GetOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UCLServiceServer is the server API for UCLService service.
 // All implementations must embed UnimplementedUCLServiceServer
 // for forward compatibility.
@@ -135,6 +174,12 @@ type UCLServiceServer interface {
 	ListDatasets(context.Context, *ListDatasetsRequest) (*ListDatasetsResponse, error)
 	// GetSchema returns the schema for a dataset.
 	GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error)
+	// ProbeEndpointCapabilities performs a capability handshake.
+	ProbeEndpointCapabilities(context.Context, *ProbeCapabilitiesRequest) (*ProbeCapabilitiesResponse, error)
+	// StartOperation starts a long-running connector workflow.
+	StartOperation(context.Context, *StartOperationRequest) (*StartOperationResponse, error)
+	// GetOperation polls long-running workflow state.
+	GetOperation(context.Context, *GetOperationRequest) (*OperationState, error)
 	mustEmbedUnimplementedUCLServiceServer()
 }
 
@@ -162,6 +207,15 @@ func (UnimplementedUCLServiceServer) ListDatasets(context.Context, *ListDatasets
 }
 func (UnimplementedUCLServiceServer) GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSchema not implemented")
+}
+func (UnimplementedUCLServiceServer) ProbeEndpointCapabilities(context.Context, *ProbeCapabilitiesRequest) (*ProbeCapabilitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProbeEndpointCapabilities not implemented")
+}
+func (UnimplementedUCLServiceServer) StartOperation(context.Context, *StartOperationRequest) (*StartOperationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartOperation not implemented")
+}
+func (UnimplementedUCLServiceServer) GetOperation(context.Context, *GetOperationRequest) (*OperationState, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOperation not implemented")
 }
 func (UnimplementedUCLServiceServer) mustEmbedUnimplementedUCLServiceServer() {}
 func (UnimplementedUCLServiceServer) testEmbeddedByValue()                    {}
@@ -292,6 +346,60 @@ func _UCLService_GetSchema_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UCLService_ProbeEndpointCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProbeCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UCLServiceServer).ProbeEndpointCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UCLService_ProbeEndpointCapabilities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UCLServiceServer).ProbeEndpointCapabilities(ctx, req.(*ProbeCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UCLService_StartOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UCLServiceServer).StartOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UCLService_StartOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UCLServiceServer).StartOperation(ctx, req.(*StartOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UCLService_GetOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UCLServiceServer).GetOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UCLService_GetOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UCLServiceServer).GetOperation(ctx, req.(*GetOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UCLService_ServiceDesc is the grpc.ServiceDesc for UCLService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -323,7 +431,19 @@ var UCLService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetSchema",
 			Handler:    _UCLService_GetSchema_Handler,
 		},
+		{
+			MethodName: "ProbeEndpointCapabilities",
+			Handler:    _UCLService_ProbeEndpointCapabilities_Handler,
+		},
+		{
+			MethodName: "StartOperation",
+			Handler:    _UCLService_StartOperation_Handler,
+		},
+		{
+			MethodName: "GetOperation",
+			Handler:    _UCLService_GetOperation_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/ucl.proto",
+	Metadata: "ucl.proto",
 }

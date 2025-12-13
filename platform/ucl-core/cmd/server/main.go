@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -25,6 +26,13 @@ import (
 // server implements the UCL gRPC service.
 type server struct {
 	pb.UnimplementedUCLServiceServer
+}
+
+var operationStore = struct {
+	sync.Mutex
+	ops map[string]*pb.OperationState
+}{
+	ops: make(map[string]*pb.OperationState),
 }
 
 func main() {
@@ -70,7 +78,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 
 		// Try to get the full descriptor from the endpoint
 		desc := getEndpointDescriptor(registry, id)
-		
+
 		tpl := &pb.EndpointTemplate{
 			Id:          id,
 			Family:      family,
@@ -78,9 +86,9 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 			Vendor:      extractVendor(id),
 			Description: getTemplateDescription(id),
 		}
-		
+
 		// Populate additional fields from descriptor if available
-			// Populate additional fields from descriptor if available
+		// Populate additional fields from descriptor if available
 		if desc != nil {
 			tpl.Domain = desc.Domain
 			tpl.Protocols = desc.Protocols
@@ -106,7 +114,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 				}
 				tpl.Capabilities = caps
 			}
-			
+
 			// Map Connection Config
 			if desc.Connection != nil {
 				tpl.Connection = &pb.ConnectionConfig{
@@ -114,7 +122,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 					DefaultVerb: desc.Connection.DefaultVerb,
 				}
 			}
-			
+
 			// Map Probing Plan
 			if desc.Probing != nil {
 				methods := make([]*pb.ProbingMethod, len(desc.Probing.Methods))
@@ -140,7 +148,12 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 			if desc.Extras != nil {
 				tpl.Extras = mapAnyToString(desc.Extras)
 			}
-			
+
+			// Map Auth descriptor
+			if desc.Auth != nil {
+				tpl.Auth = mapAuthDescriptor(desc.Auth)
+			}
+
 			// Populate fields from descriptor
 			if len(desc.Fields) > 0 {
 				fields := make([]*pb.FieldDescriptor, len(desc.Fields))
@@ -163,7 +176,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 						MinValue:     f.MinValue,
 						MaxValue:     f.MaxValue,
 					}
-					
+
 					// Map Options
 					if len(f.Options) > 0 {
 						opts := make([]string, len(f.Options))
@@ -172,7 +185,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 						}
 						fields[i].Options = opts
 					}
-					
+
 					// Map VisibleWhile
 					if f.VisibleWhen != nil {
 						fields[i].VisibleWhen = &pb.VisibleWhen{
@@ -187,7 +200,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 				}
 				tpl.Fields = fields
 			}
-			
+
 			// Add sample config if available
 			if desc.SampleConfig != nil {
 				if b, err := json.Marshal(desc.SampleConfig); err == nil {
@@ -195,7 +208,7 @@ func (s *server) ListEndpointTemplates(ctx context.Context, req *pb.ListTemplate
 				}
 			}
 		}
-		
+
 		templates = append(templates, tpl)
 	}
 
@@ -208,7 +221,7 @@ func getEndpointDescriptor(registry *endpoint.Registry, id string) *endpoint.Des
 	if !ok {
 		return nil
 	}
-	
+
 	// Create a minimal endpoint to get its descriptor
 	ep, err := factory(map[string]any{
 		"host": "localhost",
@@ -218,8 +231,36 @@ func getEndpointDescriptor(registry *endpoint.Registry, id string) *endpoint.Des
 		return nil
 	}
 	defer ep.Close()
-	
+
 	return ep.GetDescriptor()
+}
+
+func mapAuthDescriptor(desc *endpoint.AuthDescriptor) *pb.AuthDescriptor {
+	if desc == nil {
+		return nil
+	}
+	modes := make([]*pb.AuthModeDescriptor, 0, len(desc.Modes))
+	for _, mode := range desc.Modes {
+		modes = append(modes, &pb.AuthModeDescriptor{
+			Mode:           mode.Mode,
+			Label:          mode.Label,
+			RequiredFields: mode.RequiredFields,
+			Scopes:         mode.Scopes,
+			Interactive:    mode.Interactive,
+		})
+	}
+	var profile *pb.ProfileBindingDescriptor
+	if desc.ProfileBinding != nil {
+		profile = &pb.ProfileBindingDescriptor{
+			Supported:      desc.ProfileBinding.Supported,
+			PrincipalKinds: desc.ProfileBinding.PrincipalKinds,
+			Notes:          desc.ProfileBinding.Notes,
+		}
+	}
+	return &pb.AuthDescriptor{
+		Modes:          modes,
+		ProfileBinding: profile,
+	}
 }
 
 // mapAnyToString converts map[string]any to map[string]string
@@ -330,7 +371,7 @@ func (s *server) TestEndpointConnection(ctx context.Context, req *pb.TestConnect
 		LatencyMs:       time.Since(start).Milliseconds(),
 		DetectedVersion: result.DetectedVersion,
 	}
-	
+
 	// Add capabilities if endpoint supports them
 	caps := ep.GetCapabilities()
 	if caps != nil {
@@ -352,7 +393,7 @@ func (s *server) TestEndpointConnection(ctx context.Context, req *pb.TestConnect
 		}
 		resp.Capabilities = capList
 	}
-	
+
 	return resp, nil
 }
 
@@ -470,8 +511,192 @@ func (s *server) GetSchema(ctx context.Context, req *pb.GetSchemaRequest) (*pb.G
 }
 
 // =============================================================================
+// CAPABILITY PROBE
+// =============================================================================
+
+func (s *server) ProbeEndpointCapabilities(ctx context.Context, req *pb.ProbeCapabilitiesRequest) (*pb.ProbeCapabilitiesResponse, error) {
+	registry := endpoint.DefaultRegistry()
+	targetID := req.TemplateId
+	if targetID == "" {
+		targetID = req.EndpointId
+	}
+
+	result := &pb.CapabilityProbeResult{
+		Capabilities:        []string{"endpoint.test_connection"},
+		SupportedOperations: []string{"endpoint.test_connection"},
+	}
+
+	if targetID == "" {
+		result.Error = &pb.ErrorDetail{
+			Code:      "E_INVALID_INPUT",
+			Message:   "template_id or endpoint_id required",
+			Retryable: false,
+		}
+		return &pb.ProbeCapabilitiesResponse{Result: result}, nil
+	}
+
+	desc := getEndpointDescriptor(registry, targetID)
+	if desc != nil {
+		if desc.Auth != nil {
+			result.Auth = mapAuthDescriptor(desc.Auth)
+		}
+		for _, cap := range desc.Capabilities {
+			switch strings.ToLower(cap.Key) {
+			case "metadata":
+				result.Capabilities = appendIfMissing(result.Capabilities, "metadata.run")
+				result.SupportedOperations = appendIfMissing(result.SupportedOperations, "metadata.run")
+			case "preview":
+				result.Capabilities = appendIfMissing(result.Capabilities, "preview.run")
+				result.SupportedOperations = appendIfMissing(result.SupportedOperations, "preview.run")
+			case "ingestion":
+				result.Capabilities = appendIfMissing(result.Capabilities, "ingestion.run")
+				result.SupportedOperations = appendIfMissing(result.SupportedOperations, "ingestion.run")
+			}
+		}
+	}
+
+	return &pb.ProbeCapabilitiesResponse{Result: result}, nil
+}
+
+// =============================================================================
+// LONG-RUNNING OPERATIONS
+// =============================================================================
+
+func (s *server) StartOperation(ctx context.Context, req *pb.StartOperationRequest) (*pb.StartOperationResponse, error) {
+	opID := req.IdempotencyKey
+	if opID == "" {
+		opID = fmt.Sprintf("op-%d", time.Now().UnixNano())
+	}
+	now := time.Now().UnixMilli()
+	state := &pb.OperationState{
+		OperationId: opID,
+		Kind:        req.Kind,
+		Status:      pb.OperationStatus_OPERATION_STATUS_QUEUED,
+		StartedAt:   now,
+		Retryable:   true,
+		Stats:       map[string]string{},
+	}
+	if code, ok := req.Parameters["force_error"]; ok && code != "" {
+		retryable := code == "E_ENDPOINT_UNREACHABLE" || code == "E_TIMEOUT"
+		state.Status = pb.OperationStatus_OPERATION_STATUS_FAILED
+		state.Error = &pb.ErrorDetail{
+			Code:           code,
+			Message:        "forced error",
+			Retryable:      retryable,
+			RequiredScopes: parseScopes(req.Parameters["required_scopes"]),
+		}
+		state.Retryable = retryable
+		state.CompletedAt = time.Now().UnixMilli()
+		storeOperationState(state)
+		return &pb.StartOperationResponse{OperationId: opID, State: cloneOperationState(state)}, nil
+	}
+
+	storeOperationState(state)
+	go advanceOperation(opID)
+	return &pb.StartOperationResponse{OperationId: opID, State: cloneOperationState(state)}, nil
+}
+
+func (s *server) GetOperation(ctx context.Context, req *pb.GetOperationRequest) (*pb.OperationState, error) {
+	state := loadOperationState(req.OperationId)
+	if state == nil {
+		return &pb.OperationState{
+			OperationId: req.OperationId,
+			Status:      pb.OperationStatus_OPERATION_STATUS_FAILED,
+			Error: &pb.ErrorDetail{
+				Code:      "E_OPERATION_NOT_FOUND",
+				Message:   "operation not found",
+				Retryable: false,
+			},
+		}, nil
+	}
+	return state, nil
+}
+
+func advanceOperation(operationID string) {
+	updateOperation(operationID, func(state *pb.OperationState) {
+		state.Status = pb.OperationStatus_OPERATION_STATUS_RUNNING
+		state.Retryable = true
+	})
+	time.Sleep(100 * time.Millisecond)
+	updateOperation(operationID, func(state *pb.OperationState) {
+		state.Status = pb.OperationStatus_OPERATION_STATUS_SUCCEEDED
+		state.CompletedAt = time.Now().UnixMilli()
+		state.Retryable = false
+		if state.Stats == nil {
+			state.Stats = map[string]string{}
+		}
+		state.Stats["result"] = "ok"
+	})
+}
+
+// =============================================================================
 // HELPERS
 // =============================================================================
+
+func storeOperationState(state *pb.OperationState) {
+	operationStore.Lock()
+	defer operationStore.Unlock()
+	operationStore.ops[state.OperationId] = cloneOperationState(state)
+}
+
+func loadOperationState(id string) *pb.OperationState {
+	operationStore.Lock()
+	defer operationStore.Unlock()
+	state, ok := operationStore.ops[id]
+	if !ok {
+		return nil
+	}
+	return cloneOperationState(state)
+}
+
+func updateOperation(id string, mutate func(state *pb.OperationState)) {
+	operationStore.Lock()
+	defer operationStore.Unlock()
+	state, ok := operationStore.ops[id]
+	if !ok {
+		return
+	}
+	mutate(state)
+	operationStore.ops[id] = state
+}
+
+func cloneOperationState(state *pb.OperationState) *pb.OperationState {
+	if state == nil {
+		return nil
+	}
+	cloned := *state
+	if state.Stats != nil {
+		cloned.Stats = make(map[string]string, len(state.Stats))
+		for k, v := range state.Stats {
+			cloned.Stats[k] = v
+		}
+	}
+	return &cloned
+}
+
+func appendIfMissing(list []string, value string) []string {
+	for _, existing := range list {
+		if existing == value {
+			return list
+		}
+	}
+	return append(list, value)
+}
+
+func parseScopes(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	scopes := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			scopes = append(scopes, trimmed)
+		}
+	}
+	return scopes
+}
 
 func extractFamily(id string) string {
 	if len(id) < 4 {
@@ -528,15 +753,15 @@ func formatDisplayName(id string) string {
 
 func getTemplateDescription(id string) string {
 	descriptions := map[string]string{
-		"jdbc.postgres":    "PostgreSQL database connector",
-		"jdbc.oracle":      "Oracle database connector",
-		"jdbc.sqlserver":   "Microsoft SQL Server connector",
-		"jdbc.mysql":       "MySQL database connector",
-		"http.jira":        "Atlassian Jira Cloud API",
-		"http.confluence":  "Atlassian Confluence Cloud API",
-		"http.rest":        "Generic REST API connector",
-		"cloud.onedrive":   "Microsoft OneDrive/SharePoint connector",
-		"hdfs.webhdfs":     "HDFS via WebHDFS API",
+		"jdbc.postgres":   "PostgreSQL database connector",
+		"jdbc.oracle":     "Oracle database connector",
+		"jdbc.sqlserver":  "Microsoft SQL Server connector",
+		"jdbc.mysql":      "MySQL database connector",
+		"http.jira":       "Atlassian Jira Cloud API",
+		"http.confluence": "Atlassian Confluence Cloud API",
+		"http.rest":       "Generic REST API connector",
+		"cloud.onedrive":  "Microsoft OneDrive/SharePoint connector",
+		"hdfs.webhdfs":    "HDFS via WebHDFS API",
 	}
 	if desc, ok := descriptions[id]; ok {
 		return desc

@@ -1,0 +1,1 @@
+- Run pnpm ci-check or broader regression when environment/time allows to validate new capability/operation wiring.

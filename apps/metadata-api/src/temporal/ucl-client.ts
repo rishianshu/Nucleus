@@ -5,7 +5,6 @@
  * The gRPC server runs on platform/ucl-core/cmd/server at :50051
  */
 
-import { credentials, ChannelCredentials } from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +27,25 @@ const PROTO_PATH = path.resolve(
 const UCL_GRPC_ADDRESS = process.env.UCL_GRPC_ADDRESS ?? "localhost:50051";
 
 // Types matching proto definitions
+export interface AuthModeDescriptor {
+  mode: string;
+  label?: string;
+  requiredFields?: string[];
+  scopes?: string[];
+  interactive?: boolean;
+}
+
+export interface ProfileBindingDescriptor {
+  supported: boolean;
+  principalKinds?: string[];
+  notes?: string;
+}
+
+export interface AuthDescriptor {
+  modes?: AuthModeDescriptor[];
+  profileBinding?: ProfileBindingDescriptor | null;
+}
+
 export interface EndpointTemplate {
   id: string;
   family: string;
@@ -51,6 +69,7 @@ export interface EndpointTemplate {
   capabilities?: Capability[];
   connection?: ConnectionConfig;
   probing?: ProbingPlan;
+  auth?: AuthDescriptor;
   sampleConfig?: string;
   extras?: Record<string, string>;
 }
@@ -152,6 +171,40 @@ export interface BuildConfigResult {
   config: Record<string, string>;
   connectionUrl?: string;
   error?: string;
+}
+
+export interface ErrorDetail {
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  requiredScopes?: string[];
+  resolutionHint?: string;
+}
+
+export interface CapabilityProbeResult {
+  capabilities: string[];
+  constraints?: Record<string, string>;
+  auth?: AuthDescriptor;
+  supportedOperations?: string[];
+  error?: ErrorDetail | null;
+}
+
+export type OperationStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED" | "OPERATION_STATUS_UNSPECIFIED";
+
+export interface OperationState {
+  operationId: string;
+  kind?: string;
+  status: OperationStatus;
+  startedAt?: number;
+  completedAt?: number;
+  retryable?: boolean;
+  error?: ErrorDetail | null;
+  stats?: Record<string, string>;
+}
+
+export interface StartOperationResult {
+  operationId: string;
+  state: OperationState;
 }
 
 // Lazy-loaded gRPC client
@@ -309,6 +362,145 @@ export async function getSchema(
       }
     );
   });
+}
+
+export async function probeEndpointCapabilities(input: {
+  templateId?: string;
+  endpointId?: string;
+  parameters?: Record<string, string>;
+}): Promise<CapabilityProbeResult> {
+  const client = await getClient();
+
+  return new Promise((resolve, reject) => {
+    client.ProbeEndpointCapabilities(
+      {
+        templateId: input.templateId ?? "",
+        endpointId: input.endpointId ?? "",
+        parameters: input.parameters ?? {},
+      },
+      (err: Error | null, response: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        const payload = response?.result ?? response ?? {};
+        resolve(normalizeCapabilityProbeResult(payload));
+      }
+    );
+  });
+}
+
+export async function startOperation(input: {
+  templateId?: string;
+  endpointId?: string;
+  kind?: string;
+  parameters?: Record<string, string>;
+  idempotencyKey?: string;
+}): Promise<StartOperationResult> {
+  const client = await getClient();
+
+  return new Promise((resolve, reject) => {
+    client.StartOperation(
+      {
+        templateId: input.templateId ?? "",
+        endpointId: input.endpointId ?? "",
+        kind: input.kind ?? "METADATA_RUN",
+        parameters: input.parameters ?? {},
+        idempotencyKey: input.idempotencyKey ?? "",
+      },
+      (err: Error | null, response: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        const state = normalizeOperationState(response?.state ?? response);
+        resolve({
+          operationId: response?.operationId ?? state.operationId,
+          state,
+        });
+      }
+    );
+  });
+}
+
+export async function getOperation(operationId: string): Promise<OperationState> {
+  const client = await getClient();
+
+  return new Promise((resolve, reject) => {
+    client.GetOperation(
+      { operationId },
+      (err: Error | null, response: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(normalizeOperationState(response));
+      }
+    );
+  });
+}
+
+function normalizeCapabilityProbeResult(result: any): CapabilityProbeResult {
+  return {
+    capabilities: Array.isArray(result?.capabilities) ? result.capabilities : [],
+    constraints: (result?.constraints as Record<string, string> | undefined) ?? undefined,
+    auth: result?.auth,
+    supportedOperations: Array.isArray(result?.supportedOperations) ? result.supportedOperations : [],
+    error: normalizeErrorDetail(result?.error),
+  };
+}
+
+function normalizeErrorDetail(error: any): ErrorDetail | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const requiredScopes = Array.isArray(error.requiredScopes) ? error.requiredScopes : undefined;
+  return {
+    code: typeof error.code === "string" ? error.code : undefined,
+    message: typeof error.message === "string" ? error.message : undefined,
+    retryable: typeof error.retryable === "boolean" ? error.retryable : undefined,
+    requiredScopes,
+    resolutionHint: typeof error.resolutionHint === "string" ? error.resolutionHint : undefined,
+  };
+}
+
+function normalizeOperationState(state: any): OperationState {
+  const normalizedError = normalizeErrorDetail(state?.error);
+  return {
+    operationId: typeof state?.operationId === "string" ? state.operationId : state?.operation_id ?? "",
+    kind: typeof state?.kind === "string" ? state.kind : undefined,
+    status: coerceOperationStatus(state?.status),
+    startedAt: state?.startedAt ?? state?.started_at,
+    completedAt: state?.completedAt ?? state?.completed_at,
+    retryable: typeof state?.retryable === "boolean" ? state.retryable : undefined,
+    error: normalizedError,
+    stats: (state?.stats as Record<string, string> | undefined) ?? undefined,
+  };
+}
+
+function coerceOperationStatus(raw: any): OperationStatus {
+  if (typeof raw === "string" && raw.length > 0) {
+    const normalized = raw.toUpperCase();
+    if (normalized.startsWith("OPERATION_STATUS_")) {
+      return normalized as OperationStatus;
+    }
+    if (["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"].includes(normalized)) {
+      return normalized as OperationStatus;
+    }
+  }
+  if (typeof raw === "number") {
+    const numericMap: Record<number, OperationStatus> = {
+      1: "QUEUED",
+      2: "RUNNING",
+      3: "SUCCEEDED",
+      4: "FAILED",
+      5: "CANCELLED",
+    };
+    if (numericMap[raw]) {
+      return numericMap[raw];
+    }
+  }
+  return "OPERATION_STATUS_UNSPECIFIED";
 }
 
 /**

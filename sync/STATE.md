@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-brain-search-graphrag-api-v1 (in-progress @ 2025-12-12T16:37Z)
+ucl-grpc-capabilities-and-auth-descriptors-v1 (in-progress @ 2025-12-12T18:28Z)
 
 ## Last Run
-- slug: brain-search-graphrag-api-v1
+- slug: ucl-grpc-capabilities-and-auth-descriptors-v1
 - status: in-progress
-- duration: ~0.6h
-- tests: pnpm exec node --import tsx --test src/brain/brainSearch.test.ts; pnpm --filter @apps/metadata-api build; pnpm --filter @apps/metadata-api test:brain (fails: metadata Postgres missing @ localhost:5434)
+- duration: ~1.1h
+- tests: pnpm --dir apps/metadata-api build; pnpm --dir apps/metadata-api exec node --import tsx --test src/capabilityProbe.test.ts src/templatesAuthDescriptor.test.ts src/operationsMapping.test.ts src/hardeningNegativeCases.test.ts (pass)
 - commits: none
-- decisions: 1
-- next_step: rerun `pnpm --filter @apps/metadata-api test:brain`/`pnpm ci-check` once metadata Postgres is available; continue GraphRAG acceptance verification
+- decisions: 0
+- next_step: consider full pnpm ci-check and finalize capability/operation rollout notes; update story/LOG if continuing
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-12T18:28Z run in-progress (ucl-grpc-capabilities-and-auth-descriptors-v1, gRPC capability probe/ops schema updates with targeted metadata-api tests; ci-check pending)
 - 2025-12-12T16:37Z run in-progress (brain-search-graphrag-api-v1, brainSearch schema/service + prompt pack + deterministic tests added; test:brain blocked by missing metadata Postgres at localhost:5434)
 - 2025-12-12T14:50Z run in-progress (brain-episodes-read-api-v1, BrainEpisode schema/resolvers + KG/Signals hydration added with integration tests; test:brain blocked by missing metadata Postgres at localhost:5434)
 - 2025-12-12T11:16Z run success (brain-clusters-and-episodes-v1, cluster builder/read + registry migration + cluster tests via node --import tsx; ci-check pending)

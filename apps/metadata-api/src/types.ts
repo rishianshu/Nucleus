@@ -52,6 +52,25 @@ export type EndpointProbingPlan = {
   fallbackMessage?: string | null;
 };
 
+export type EndpointAuthModeDescriptor = {
+  mode: string;
+  label?: string | null;
+  requiredFields?: string[];
+  scopes?: string[];
+  interactive?: boolean | null;
+};
+
+export type EndpointProfileBindingDescriptor = {
+  supported: boolean;
+  principalKinds?: string[];
+  notes?: string | null;
+};
+
+export type EndpointAuthDescriptor = {
+  modes?: EndpointAuthModeDescriptor[];
+  profileBinding?: EndpointProfileBindingDescriptor | null;
+};
+
 export type EndpointTemplate = {
   id: string;
   family: "JDBC" | "HTTP" | "STREAM";
@@ -74,6 +93,7 @@ export type EndpointTemplate = {
     urlTemplate?: string | null;
     defaultVerb?: string | null;
   } | null;
+  auth?: EndpointAuthDescriptor | null;
   descriptorVersion?: string | null;
   minVersion?: string | null;
   maxVersion?: string | null;
