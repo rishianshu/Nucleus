@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-ucl-grpc-capabilities-and-auth-descriptors-v1 (in-progress @ 2025-12-12T18:28Z)
+ucl-ingestion-pipe-and-adaptive-planning-v1 (success @ 2025-12-13T05:45Z)
 
 ## Last Run
-- slug: ucl-grpc-capabilities-and-auth-descriptors-v1
-- status: in-progress
-- duration: ~1.1h
-- tests: pnpm --dir apps/metadata-api build; pnpm --dir apps/metadata-api exec node --import tsx --test src/capabilityProbe.test.ts src/templatesAuthDescriptor.test.ts src/operationsMapping.test.ts src/hardeningNegativeCases.test.ts (pass)
+- slug: ucl-ingestion-pipe-and-adaptive-planning-v1
+- status: success
+- duration: ~0.6h
+- tests: GOCACHE=platform/ucl-core/.gocache go test ./... (platform/ucl-core); GOCACHE=platform/ucl-worker/.gocache go test ./... (platform/ucl-worker)
 - commits: none
 - decisions: 0
-- next_step: consider full pnpm ci-check and finalize capability/operation rollout notes; update story/LOG if continuing
+- next_step: monitor downstream integration; none planned
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,7 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-13T05:45Z run success (ucl-ingestion-pipe-and-adaptive-planning-v1, status enums updated + endpoint.Register exposed; go test ./... green for ucl-core/ucl-worker)
 - 2025-12-12T18:28Z run in-progress (ucl-grpc-capabilities-and-auth-descriptors-v1, gRPC capability probe/ops schema updates with targeted metadata-api tests; ci-check pending)
 - 2025-12-12T16:37Z run in-progress (brain-search-graphrag-api-v1, brainSearch schema/service + prompt pack + deterministic tests added; test:brain blocked by missing metadata Postgres at localhost:5434)
 - 2025-12-12T14:50Z run in-progress (brain-episodes-read-api-v1, BrainEpisode schema/resolvers + KG/Signals hydration added with integration tests; test:brain blocked by missing metadata Postgres at localhost:5434)

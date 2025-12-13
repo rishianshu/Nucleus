@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,6 +17,7 @@ import (
 
 	pb "github.com/nucleus/ucl-core/gen/go/proto"
 	"github.com/nucleus/ucl-core/internal/endpoint"
+	"github.com/nucleus/ucl-core/internal/orchestration"
 
 	// Import connector package to register all connectors
 	_ "github.com/nucleus/ucl-core/pkg/connector"
@@ -28,12 +28,7 @@ type server struct {
 	pb.UnimplementedUCLServiceServer
 }
 
-var operationStore = struct {
-	sync.Mutex
-	ops map[string]*pb.OperationState
-}{
-	ops: make(map[string]*pb.OperationState),
-}
+var opManager = orchestration.NewManager()
 
 func main() {
 	port := os.Getenv("UCL_GRPC_PORT")
@@ -563,115 +558,11 @@ func (s *server) ProbeEndpointCapabilities(ctx context.Context, req *pb.ProbeCap
 // =============================================================================
 
 func (s *server) StartOperation(ctx context.Context, req *pb.StartOperationRequest) (*pb.StartOperationResponse, error) {
-	opID := req.IdempotencyKey
-	if opID == "" {
-		opID = fmt.Sprintf("op-%d", time.Now().UnixNano())
-	}
-	now := time.Now().UnixMilli()
-	state := &pb.OperationState{
-		OperationId: opID,
-		Kind:        req.Kind,
-		Status:      pb.OperationStatus_OPERATION_STATUS_QUEUED,
-		StartedAt:   now,
-		Retryable:   true,
-		Stats:       map[string]string{},
-	}
-	if code, ok := req.Parameters["force_error"]; ok && code != "" {
-		retryable := code == "E_ENDPOINT_UNREACHABLE" || code == "E_TIMEOUT"
-		state.Status = pb.OperationStatus_OPERATION_STATUS_FAILED
-		state.Error = &pb.ErrorDetail{
-			Code:           code,
-			Message:        "forced error",
-			Retryable:      retryable,
-			RequiredScopes: parseScopes(req.Parameters["required_scopes"]),
-		}
-		state.Retryable = retryable
-		state.CompletedAt = time.Now().UnixMilli()
-		storeOperationState(state)
-		return &pb.StartOperationResponse{OperationId: opID, State: cloneOperationState(state)}, nil
-	}
-
-	storeOperationState(state)
-	go advanceOperation(opID)
-	return &pb.StartOperationResponse{OperationId: opID, State: cloneOperationState(state)}, nil
+	return opManager.StartOperation(ctx, req)
 }
 
 func (s *server) GetOperation(ctx context.Context, req *pb.GetOperationRequest) (*pb.OperationState, error) {
-	state := loadOperationState(req.OperationId)
-	if state == nil {
-		return &pb.OperationState{
-			OperationId: req.OperationId,
-			Status:      pb.OperationStatus_OPERATION_STATUS_FAILED,
-			Error: &pb.ErrorDetail{
-				Code:      "E_OPERATION_NOT_FOUND",
-				Message:   "operation not found",
-				Retryable: false,
-			},
-		}, nil
-	}
-	return state, nil
-}
-
-func advanceOperation(operationID string) {
-	updateOperation(operationID, func(state *pb.OperationState) {
-		state.Status = pb.OperationStatus_OPERATION_STATUS_RUNNING
-		state.Retryable = true
-	})
-	time.Sleep(100 * time.Millisecond)
-	updateOperation(operationID, func(state *pb.OperationState) {
-		state.Status = pb.OperationStatus_OPERATION_STATUS_SUCCEEDED
-		state.CompletedAt = time.Now().UnixMilli()
-		state.Retryable = false
-		if state.Stats == nil {
-			state.Stats = map[string]string{}
-		}
-		state.Stats["result"] = "ok"
-	})
-}
-
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-func storeOperationState(state *pb.OperationState) {
-	operationStore.Lock()
-	defer operationStore.Unlock()
-	operationStore.ops[state.OperationId] = cloneOperationState(state)
-}
-
-func loadOperationState(id string) *pb.OperationState {
-	operationStore.Lock()
-	defer operationStore.Unlock()
-	state, ok := operationStore.ops[id]
-	if !ok {
-		return nil
-	}
-	return cloneOperationState(state)
-}
-
-func updateOperation(id string, mutate func(state *pb.OperationState)) {
-	operationStore.Lock()
-	defer operationStore.Unlock()
-	state, ok := operationStore.ops[id]
-	if !ok {
-		return
-	}
-	mutate(state)
-	operationStore.ops[id] = state
-}
-
-func cloneOperationState(state *pb.OperationState) *pb.OperationState {
-	if state == nil {
-		return nil
-	}
-	cloned := *state
-	if state.Stats != nil {
-		cloned.Stats = make(map[string]string, len(state.Stats))
-		for k, v := range state.Stats {
-			cloned.Stats[k] = v
-		}
-	}
-	return &cloned
+	return opManager.GetOperation(ctx, req)
 }
 
 func appendIfMissing(list []string, value string) []string {

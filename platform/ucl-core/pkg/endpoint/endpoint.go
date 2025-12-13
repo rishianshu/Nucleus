@@ -7,27 +7,31 @@ import (
 
 // Re-export types for external use
 type (
-	Record           = internal.Record
-	Iterator[T any]  = internal.Iterator[T]
-	Endpoint         = internal.Endpoint
-	SourceEndpoint   = internal.SourceEndpoint
-	SinkEndpoint     = internal.SinkEndpoint
-	SliceCapable     = internal.SliceCapable
-	Dataset          = internal.Dataset
-	Schema           = internal.Schema
-	FieldDefinition  = internal.FieldDefinition
-	Capabilities     = internal.Capabilities
-	Checkpoint       = internal.Checkpoint
-	IngestionPlan    = internal.IngestionPlan
-	IngestionSlice   = internal.IngestionSlice
-	PlanRequest      = internal.PlanRequest
-	ReadRequest      = internal.ReadRequest
-	SliceReadRequest = internal.SliceReadRequest
-	ValidationResult = internal.ValidationResult
-	Descriptor       = internal.Descriptor
-	FieldDescriptor  = internal.FieldDescriptor
-	Factory          = internal.Factory
-	Registry         = internal.Registry
+	Record               = internal.Record
+	Iterator[T any]      = internal.Iterator[T]
+	Endpoint             = internal.Endpoint
+	SourceEndpoint       = internal.SourceEndpoint
+	SinkEndpoint         = internal.SinkEndpoint
+	SliceCapable         = internal.SliceCapable
+	Dataset              = internal.Dataset
+	Schema               = internal.Schema
+	FieldDefinition      = internal.FieldDefinition
+	Capabilities         = internal.Capabilities
+	Checkpoint           = internal.Checkpoint
+	IngestionPlan        = internal.IngestionPlan
+	IngestionSlice       = internal.IngestionSlice
+	PlanRequest          = internal.PlanRequest
+	ReadRequest          = internal.ReadRequest
+	SliceReadRequest     = internal.SliceReadRequest
+	ValidationResult     = internal.ValidationResult
+	Descriptor           = internal.Descriptor
+	FieldDescriptor      = internal.FieldDescriptor
+	Factory              = internal.Factory
+	Registry             = internal.Registry
+	AdaptiveIngestion    = internal.AdaptiveIngestion
+	ProbeRequest         = internal.ProbeRequest
+	ProbeResult          = internal.ProbeResult
+	PlanIngestionRequest = internal.PlanIngestionRequest
 )
 
 // Strategy type for ingestion planning
@@ -78,6 +82,11 @@ func CreateSliceCapable(endpointID string, config map[string]any) (SliceCapable,
 		return nil, ErrNotSliceCapable{EndpointID: endpointID}
 	}
 	return sliceCapable, nil
+}
+
+// Register adds a factory to the default registry.
+func Register(endpointID string, factory Factory) {
+	DefaultRegistry().Register(endpointID, factory)
 }
 
 // ErrNotFound indicates an endpoint was not found.

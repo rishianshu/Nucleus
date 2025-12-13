@@ -1,0 +1,3 @@
+2025-12-13T04:30:13Z {done: booting ucl-ingestion-pipe-and-adaptive-planning-v1, next: review RUNCARD/INTENT/SPEC/ACCEPTANCE and current PLAN/TODO before resuming loop, risks: none yet}
+2025-12-13T05:12:35Z {done: resumed ucl-ingestion-pipe-and-adaptive-planning-v1 session, next: read PLAN/TODO/LOG tail per RESUME protocol then execute tasks, risks: none yet}
+2025-12-13T05:44:56Z {done: fixed operation status enums, exposed endpoint.Register, AC ingestion tests passing with go test ./... (ucl-core, ucl-worker), next: update STATE/story and summarize completion, risks: untracked baseline changes remain untouched}

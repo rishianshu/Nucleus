@@ -73,4 +73,8 @@ type IngestionUnitResult struct {
 	StagingPath       string
 	StagingProviderID string
 	Staging           []map[string]any
+	StageRef          string
+	BatchRefs         []string
+	BytesStaged       int64
+	RecordsStaged     int64
 }

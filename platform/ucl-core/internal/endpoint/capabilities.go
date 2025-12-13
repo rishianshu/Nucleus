@@ -48,6 +48,15 @@ type StagingCapable interface {
 	CommitIncremental(ctx context.Context, req *CommitRequest) (*CommitResult, error)
 }
 
+// AdaptiveIngestion endpoints provide probe + plan hooks for deterministic slicing.
+type AdaptiveIngestion interface {
+	// ProbeIngestion inspects source size and potential slice keys.
+	ProbeIngestion(ctx context.Context, req *ProbeRequest) (*ProbeResult, error)
+
+	// PlanIngestion builds a bounded slice plan from probe + filters.
+	PlanIngestion(ctx context.Context, req *PlanIngestionRequest) (*IngestionPlan, error)
+}
+
 // --- Supporting Types ---
 
 type Environment struct {
@@ -71,6 +80,26 @@ type PlanRequest struct {
 	Strategy        string // "full", "adaptive", "incremental"
 	Checkpoint      *Checkpoint
 	TargetSliceSize int64
+}
+
+type ProbeRequest struct {
+	DatasetID string
+	Filters   map[string]any
+}
+
+type ProbeResult struct {
+	EstimatedCount int64
+	EstimatedBytes int64
+	SliceKeys      []string
+	CursorHints    map[string]any
+	Details        map[string]any
+}
+
+type PlanIngestionRequest struct {
+	DatasetID string
+	Filters   map[string]any
+	PageLimit int
+	Probe     *ProbeResult
 }
 
 type IngestionPlan struct {

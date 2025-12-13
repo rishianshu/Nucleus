@@ -13,8 +13,8 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/nucleus/ucl-core/pkg/endpoint"
+	"github.com/nucleus/ucl-core/pkg/staging"
 	"github.com/nucleus/ucl-worker/internal/bridge"
-	"github.com/nucleus/ucl-worker/internal/staging"
 )
 
 // Activities holds all UCL Temporal activities.
@@ -321,6 +321,13 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		logger.Info("applying filter", "filter", req.Filter)
 	}
 
+	sliceID := "full"
+	if req.Slice != nil {
+		if key := getStringFromMap(req.Slice, "slice_key", ""); key != "" {
+			sliceID = key
+		}
+	}
+
 	// Check if we have a slice to execute
 	if req.Slice != nil {
 		sliceCapable, ok := ep.(endpoint.SliceCapable)
@@ -329,7 +336,7 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		}
 
 		slice := &endpoint.IngestionSlice{
-			SliceID: getStringFromMap(req.Slice, "slice_key", "full"),
+			SliceID: sliceID,
 			Lower:   getStringFromMap(req.Slice, "lower", ""),
 			Upper:   getStringFromMap(req.Slice, "upper", ""),
 		}
@@ -352,37 +359,81 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 	}
 	defer iter.Close()
 
-	// CODEX FIX: Stream records in chunks to avoid buffering entire dataset in memory
-	const chunkSize = 10000 // Stage every 10k records
+	isPreviewMode := strings.EqualFold(req.Mode, "PREVIEW")
 
-	var stagingHandles []StagingHandle
-	var stagingPath string
-	var stagingProviderID string
+	// Set up staging providers (memory + optional object-store).
+	var provider staging.Provider
+	stagingProviderID := ""
+	if !isPreviewMode {
+		registry := staging.NewRegistry(staging.NewMemoryProvider(staging.DefaultMemoryCapBytes))
+		if !disableObjectStore(req.Policy) {
+			registry.Register(staging.NewObjectStoreProvider(""))
+		}
+
+		estimatedBytes := resolveEstimatedBytes(req.Policy)
+		provider, err = registry.SelectProvider(req.StagingProviderID, estimatedBytes, staging.DefaultLargeRunThresholdBytes)
+		if err != nil {
+			return nil, fmt.Errorf("staging unavailable: %w", err)
+		}
+		stagingProviderID = provider.ID()
+	}
+
+	// Stream records and stage in batches (no bulk payloads in activity response).
+	const chunkSize = 10000
+	envelopes := make([]staging.RecordEnvelope, 0, chunkSize)
+	var previewRecords []map[string]any
+	var stageRef string
+	var batchRefs []string
+	var bytesStaged int64
 	var recordCount int64
-	var records []map[string]any
-	isPreviewMode := strings.ToUpper(req.Mode) == "PREVIEW"
+	batchSeq := 0
+
+	flush := func() error {
+		if len(envelopes) == 0 {
+			return nil
+		}
+		res, err := provider.PutBatch(ctx, &staging.PutBatchRequest{
+			StageRef: stageRef,
+			SliceID:  sliceID,
+			BatchSeq: batchSeq,
+			Records:  envelopes,
+		})
+		if err != nil {
+			return err
+		}
+		stageRef = res.StageRef
+		batchRefs = append(batchRefs, res.BatchRef)
+		bytesStaged += res.Stats.Bytes
+		batchSeq++
+		envelopes = envelopes[:0]
+		return nil
+	}
 
 	for iter.Next() {
 		record := iter.Value()
-		records = append(records, record)
 		recordCount++
 
-		// In non-preview mode, stage records in chunks to limit memory usage
-		if !isPreviewMode && len(records) >= chunkSize {
-			handle, err := staging.StageRecords(records, req.StagingProviderID)
-			if err != nil {
+		if isPreviewMode {
+			previewRecords = append(previewRecords, record)
+			continue
+		}
+
+		envelopes = append(envelopes, staging.RecordEnvelope{
+			RecordKind: "raw",
+			EntityKind: req.UnitID,
+			Source: staging.SourceRef{
+				EndpointID:   req.EndpointID,
+				SourceFamily: templateID,
+				SourceID:     req.UnitID,
+			},
+			Payload:    record,
+			ObservedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+
+		if len(envelopes) >= chunkSize {
+			if err := flush(); err != nil {
 				return nil, fmt.Errorf("failed to stage records chunk: %w", err)
 			}
-			stagingHandles = append(stagingHandles, StagingHandle{
-				Path:       handle.Path,
-				ProviderID: handle.ProviderID,
-			})
-			if stagingPath == "" {
-				stagingPath = handle.Path
-				stagingProviderID = handle.ProviderID
-			}
-			// Clear records slice but keep capacity for reuse
-			records = records[:0]
 		}
 	}
 
@@ -390,29 +441,32 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 		return nil, fmt.Errorf("iteration error: %w", err)
 	}
 
-	// Stage any remaining records
-	if len(records) > 0 && !isPreviewMode {
-		handle, err := staging.StageRecords(records, req.StagingProviderID)
-		if err != nil {
+	if !isPreviewMode {
+		if err := flush(); err != nil {
 			return nil, fmt.Errorf("failed to stage final records: %w", err)
 		}
-		stagingHandles = append(stagingHandles, StagingHandle{
-			Path:       handle.Path,
-			ProviderID: handle.ProviderID,
-		})
-		if stagingPath == "" {
-			stagingPath = handle.Path
-			stagingProviderID = handle.ProviderID
+		if stageRef != "" && provider != nil {
+			_ = provider.FinalizeStage(ctx, stageRef)
 		}
+	}
+
+	stagedRecords := recordCount
+	if isPreviewMode {
+		stagedRecords = 0
 	}
 
 	// Build stats with more detail
 	stats := map[string]any{
-		"recordCount": recordCount,
-		"unitId":      req.UnitID,
-		"templateId":  templateID,
-		"dataMode":    req.DataMode,
-		"mode":        req.Mode,
+		"recordCount":   recordCount,
+		"recordsRead":   recordCount,
+		"recordsStaged": stagedRecords,
+		"unitId":        req.UnitID,
+		"templateId":    templateID,
+		"dataMode":      req.DataMode,
+		"mode":          req.Mode,
+		"stageRef":      stageRef,
+		"bytesStaged":   bytesStaged,
+		"batches":       len(batchRefs),
 	}
 
 	// CODEX FIX: Build checkpoint with fallback to preserve incoming metadata
@@ -424,7 +478,7 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 			newCheckpoint[k] = v
 		}
 	}
-	
+
 	// Override with iterator checkpoint if available (newer data takes precedence)
 	if cp, ok := iter.(interface{ Checkpoint() *endpoint.Checkpoint }); ok {
 		if iterCheckpoint := cp.Checkpoint(); iterCheckpoint != nil {
@@ -434,7 +488,7 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 			}
 		}
 	}
-	
+
 	// Always update these fields
 	newCheckpoint["lastRunAt"] = time.Now().UTC().Format(time.RFC3339)
 	newCheckpoint["recordCount"] = recordCount
@@ -463,15 +517,19 @@ func (a *Activities) RunIngestionUnit(ctx context.Context, req IngestionRequest)
 	result := &IngestionResult{
 		NewCheckpoint:     newCheckpoint,
 		Stats:             stats,
-		Staging:           stagingHandles,
-		StagingPath:       stagingPath,
+		StageRef:          stageRef,
+		BatchRefs:         batchRefs,
+		BytesStaged:       bytesStaged,
+		RecordsStaged:     stagedRecords,
 		StagingProviderID: stagingProviderID,
 		TransientState:    resultTransientState, // P1 Fix: Forward transientState
 	}
 
 	// Include records only in PREVIEW mode
-	if strings.ToUpper(req.Mode) == "PREVIEW" {
-		result.Records = records
+	if isPreviewMode {
+		result.Records = previewRecords
+		result.StageRef = ""
+		result.BatchRefs = nil
 	}
 
 	logger.Info("ingestion complete", "records", recordCount, "hasTransientState", resultTransientState != nil)
@@ -544,4 +602,48 @@ func getMaxPayloadBytes() int {
 		}
 	}
 	return staging.MaxPayloadBytes
+}
+
+func disableObjectStore(policy map[string]any) bool {
+	if policy == nil {
+		return false
+	}
+	// Explicit disable flag
+	if v, ok := policy["disableObjectStore"].(bool); ok {
+		return v
+	}
+	if v, ok := policy["disable_object_store"].(bool); ok {
+		return v
+	}
+	// If objectStoreEnabled is provided and false, treat as disabled
+	if v, ok := policy["objectStoreEnabled"].(bool); ok {
+		return !v
+	}
+	if v, ok := policy["object_store_enabled"].(bool); ok {
+		return !v
+	}
+	return false
+}
+
+func resolveEstimatedBytes(policy map[string]any) int64 {
+	if policy == nil {
+		return 0
+	}
+	for _, key := range []string{"estimatedBytes", "estimated_bytes", "estimatedSizeBytes"} {
+		if v, ok := policy[key]; ok {
+			switch val := v.(type) {
+			case int:
+				return int64(val)
+			case int64:
+				return val
+			case float64:
+				return int64(val)
+			case string:
+				if parsed, err := strconv.ParseInt(val, 10, 64); err == nil {
+					return parsed
+				}
+			}
+		}
+	}
+	return 0
 }

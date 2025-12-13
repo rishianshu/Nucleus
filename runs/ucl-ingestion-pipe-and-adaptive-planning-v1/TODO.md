@@ -1,0 +1,5 @@
+- [x] Add staging provider abstraction (memory + object store) with record envelope + selection policy.
+- [x] Refactor ingestion workflow to enforce stageRef-only handoff and wire sink consumption + progress counters.
+- [x] Implement ProbeIngestion/PlanIngestion for Jira and Confluence with deterministic slice IDs and bounded pages.
+- [x] Add AC-focused Go tests for staging safety, planner determinism, e2e progress, and negative error codes.
+- [x] Run relevant Go/CI checks for ucl-core/ucl-worker.

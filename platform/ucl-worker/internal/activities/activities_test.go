@@ -141,7 +141,7 @@ func TestPreviewDataset(t *testing.T) {
 
 		// Simulate a large response
 		largeData := make([]byte, maxBytes+1)
-		
+
 		if len(largeData) <= maxBytes {
 			t.Error("expected data to exceed maxPayloadBytes")
 		}
@@ -188,7 +188,7 @@ func TestRunIngestionUnit(t *testing.T) {
 
 		expectedChunks := (totalRecords + chunkSize - 1) / chunkSize
 		if expectedChunks != 3 {
-			t.Errorf("expected 3 chunks for %d records with chunk size %d, got %d", 
+			t.Errorf("expected 3 chunks for %d records with chunk size %d, got %d",
 				totalRecords, chunkSize, expectedChunks)
 		}
 	})
@@ -235,7 +235,7 @@ func TestRunIngestionUnit(t *testing.T) {
 	t.Run("handles filter and dataMode", func(t *testing.T) {
 		// Test dataMode reset behavior
 		dataMode := "reset"
-		
+
 		shouldResetCheckpoint := dataMode == "reset" || dataMode == "full"
 		if !shouldResetCheckpoint {
 			t.Error("expected dataMode 'reset' to trigger checkpoint reset")

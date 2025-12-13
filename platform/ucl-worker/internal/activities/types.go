@@ -3,15 +3,15 @@ package activities
 
 // CollectionJobRequest matches Python ingestion_models.requests.CollectionJobRequest
 type CollectionJobRequest struct {
-	RunID        string            `json:"runId"`
-	EndpointID   string            `json:"endpointId"`
-	SourceID     string            `json:"sourceId"`
-	EndpointName string            `json:"endpointName"`
-	ConnectionURL string           `json:"connectionUrl"`
-	Schemas      []string          `json:"schemas,omitempty"`
-	ProjectID    string            `json:"projectId,omitempty"`
-	Labels       []string          `json:"labels,omitempty"`
-	Config       map[string]any    `json:"config,omitempty"`
+	RunID         string         `json:"runId"`
+	EndpointID    string         `json:"endpointId"`
+	SourceID      string         `json:"sourceId"`
+	EndpointName  string         `json:"endpointName"`
+	ConnectionURL string         `json:"connectionUrl"`
+	Schemas       []string       `json:"schemas,omitempty"`
+	ProjectID     string         `json:"projectId,omitempty"`
+	Labels        []string       `json:"labels,omitempty"`
+	Config        map[string]any `json:"config,omitempty"`
 }
 
 // CollectionResult matches Python CollectionJobResult
@@ -85,6 +85,10 @@ type IngestionResult struct {
 	Stats             map[string]any   `json:"stats,omitempty"`
 	Records           []map[string]any `json:"records,omitempty"` // Only in PREVIEW mode
 	TransientState    map[string]any   `json:"transientState,omitempty"`
+	StageRef          string           `json:"stageRef,omitempty"`
+	BatchRefs         []string         `json:"batchRefs,omitempty"`
+	BytesStaged       int64            `json:"bytesStaged,omitempty"`
+	RecordsStaged     int64            `json:"recordsStaged,omitempty"`
 	Staging           []StagingHandle  `json:"staging,omitempty"`
 	StagingPath       string           `json:"stagingPath,omitempty"`
 	StagingProviderID string           `json:"stagingProviderId,omitempty"`
@@ -98,9 +102,9 @@ type StagingHandle struct {
 
 // PlanResult matches Python planIngestionUnit output
 type PlanResult struct {
-	Slices       []SliceDescriptor  `json:"slices,omitempty"`
-	PlanMetadata map[string]any     `json:"plan_metadata,omitempty"`
-	Strategy     string             `json:"strategy,omitempty"`
+	Slices       []SliceDescriptor `json:"slices,omitempty"`
+	PlanMetadata map[string]any    `json:"plan_metadata,omitempty"`
+	Strategy     string            `json:"strategy,omitempty"`
 }
 
 // SliceDescriptor matches Python serialized slice

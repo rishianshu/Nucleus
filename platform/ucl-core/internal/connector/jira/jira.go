@@ -3,6 +3,8 @@ package jira
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/nucleus/ucl-core/internal/connector/http"
 	"github.com/nucleus/ucl-core/internal/endpoint"
@@ -15,8 +17,9 @@ import (
 
 // Ensure interface compliance
 var (
-	_ endpoint.SourceEndpoint = (*Jira)(nil)
-	_ endpoint.SliceCapable   = (*Jira)(nil)
+	_ endpoint.SourceEndpoint    = (*Jira)(nil)
+	_ endpoint.SliceCapable      = (*Jira)(nil)
+	_ endpoint.AdaptiveIngestion = (*Jira)(nil)
 )
 
 // Jira is the Jira Cloud connector.
@@ -112,6 +115,114 @@ func (j *Jira) GetDescriptor() *endpoint.Descriptor {
 	}
 }
 
+// ProbeIngestion estimates slice keys and counts for deterministic planning.
+func (j *Jira) ProbeIngestion(ctx context.Context, req *endpoint.ProbeRequest) (*endpoint.ProbeResult, error) {
+	_ = ctx
+	_ = req
+
+	projects := append([]string{}, j.config.Projects...)
+	if len(projects) == 0 {
+		projects = []string{"default"}
+	}
+	sort.Strings(projects)
+
+	estPerProject := int64(j.config.FetchSize)
+	if estPerProject <= 0 {
+		estPerProject = DefaultFetchSize
+	}
+	estimatedCount := estPerProject * int64(len(projects))
+	estimatedBytes := estimatedCount * 512 // rough envelope estimate
+
+	sliceKeys := make([]string, len(projects))
+	for i, key := range projects {
+		sliceKeys[i] = fmt.Sprintf("project-%s", strings.ToLower(key))
+	}
+
+	return &endpoint.ProbeResult{
+		EstimatedCount: estimatedCount,
+		EstimatedBytes: estimatedBytes,
+		SliceKeys:      sliceKeys,
+		Details: map[string]any{
+			"projects":  projects,
+			"pageLimit": estPerProject,
+		},
+	}, nil
+}
+
+// PlanIngestion produces deterministic slices using project keys and bounded pages.
+func (j *Jira) PlanIngestion(ctx context.Context, req *endpoint.PlanIngestionRequest) (*endpoint.IngestionPlan, error) {
+	_ = ctx
+	if req == nil {
+		req = &endpoint.PlanIngestionRequest{}
+	}
+
+	pageLimit := req.PageLimit
+	if pageLimit <= 0 {
+		pageLimit = j.config.FetchSize
+		if pageLimit <= 0 {
+			pageLimit = DefaultFetchSize
+		}
+	}
+
+	projects := append([]string{}, j.config.Projects...)
+	if len(projects) == 0 && req.Probe != nil && len(req.Probe.SliceKeys) > 0 {
+		for _, key := range req.Probe.SliceKeys {
+			projects = append(projects, strings.TrimPrefix(key, "project-"))
+		}
+	}
+	if len(projects) == 0 {
+		projects = []string{"default"}
+	}
+	sort.Strings(projects)
+
+	// Datasets like statuses/priorities do not benefit from project slicing.
+	if !shouldSliceJiraDataset(req.DatasetID) {
+		return &endpoint.IngestionPlan{
+			DatasetID: req.DatasetID,
+			Strategy:  "full",
+			Slices: []*endpoint.IngestionSlice{
+				{
+					SliceID:       "full",
+					Sequence:      0,
+					EstimatedRows: int64(pageLimit),
+				},
+			},
+			Statistics: map[string]any{
+				"pageLimit": pageLimit,
+				"projects":  projects,
+			},
+		}, nil
+	}
+
+	estPerProject := int64(pageLimit)
+	if req.Probe != nil && len(projects) > 0 && req.Probe.EstimatedCount > 0 {
+		if per := req.Probe.EstimatedCount / int64(len(projects)); per > 0 {
+			estPerProject = per
+		}
+	}
+
+	slices := make([]*endpoint.IngestionSlice, 0, len(projects))
+	for idx, key := range projects {
+		slices = append(slices, &endpoint.IngestionSlice{
+			SliceID:       fmt.Sprintf("project-%s-page-1", strings.ToLower(key)),
+			Sequence:      idx,
+			Params:        map[string]any{"projectKey": key, "pageLimit": pageLimit},
+			EstimatedRows: estPerProject,
+		})
+	}
+
+	return &endpoint.IngestionPlan{
+		DatasetID: req.DatasetID,
+		Strategy:  "adaptive",
+		Slices:    slices,
+		Statistics: map[string]any{
+			"projects":       projects,
+			"pageLimit":      pageLimit,
+			"estimatedCount": estPerProject * int64(len(projects)),
+		},
+	}, nil
+}
+
 // =============================================================================
 // SOURCE ENDPOINT - Catalog-Driven
 // =============================================================================
@@ -119,7 +230,6 @@ func (j *Jira) GetDescriptor() *endpoint.Descriptor {
 // ListDatasets returns available Jira datasets from catalog.
 func (j *Jira) ListDatasets(ctx context.Context) ([]*endpoint.Dataset, error) {
 	datasets := make([]*endpoint.Dataset, 0, len(DatasetDefinitions))
-
 
 	for id, def := range DatasetDefinitions {
 		datasets = append(datasets, &endpoint.Dataset{
@@ -211,22 +321,18 @@ func (j *Jira) GetCheckpoint(ctx context.Context, datasetID string) (*endpoint.C
 
 // PlanSlices creates an ingestion plan.
 func (j *Jira) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) (*endpoint.IngestionPlan, error) {
-	fromCheckpoint := ""
-	if req.Checkpoint != nil {
-		fromCheckpoint = req.Checkpoint.Watermark
-	}
-
-	return &endpoint.IngestionPlan{
+	plan, err := j.PlanIngestion(ctx, &endpoint.PlanIngestionRequest{
 		DatasetID: req.DatasetID,
-		Slices: []*endpoint.IngestionSlice{
-			{
-				SliceID:  "full",
-				Sequence: 0,
-				Lower:    fromCheckpoint,
-				Upper:    "",
-			},
-		},
-	}, nil
+		Filters:   map[string]any{},
+		PageLimit: int(req.TargetSliceSize),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if plan.Strategy == "" {
+		plan.Strategy = req.Strategy
+	}
+	return plan, nil
 }
 
 // ReadSlice reads a specific slice of data.
@@ -393,7 +499,7 @@ func (it *issueIterator) Value() endpoint.Record {
 	return nil
 }
 
-func (it *issueIterator) Err() error  { return it.err }
+func (it *issueIterator) Err() error   { return it.err }
 func (it *issueIterator) Close() error { return nil }
 
 // =============================================================================
@@ -422,12 +528,21 @@ func (it *sliceIterator) Value() endpoint.Record {
 	return nil
 }
 
-func (it *sliceIterator) Err() error  { return nil }
+func (it *sliceIterator) Err() error   { return nil }
 func (it *sliceIterator) Close() error { return nil }
 
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+func shouldSliceJiraDataset(datasetID string) bool {
+	switch datasetID {
+	case "jira.issues", "jira.comments", "jira.worklogs":
+		return true
+	default:
+		return false
+	}
+}
 
 func inferStrategy(def DatasetDefinition) string {
 	if def.SupportsIncremental {
