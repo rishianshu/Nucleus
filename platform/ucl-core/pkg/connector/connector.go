@@ -7,6 +7,7 @@ import (
 	_ "github.com/nucleus/ucl-core/internal/connector/hdfs"
 	_ "github.com/nucleus/ucl-core/internal/connector/jdbc"
 	_ "github.com/nucleus/ucl-core/internal/connector/jira"
+	_ "github.com/nucleus/ucl-core/internal/connector/minio"
 	_ "github.com/nucleus/ucl-core/internal/connector/onedrive"
 )
 

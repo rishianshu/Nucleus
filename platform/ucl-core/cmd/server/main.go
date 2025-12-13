@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -344,18 +345,34 @@ func (s *server) TestEndpointConnection(ctx context.Context, req *pb.TestConnect
 	// Validate config (tests connection)
 	result, err := ep.ValidateConfig(ctx, params)
 	if err != nil {
+		code, retryable := extractErrorCode(err)
 		return &pb.TestConnectionResponse{
 			Success:   false,
 			Error:     err.Error(),
+			LatencyMs: time.Since(start).Milliseconds(),
+			Details:   map[string]string{"code": code, "retryable": fmt.Sprintf("%t", retryable)},
+		}, nil
+	}
+
+	if result == nil {
+		return &pb.TestConnectionResponse{
+			Success:   false,
+			Error:     "validation failed: no result returned",
 			LatencyMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
 
 	if !result.Valid {
+		details := map[string]string{}
+		if result.Code != "" {
+			details["code"] = result.Code
+			details["retryable"] = fmt.Sprintf("%t", result.Retryable)
+		}
 		return &pb.TestConnectionResponse{
 			Success:   false,
 			Error:     result.Message,
 			LatencyMs: time.Since(start).Milliseconds(),
+			Details:   details,
 		}, nil
 	}
 
@@ -385,6 +402,15 @@ func (s *server) TestEndpointConnection(ctx context.Context, req *pb.TestConnect
 		}
 		if caps.SupportsMetadata {
 			capList = append(capList, "metadata")
+		}
+		if caps.SupportsStaging {
+			capList = append(capList, "staging.provider.object_store")
+		}
+		if caps.SupportsWrite {
+			capList = append(capList, "sink.write")
+		}
+		if caps.SupportsFinalize {
+			capList = append(capList, "sink.finalize")
 		}
 		resp.Capabilities = capList
 	}
@@ -536,7 +562,8 @@ func (s *server) ProbeEndpointCapabilities(ctx context.Context, req *pb.ProbeCap
 			result.Auth = mapAuthDescriptor(desc.Auth)
 		}
 		for _, cap := range desc.Capabilities {
-			switch strings.ToLower(cap.Key) {
+			key := strings.ToLower(cap.Key)
+			switch key {
 			case "metadata":
 				result.Capabilities = appendIfMissing(result.Capabilities, "metadata.run")
 				result.SupportedOperations = appendIfMissing(result.SupportedOperations, "metadata.run")
@@ -547,6 +574,8 @@ func (s *server) ProbeEndpointCapabilities(ctx context.Context, req *pb.ProbeCap
 				result.Capabilities = appendIfMissing(result.Capabilities, "ingestion.run")
 				result.SupportedOperations = appendIfMissing(result.SupportedOperations, "ingestion.run")
 			}
+			result.Capabilities = appendIfMissing(result.Capabilities, cap.Key)
+			result.SupportedOperations = appendIfMissing(result.SupportedOperations, cap.Key)
 		}
 	}
 
@@ -563,6 +592,17 @@ func (s *server) StartOperation(ctx context.Context, req *pb.StartOperationReque
 
 func (s *server) GetOperation(ctx context.Context, req *pb.GetOperationRequest) (*pb.OperationState, error) {
 	return opManager.GetOperation(ctx, req)
+}
+
+func extractErrorCode(err error) (string, bool) {
+	var coded interface {
+		CodeValue() string
+		RetryableStatus() bool
+	}
+	if errors.As(err, &coded) {
+		return coded.CodeValue(), coded.RetryableStatus()
+	}
+	return "", true
 }
 
 func appendIfMissing(list []string, value string) []string {

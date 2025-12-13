@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/nucleus/ucl-core/gen/go/proto"
+	minio "github.com/nucleus/ucl-core/internal/connector/minio"
 	"github.com/nucleus/ucl-core/pkg/endpoint"
 	"github.com/nucleus/ucl-core/pkg/staging"
 )
@@ -292,6 +293,17 @@ func (m *Manager) executeSlice(ctx context.Context, provider staging.Provider, s
 
 func (m *Manager) selectProvider(plan *endpoint.IngestionPlan, params map[string]string) (staging.Provider, error) {
 	registry := staging.NewRegistry(staging.NewMemoryProvider(staging.DefaultMemoryCapBytes))
+
+	preferred := params["staging_provider"]
+	wantMinio := strings.EqualFold(preferred, staging.ProviderMinIO)
+	minioProvider, minioErr := buildMinioProvider(params, wantMinio)
+	if minioProvider != nil {
+		registry.Register(minioProvider)
+		if preferred == "" {
+			preferred = minioProvider.ID()
+		}
+	}
+
 	if !paramBool(params, false, "disable_object_store", "disableObjectStore") {
 		registry.Register(staging.NewObjectStoreProvider(""))
 	}
@@ -305,8 +317,11 @@ func (m *Manager) selectProvider(plan *endpoint.IngestionPlan, params map[string
 		}
 	}
 
-	preferred := params["staging_provider"]
-	return registry.SelectProvider(preferred, estimatedBytes, staging.DefaultLargeRunThresholdBytes)
+	provider, err := registry.SelectProvider(preferred, estimatedBytes, staging.DefaultLargeRunThresholdBytes)
+	if err != nil && minioErr != nil && (wantMinio || preferred == staging.ProviderMinIO) {
+		return nil, minioErr
+	}
+	return provider, err
 }
 
 func (m *Manager) markSucceeded(opID string) {
@@ -424,6 +439,33 @@ func normalizeParameters(params map[string]string) map[string]any {
 		out[key] = v
 	}
 	return out
+}
+
+func buildMinioProvider(params map[string]string, force bool) (staging.Provider, error) {
+	cfgParams := map[string]any{}
+	copyParam := func(target string, keys ...string) {
+		for _, key := range keys {
+			if v, ok := params[key]; ok && v != "" {
+				cfgParams[target] = v
+				return
+			}
+		}
+	}
+
+	copyParam("endpointUrl", "staging_endpoint_url", "stagingEndpointUrl", "minio_endpoint_url")
+	copyParam("accessKeyId", "staging_access_key_id", "stagingAccessKeyId", "staging_accessKeyId")
+	copyParam("secretAccessKey", "staging_secret_access_key", "stagingSecretAccessKey", "staging_secretKey")
+	copyParam("bucket", "staging_bucket", "stagingBucket")
+	copyParam("basePrefix", "staging_base_prefix", "stagingBasePrefix")
+	copyParam("tenantId", "staging_tenant_id", "tenant_id", "tenantId")
+	copyParam("rootPath", "staging_root_path", "stagingRootPath")
+
+	if !force && len(cfgParams) == 0 {
+		return nil, nil
+	}
+
+	cfg := minio.ParseConfig(cfgParams)
+	return minio.NewStagingProvider(cfg, nil)
 }
 
 func paramInt(params map[string]string, keys ...string) int {

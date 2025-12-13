@@ -1,0 +1,2 @@
+2025-12-13T08:35:10Z | start | done: booted minio-endpoint-and-staging-v1, verified intents/runs artifacts exist | next: follow RUNCARD RESUME protocol (read PLAN/TODO/last LOG plus INTENT/SPEC/ACCEPTANCE) | risks: none yet
+2025-12-13T11:28:28Z {done: added object.minio endpoint descriptor/validation + capabilities, MinIO staging provider and sink wiring, and AC-aligned tests (go test ./... with GOCACHE=.gocache); next: update STATE/STORY and summarize handoff; risks: none}

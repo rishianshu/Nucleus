@@ -24,6 +24,8 @@ type ValidationResult struct {
 	Valid           bool
 	Message         string
 	DetectedVersion string
+	Code            string
+	Retryable       bool
 }
 
 // --- Capabilities ---
@@ -37,12 +39,12 @@ type Capabilities struct {
 	SupportsMetadata    bool
 
 	// Sink capabilities
-	SupportsWrite    bool
-	SupportsFinalize bool
-	SupportsPublish  bool
+	SupportsWrite     bool
+	SupportsFinalize  bool
+	SupportsPublish   bool
 	SupportsWatermark bool
-	SupportsStaging  bool
-	SupportsMerge    bool
+	SupportsStaging   bool
+	SupportsMerge     bool
 
 	// Incremental details
 	IncrementalLiteral string // "timestamp" | "epoch"
@@ -71,11 +73,11 @@ type SemanticUnit struct {
 	Dataset // Embedded dataset
 
 	// Semantic source metadata
-	UnitID      string         // e.g., projectKey, spaceKey, driveId
-	UnitKind    string         // "project", "space", "drive", "folder"
-	DisplayName string         // Human-readable name
-	Stats       *UnitStats     // Runtime statistics
-	CDMDomains  []string       // Declared emit domains
+	UnitID      string     // e.g., projectKey, spaceKey, driveId
+	UnitKind    string     // "project", "space", "drive", "folder"
+	DisplayName string     // Human-readable name
+	Stats       *UnitStats // Runtime statistics
+	CDMDomains  []string   // Declared emit domains
 }
 
 // UnitStats holds runtime statistics for a semantic unit.

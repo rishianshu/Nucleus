@@ -12,6 +12,7 @@ import (
 const (
 	ProviderMemory      = "memory"
 	ProviderObjectStore = "object"
+	ProviderMinIO       = "object.minio"
 
 	// DefaultLargeRunThresholdBytes determines when object-store staging is required.
 	DefaultLargeRunThresholdBytes int64 = 2 * 1024 * 1024 // ~2MB
@@ -163,6 +164,9 @@ func (r *Registry) SelectProvider(preferred string, estimatedBytes int64, thresh
 		if p, ok := r.Get(ProviderObjectStore); ok {
 			return p, nil
 		}
+		if p, ok := r.Get(ProviderMinIO); ok {
+			return p, nil
+		}
 		return nil, &Error{Code: CodeStagingUnavailable, Retryable: true, Err: fmt.Errorf("object-store staging required for %d bytes", estimatedBytes)}
 	}
 
@@ -176,6 +180,9 @@ func (r *Registry) SelectProvider(preferred string, estimatedBytes int64, thresh
 		return p, nil
 	}
 	if p, ok := r.Get(ProviderObjectStore); ok {
+		return p, nil
+	}
+	if p, ok := r.Get(ProviderMinIO); ok {
 		return p, nil
 	}
 

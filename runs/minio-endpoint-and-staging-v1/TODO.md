@@ -1,0 +1,4 @@
+- [x] Register object.minio endpoint factory in connector aggregator; ensure descriptor/auth/capabilities align with SPEC.
+- [x] Extend probe/test_connection paths to include staging.provider.object_store and sink.write capabilities with structured errors.
+- [x] Implement MinIO object-store client stub (temp dir buckets) powering staging provider and sink paths; ensure JSONL.GZ layout with tenant/run/slice prefixes.
+- [x] Add AC tests for happy path + negative cases (auth, unreachable, bucket missing); run go test for ucl-core suite.

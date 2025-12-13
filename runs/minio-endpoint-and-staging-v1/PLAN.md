@@ -1,0 +1,4 @@
+- Add MinIO endpoint template/descriptor with strict config validation, test_connection behavior, and capability advertisement surfaced via gRPC probe/test paths.
+- Build a MinIO-backed object-store staging provider that writes JSONL.GZ batches, returns compact stageRef/batchRefs (no payloads), and can be selected via request parameters.
+- Implement a MinIO sink endpoint that consumes staged batches, writes sink objects with deterministic layout, and emits catalog artifact metadata handles.
+- Cover AC1–AC4 with deterministic tests (stub MinIO store) and run targeted Go checks; keep runtime manageable and note any deferred CI.
