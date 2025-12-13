@@ -36,7 +36,7 @@ func TestMinioNegativeCases(t *testing.T) {
 	// Missing bucket when constructing staging provider should fail fast.
 	rootMissing := filepath.Join(root, "missing")
 	cfg := uclminio.ParseConfig(map[string]any{
-		"endpointUrl":     "http://localhost:9000",
+		"endpointUrl":     "",
 		"accessKeyId":     "minioadmin",
 		"secretAccessKey": "minioadmin",
 		"bucket":          "bucket-not-present",

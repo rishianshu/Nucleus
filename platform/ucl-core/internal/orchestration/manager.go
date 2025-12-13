@@ -249,15 +249,52 @@ func (m *Manager) executeSlice(ctx context.Context, provider staging.Provider, s
 
 	for iter.Next() {
 		record := iter.Value()
+		if record == nil {
+			continue
+		}
+
+		entityKind := datasetID
+		tenantID := ""
+		projectKey := ""
+		sourceURL := ""
+		externalID := ""
+
+		payload := make(endpoint.Record, len(record))
+		for k, v := range record {
+			switch strings.ToLower(k) {
+			case "_entity", "_entitykind", "__entity":
+				if s, ok := v.(string); ok && s != "" {
+					entityKind = s
+				}
+			case "_tenantid", "tenantid":
+				tenantID = fmt.Sprint(v)
+			case "_projectkey", "projectkey":
+				projectKey = fmt.Sprint(v)
+			case "_sourceurl", "sourceurl":
+				sourceURL = fmt.Sprint(v)
+			case "_externalid", "externalid":
+				externalID = fmt.Sprint(v)
+			default:
+				payload[k] = v
+			}
+		}
+		if entityKind == "" {
+			entityKind = datasetID
+		}
+
 		chunk = append(chunk, staging.RecordEnvelope{
 			RecordKind: "raw",
-			EntityKind: datasetID,
+			EntityKind: entityKind,
 			Source: staging.SourceRef{
 				EndpointID:   endpointID,
 				SourceFamily: templateID,
 				SourceID:     datasetID,
+				URL:          sourceURL,
+				ExternalID:   externalID,
 			},
-			Payload:    record,
+			TenantID:   tenantID,
+			ProjectKey: projectKey,
+			Payload:    payload,
 			ObservedAt: time.Now().UTC().Format(time.RFC3339),
 		})
 		if len(chunk) >= cap(chunk) {

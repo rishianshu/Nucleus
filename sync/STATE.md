@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-minio-endpoint-and-staging-v1 (success @ 2025-12-13T11:28Z)
+semantic-github-code-source-v1 (in-progress @ 2025-12-13T17:50Z)
 
 ## Last Run
-- slug: minio-endpoint-and-staging-v1
-- status: success
-- duration: ~3h
-- tests: GOCACHE=platform/ucl-core/.gocache go test ./... (ucl-core)
+- slug: semantic-github-code-source-v1
+- status: in-progress
+- duration: ~1h
+- tests: GOCACHE=./.gocache go test ./... (ucl-core); GOCACHE=./.gocache go test -mod=mod ./... (ucl-worker); pnpm ci-check failed (docker socket permission denied)
 - commits: none
 - decisions: 0
-- next_step: hand off for review; run pnpm ci-check if broader regression sweep is needed
+- next_step: rerun pnpm ci-check once Docker/socket access is available; verify GitHub connector outputs + update story/summary
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,8 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-13T17:50Z run in-progress (semantic-github-code-source-v1, go tests green; pnpm ci-check blocked by docker socket)
+- 2025-12-13T17:15Z run started (semantic-github-code-source-v1, boot + context sync)
 - 2025-12-13T11:28Z run success (minio-endpoint-and-staging-v1, MinIO endpoint/staging/sink added; go test ./... green with local GOCACHE)
 - 2025-12-13T05:45Z run success (ucl-ingestion-pipe-and-adaptive-planning-v1, status enums updated + endpoint.Register exposed; go test ./... green for ucl-core/ucl-worker)
 - 2025-12-12T18:28Z run in-progress (ucl-grpc-capabilities-and-auth-descriptors-v1, gRPC capability probe/ops schema updates with targeted metadata-api tests; ci-check pending)

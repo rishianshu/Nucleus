@@ -4,6 +4,7 @@ package connector
 import (
 	// Import all connectors to register them
 	_ "github.com/nucleus/ucl-core/internal/connector/confluence"
+	_ "github.com/nucleus/ucl-core/internal/connector/github"
 	_ "github.com/nucleus/ucl-core/internal/connector/hdfs"
 	_ "github.com/nucleus/ucl-core/internal/connector/jdbc"
 	_ "github.com/nucleus/ucl-core/internal/connector/jira"

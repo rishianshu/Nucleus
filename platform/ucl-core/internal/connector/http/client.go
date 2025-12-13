@@ -42,6 +42,9 @@ type ClientConfig struct {
 
 	// UserAgent string (default: "UCL-Core/1.0").
 	UserAgent string
+
+	// Transport allows injecting a custom HTTP transport (for tests/stubs).
+	Transport http.RoundTripper
 }
 
 // DefaultClientConfig returns a client config with sensible defaults.
@@ -91,7 +94,8 @@ func NewClient(config *ClientConfig) *Client {
 	return &Client{
 		config: config,
 		httpClient: &http.Client{
-			Timeout: config.Timeout,
+			Timeout:   config.Timeout,
+			Transport: config.Transport,
 		},
 		rateLimiter: rate.NewLimiter(rate.Limit(config.RateLimit), config.RateBurst),
 	}
@@ -266,6 +270,27 @@ func (c *Client) Put(ctx context.Context, path string, body any) (*Response, err
 
 	return c.Do(ctx, &Request{
 		Method: http.MethodPut,
+		Path:   path,
+		Body:   bodyReader,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+	})
+}
+
+// Patch performs a PATCH request with JSON body.
+func (c *Client) Patch(ctx context.Context, path string, body any) (*Response, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal body: %w", err)
+		}
+		bodyReader = strings.NewReader(string(data))
+	}
+
+	return c.Do(ctx, &Request{
+		Method: http.MethodPatch,
 		Path:   path,
 		Body:   bodyReader,
 		Headers: map[string]string{

@@ -71,6 +71,9 @@ func (a *Activities) CollectCatalogSnapshots(ctx context.Context, req Collection
 		if schema != nil {
 			payload["schema"] = schema
 		}
+		if len(ds.Metadata) > 0 {
+			payload["properties"] = ds.Metadata
+		}
 
 		// Add metadata block
 		payload["_metadata"] = map[string]any{
@@ -132,10 +135,23 @@ func (a *Activities) PreviewDataset(ctx context.Context, req PreviewRequest) (*P
 		limit = 50
 	}
 
-	iter, err := ep.Read(ctx, &endpoint.ReadRequest{
+	readReq := &endpoint.ReadRequest{
 		DatasetID: req.UnitID,
 		Limit:     int64(limit),
-	})
+	}
+
+	filter := map[string]any{}
+	if path, ok := params["path"]; ok {
+		filter["path"] = path
+	}
+	if ref, ok := params["ref"]; ok {
+		filter["ref"] = ref
+	}
+	if len(filter) > 0 {
+		readReq.Filter = filter
+	}
+
+	iter, err := ep.Read(ctx, readReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read dataset: %w", err)
 	}

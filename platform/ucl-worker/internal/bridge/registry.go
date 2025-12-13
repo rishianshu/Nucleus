@@ -27,6 +27,7 @@ var TemplateMapping = map[string]string{
 	"http.jira":       "http.jira",
 	"http.confluence": "http.confluence",
 	"confluence.http": "http.confluence",
+	"http.github":     "http.github",
 
 	// Cloud connectors
 	"cloud.onedrive":  "cloud.onedrive",

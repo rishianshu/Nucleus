@@ -1,0 +1,2 @@
+2025-12-13T17:15:32Z | start | done: booted semantic-github-code-source-v1, verified intents/runs artifacts exist | next: follow RUNCARD RESUME protocol (read PLAN/TODO/last LOG plus INTENT/SPEC/ACCEPTANCE) | risks: none yet
+2025-12-13T17:50:46Z | in-progress | done: added http.github connector + stub transport, metadata/preview/ingestion logic, fixtures/tests; go tests green; pnpm ci-check failed (docker permissions) | next: document ci-check blocking, update STATE/STORY/TODO, prep handoff summary | risks: ci-check blocked by docker/socket access

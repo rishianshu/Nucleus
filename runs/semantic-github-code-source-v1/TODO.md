@@ -1,0 +1,1 @@
+- Rerun `pnpm ci-check` once Docker access to `/var/run/docker.sock` is available (current run blocked on permission denied).
