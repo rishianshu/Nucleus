@@ -67,6 +67,15 @@ func (c *signalClient) upsertInstance(ctx context.Context, inst signalpb.Instanc
 	return err
 }
 
+func (c *signalClient) updateInstanceStatus(ctx context.Context, definitionID, entityRef, status string) error {
+	_, err := c.client.UpdateInstanceStatus(ctx, &signalpb.UpdateInstanceStatusRequest{
+		DefinitionId: definitionID,
+		EntityRef:    entityRef,
+		Status:       status,
+	})
+	return err
+}
+
 func structToPB(m map[string]any) *structpb.Struct {
 	if len(m) == 0 {
 		return nil

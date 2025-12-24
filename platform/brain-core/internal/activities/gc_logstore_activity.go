@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/nucleus/ucl-core/pkg/logstore"
+	"github.com/nucleus/store-core/pkg/logstore"
 	"go.temporal.io/sdk/activity"
 )
 
@@ -21,7 +21,7 @@ func (a *Activities) GCLogStoreActivity(ctx context.Context) error {
 		logger.Info("logstore-gc-skip", "reason", "retention<=0")
 		return nil
 	}
-	store, err := logstore.NewMinioStoreFromEnv()
+	store, err := logstore.NewGatewayStoreFromEnv()
 	if err != nil {
 		logger.Warn("logstore-gc-init-failed", "err", err)
 		return err

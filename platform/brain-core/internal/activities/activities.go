@@ -18,7 +18,7 @@ import (
 	"github.com/nucleus/ucl-core/pkg/endpoint"
 	"github.com/nucleus/ucl-core/pkg/orchestration"
 	"github.com/nucleus/ucl-core/pkg/staging"
-	"github.com/nucleus/ucl-core/pkg/vectorstore"
+	"github.com/nucleus/store-core/pkg/vectorstore"
 )
 
 // Activities holds all UCL Temporal activities.

@@ -99,12 +99,10 @@ import {
   BrainEpisodeReadService,
   BrainSearchService,
   ClusterReadService,
-  HashingEmbeddingProvider,
   PrismaIndexProfileStore,
   type BrainSearchOptions,
   type BrainVectorSearch,
   type ClusterRead,
-  type EmbeddingProvider,
   type IndexProfileStore,
   type VectorIndexStore,
 } from "./brain/index.js";
@@ -1619,7 +1617,6 @@ export function createResolvers(
     clusterRead?: ClusterRead;
     brainSearchService?: BrainSearchService;
   brainVectorSearch?: BrainVectorSearch;
-    brainEmbeddingProvider?: EmbeddingProvider;
     brainIndexProfileStore?: IndexProfileStore;
     brainVectorIndexStore?: VectorIndexStore;
     uclClient?: {

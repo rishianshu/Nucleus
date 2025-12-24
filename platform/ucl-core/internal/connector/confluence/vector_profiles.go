@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/nucleus/ucl-core/pkg/vectorprofile"
-	"github.com/nucleus/ucl-core/pkg/vectorstore"
+	"github.com/nucleus/store-core/pkg/vectorstore"
 )
 
 func init() {

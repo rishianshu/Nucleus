@@ -130,12 +130,32 @@ func (a *Activities) ExtractSignals(ctx context.Context, req IndexArtifactReques
 		return err
 	}
 
-	logMsg := fmt.Sprintf("signals: records=%d created=%d updated=%d", count, created, updated)
+	// Reconciliation: resolve instances not seen in this run (no longer match criteria)
+	var resolved int64
+	for defID, defExisting := range existing {
+		defSeen := seen[defID]
+		for entityRef, inst := range defExisting {
+			if defSeen != nil && defSeen[entityRef] {
+				continue // Still active
+			}
+			if inst.GetStatus() == "RESOLVED" {
+				continue // Already resolved
+			}
+			// Mark as resolved
+			if err := sc.updateInstanceStatus(ctx, defID, entityRef, "RESOLVED"); err != nil {
+				logger.Warn("failed to resolve instance", "id", inst.GetId(), "error", err)
+				continue
+			}
+			resolved++
+		}
+	}
+
+	logMsg := fmt.Sprintf("signals: records=%d created=%d updated=%d resolved=%d", count, created, updated, resolved)
 	logger.Info(logMsg)
 	if len(kbEvents) > 0 {
 		saveKBEvents(ctx, req.TenantID, req.ProjectID, req.DatasetSlug, req.RunID, kbEvents, kbSeq)
 	}
-	logger.Info("signals extraction completed", "records", count, "created", created, "updated", updated)
+	logger.Info("signals extraction completed", "records", count, "created", created, "updated", updated, "resolved", resolved)
 	return nil
 }
 

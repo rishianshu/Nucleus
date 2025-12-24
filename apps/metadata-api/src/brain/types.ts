@@ -15,10 +15,6 @@ export interface IndexProfileStore {
   getProfile(id: string): Promise<IndexProfile | null>;
 }
 
-export interface EmbeddingProvider {
-  embedText(model: string, texts: string[]): Promise<number[][]>;
-}
-
 export interface NodeIndexer {
   indexNodesForProfile(args: { profileId: string; nodeIds?: string[]; batchSize?: number }): Promise<{ indexed: number }>;
 }

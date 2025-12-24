@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/nucleus/ucl-core/pkg/vectorstore"
+	"github.com/nucleus/store-core/pkg/vectorstore"
 )
 
 // Normalizer transforms a raw record (map) into a vector entry and content text.

@@ -25,7 +25,7 @@ import (
 	"github.com/nucleus/ucl-core/internal/kv"
 	"github.com/nucleus/ucl-core/internal/orchestration"
 	kgpb "github.com/nucleus/ucl-core/pkg/kgpb"
-	"github.com/nucleus/ucl-core/pkg/kvstore"
+	"github.com/nucleus/store-core/pkg/kvstore"
 
 	// Import connector package to register all connectors
 	_ "github.com/lib/pq"

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	vectorpb "github.com/nucleus/store-core/gen/go/vectorpb"
-	"github.com/nucleus/ucl-core/pkg/vectorstore"
+	"github.com/nucleus/store-core/pkg/vectorstore"
 	"go.temporal.io/sdk/activity"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"

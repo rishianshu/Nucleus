@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/nucleus/ucl-core/pkg/kgpb"
-	"github.com/nucleus/ucl-core/pkg/kvstore"
-	"github.com/nucleus/ucl-core/pkg/logstore"
-	"github.com/nucleus/ucl-core/pkg/vectorstore"
+	"github.com/nucleus/store-core/pkg/kvstore"
+	"github.com/nucleus/store-core/pkg/logstore"
+	"github.com/nucleus/store-core/pkg/vectorstore"
 	"go.temporal.io/sdk/activity"
 )
 
@@ -459,7 +459,7 @@ func (a *Activities) BuildClusters(ctx context.Context, req IndexArtifactRequest
 }
 
 func saveKBEvents(ctx context.Context, tenant, project, dataset, runID string, events []kbEvent, seq int64) (string, string) {
-	store, err := logstore.NewMinioStoreFromEnv()
+	store, err := logstore.NewGatewayStoreFromEnv()
 	if err != nil {
 		return "", ""
 	}

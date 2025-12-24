@@ -2,14 +2,10 @@ export { PrismaIndexProfileStore } from "./indexProfileStore.js";
 export { ClusterBuilderService, ClusterReadService } from "./clusters.js";
 export { BrainEpisodeReadService } from "./episodes.js";
 export { BrainSearchService } from "./search.js";
-export { DeterministicFakeEmbeddingProvider, HashingEmbeddingProvider } from "./embeddingUtils.js";
-export { OllamaEmbeddingProvider } from "./embeddingUtils.js";
-export { makeEmbeddingProvider } from "./embeddingProviderFactory.js";
 export { PrismaMaterializedRegistry, NoopMaterializedRegistry } from "./materializedRegistry.js";
 export type {
   IndexProfile,
   IndexProfileStore,
-  EmbeddingProvider,
   NodeIndexer,
   BrainVectorSearch,
   BrainVectorSearchHit,

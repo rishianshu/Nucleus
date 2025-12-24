@@ -4,7 +4,7 @@ import (
 	"context"
 
 	kvpb "github.com/nucleus/ucl-core/gen/go/proto/github.com/nucleus/ucl-core/pkg/kvpb"
-	"github.com/nucleus/ucl-core/pkg/kvstore"
+	"github.com/nucleus/store-core/pkg/kvstore"
 )
 
 type Service struct {
