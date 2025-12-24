@@ -3,6 +3,7 @@ package endpoint
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // ===================================================
@@ -31,6 +32,7 @@ type MentionExtractor interface {
 }
 
 // Relation represents a relationship between entities.
+// Supports temporal tracking for relation lifecycle (established/expired).
 type Relation struct {
 	FromRef    string            // Source entity reference
 	ToRef      string            // Target entity reference
@@ -39,6 +41,10 @@ type Relation struct {
 	Properties map[string]any    // Additional relation properties
 	Explicit   bool              // true = source-provided, false = inferred
 	Confidence float32           // 1.0 for explicit, varies for inferred
+
+	// Temporal tracking
+	ValidFrom *time.Time // When this relation was established (nil = unknown)
+	ValidTo   *time.Time // When this relation expired (nil = still active)
 }
 
 // RelationDirection indicates edge traversal direction.
