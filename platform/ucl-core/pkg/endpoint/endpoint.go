@@ -41,6 +41,17 @@ type (
 	CDMRegistry          = internal.CDMRegistry
 	CDMMapping           = internal.CDMMapping
 	CDMMapperFunc        = internal.CDMMapperFunc
+
+	// Discovery types for hybrid NER/EPP
+	Mention            = internal.Mention
+	Relation           = internal.Relation
+	Entity             = internal.Entity
+	MentionExtractor   = internal.MentionExtractor
+	RelationExtractor  = internal.RelationExtractor
+	EntityMapper       = internal.EntityMapper
+	DiscoveryRegistry  = internal.DiscoveryRegistry
+	RelationDirection  = internal.RelationDirection
+	EntityType         = internal.EntityType
 )
 
 // Strategy type for ingestion planning
@@ -106,6 +117,12 @@ func DefaultCDMRegistry() *internal.CDMRegistry {
 // RegisterCDM adds CDM mappings to the global registry.
 func RegisterCDM(endpointID string, mappings []internal.CDMMapping) {
 	internal.RegisterCDM(endpointID, mappings)
+}
+
+// DefaultDiscoveryRegistry returns the global discovery registry.
+// P2 Fix: Export accessor for external packages to register extractors.
+func DefaultDiscoveryRegistry() *DiscoveryRegistry {
+	return internal.DefaultDiscoveryRegistry()
 }
 
 // RegisterCDMMapper registers a mapper for a dataset in the global registry.
