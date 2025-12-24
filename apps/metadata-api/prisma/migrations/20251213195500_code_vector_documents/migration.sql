@@ -1,0 +1,1 @@
+-- restored placeholder migration for code_vector_documents (schema already present)

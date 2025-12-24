@@ -62,6 +62,38 @@ model MetadataEndpoint {
   @@index([projectId])
 }
 
+enum MaterializedStatus {
+  READY
+  INDEXING
+  INDEXED
+  FAILED
+}
+
+model MaterializedArtifact {
+  id             String              @id @default(uuid())
+  tenantId       String
+  sourceRunId    String
+  artifactKind   String
+  sourceFamily   String?
+  sinkEndpointId String?
+  handle         Json
+  canonicalMeta  Json
+  sourceMeta     Json?
+  status         MaterializedStatus  @default(READY)
+  indexStatus    MaterializedStatus  @default(READY)
+  counters       Json?
+  indexCounters  Json?
+  lastError      Json?
+  indexLastError Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([tenantId, sourceRunId, artifactKind])
+  @@index([tenantId, artifactKind])
+  @@index([tenantId, status])
+  @@index([tenantId, indexStatus])
+}
+
 model MetadataCollection {
   id                 String               @id @default(uuid())
   endpointId         String

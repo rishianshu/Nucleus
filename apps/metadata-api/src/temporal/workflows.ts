@@ -1,4 +1,4 @@
-import { proxyActivities, workflowInfo, log, ApplicationFailure } from "@temporalio/workflow";
+import { proxyActivities, workflowInfo, log, ApplicationFailure, startChild } from "@temporalio/workflow";
 import type { CatalogRecordInput, CollectionJobRequest, MetadataActivities } from "./activities.js";
 
 export const WORKFLOW_NAMES = {
@@ -8,6 +8,7 @@ export const WORKFLOW_NAMES = {
   testEndpointConnection: "testEndpointConnectionWorkflow",
   previewDataset: "previewDatasetWorkflow",
   ingestionRun: "ingestionRunWorkflow",
+  postIngestion: "postIngestionWorkflow",
 } as const;
 
 const {
@@ -26,6 +27,9 @@ const {
   failIngestionRun: failIngestionRunActivity,
   persistIngestionBatches: persistIngestionBatchesActivity,
   loadStagedRecords: loadStagedRecordsActivity,
+  listVectorProfilesByFamily: listVectorProfilesByFamilyActivity,
+  registerMaterializedArtifact: registerMaterializedArtifactActivity,
+  startVectorIndexing: startVectorIndexingActivity,
 } = proxyActivities<MetadataActivities>({
   startToCloseTimeout: "1 hour",
   retry: { maximumAttempts: 3 },
@@ -60,7 +64,10 @@ type PythonMetadataActivities = {
 };
 
 const PYTHON_ACTIVITY_TASK_QUEUE = "metadata-python";
-const GO_ACTIVITY_TASK_QUEUE = "metadata-go";
+// Workflow sandbox does not expose process.env; use constants wired by worker env vars via activities if needed.
+const GO_INGESTION_TASK_QUEUE = "metadata-go";
+const GO_BRAIN_TASK_QUEUE = "brain-go";
+const DEFAULT_STAGING_PROVIDER = "object.minio";
 
 const pythonActivities = proxyActivities<PythonMetadataActivities>({
   taskQueue: PYTHON_ACTIVITY_TASK_QUEUE,
@@ -68,9 +75,7 @@ const pythonActivities = proxyActivities<PythonMetadataActivities>({
   retry: { maximumAttempts: 3 },
 });
 
-// Go activities (Sprint 8: Shadow Mode)
-// These mirror Python activities and run on the Go worker
-type GoMetadataActivities = {
+type GoIngestionActivities = {
   CollectCatalogSnapshots(request: CollectionJobRequest): Promise<CollectionJobResult>;
   PreviewDataset(input: {
     datasetId: string;
@@ -90,29 +95,118 @@ type GoMetadataActivities = {
     strategy?: string | null;
   }>;
   RunIngestionUnit(input: PythonIngestionRequest): Promise<PythonIngestionResult>;
+  SinkRunner(input: {
+    sinkEndpointId: string;
+    endpointConfig?: Record<string, unknown> | null;
+    datasetId: string;
+    records?: Array<Record<string, unknown>>;
+    stageRef?: string | null;
+    batchRefs?: string[];
+    stagingProviderId?: string | null;
+    schema?: Record<string, unknown> | null;
+    loadDate?: string | null;
+    mode?: string | null;
+  }): Promise<{ rowsWritten: number | null; path?: string | null }>;
 };
 
-const goActivities = proxyActivities<GoMetadataActivities>({
-  taskQueue: GO_ACTIVITY_TASK_QUEUE,
+type GoBrainActivities = {
+  IndexArtifact(input: {
+    artifactId: string;
+    datasetSlug: string;
+    sinkEndpointId: string;
+    endpointConfig?: Record<string, unknown> | null;
+    runId?: string | null;
+    tenantId?: string | null;
+    projectId?: string | null;
+    bucket?: string | null;
+    basePrefix?: string | null;
+    cdmModelId?: string | null;
+    sourceFamily?: string | null;
+    checkpoint?: Record<string, unknown> | null;
+    stageRef?: string | null;
+    batchRefs?: string[];
+    stagingProviderId?: string | null;
+  }): Promise<{ status: string; recordsIndexed: number; checkpoint?: Record<string, unknown> | null }>;
+  ExtractSignals(input: {
+    artifactId: string;
+    sinkEndpointId: string;
+    datasetSlug: string;
+    sourceFamily?: string | null;
+    tenantId?: string | null;
+    stageRef?: string | null;
+    batchRefs?: string[];
+    stagingProviderId?: string | null;
+    checkpoint?: Record<string, unknown> | null;
+  }): Promise<void>;
+  BuildClusters(input: {
+    artifactId: string;
+    sinkEndpointId: string;
+    datasetSlug: string;
+    sourceFamily?: string | null;
+    tenantId?: string | null;
+    stageRef?: string | null;
+    batchRefs?: string[];
+    stagingProviderId?: string | null;
+  }): Promise<void>;
+  ExtractInsights(input: {
+    artifactId: string;
+    sinkEndpointId: string;
+    datasetSlug: string;
+    sourceFamily?: string | null;
+    tenantId?: string | null;
+    endpointConfig?: Record<string, unknown> | null;
+    stageRef?: string | null;
+    batchRefs?: string[];
+    stagingProviderId?: string | null;
+    checkpoint?: Record<string, unknown> | null;
+  }): Promise<void>;
+};
+
+const goIngestionActivities = proxyActivities<GoIngestionActivities>({
+  taskQueue: GO_INGESTION_TASK_QUEUE,
   scheduleToCloseTimeout: "2 hours",
   retry: { maximumAttempts: 3 },
 });
 
-// Shadow mode flag - when true, runs Go activities in parallel for comparison
-const workflowEnv = typeof process !== "undefined" && process.env ? process.env : {};
-const GO_SHADOW_MODE = workflowEnv.GO_SHADOW_MODE === "true";
+const goBrainActivities = proxyActivities<GoBrainActivities>({
+  taskQueue: GO_BRAIN_TASK_QUEUE,
+  scheduleToCloseTimeout: "2 hours",
+  retry: { maximumAttempts: 3 },
+});
 
-// Feature flag - Go worker is now the DEFAULT (Sprint 11)
-// Set USE_GO_WORKER=false to fall back to Python worker
-const USE_GO_WORKER = workflowEnv.USE_GO_WORKER !== "false";
+// Shadow/feature flags (process.env is not available in workflow sandbox)
+const GO_SHADOW_MODE = false;
+const USE_GO_WORKER = true;
+
+// Map a dataset/model id into a sink-friendly identifier (table/prefix).
+function deriveSinkDatasetId(options: {
+  cdmModelId?: string | null;
+  datasetId?: string | null;
+  datasetSlug?: string | null;
+  unitId: string;
+}): string {
+  const candidates = [
+    options.cdmModelId,
+    options.datasetId,
+    options.datasetSlug,
+    options.unitId,
+  ].filter((v): v is string => Boolean(v && v.trim().length > 0));
+  const raw = candidates[0] ?? options.unitId;
+  return raw
+    .replace(/^cdm\./i, "")
+    .replace(/\./g, "_")
+    .replace(/:/g, "_")
+    .replace(/\//g, "_")
+    .trim();
+}
 
 // Unified ingestion activities - switches based on feature flag
 const ingestionActivities = USE_GO_WORKER
   ? {
-      collectCatalogSnapshots: goActivities.CollectCatalogSnapshots,
-      previewDataset: goActivities.PreviewDataset,
-      planIngestionUnit: goActivities.PlanIngestionUnit,
-      runIngestionUnit: goActivities.RunIngestionUnit,
+      collectCatalogSnapshots: goIngestionActivities.CollectCatalogSnapshots,
+      previewDataset: goIngestionActivities.PreviewDataset,
+      planIngestionUnit: goIngestionActivities.PlanIngestionUnit,
+      runIngestionUnit: goIngestionActivities.RunIngestionUnit,
     }
   : {
       collectCatalogSnapshots: pythonActivities.collectCatalogSnapshots,
@@ -143,6 +237,186 @@ async function runGoShadow<T>(
   }
 }
 
+async function triggerVectorIndexingIfConfigured(args: {
+  runId: string;
+  sinkId: string;
+  tenantId: string | null;
+  sourceFamily: string | null;
+  sinkEndpointId?: string | null;
+  sinkEndpointConfig?: Record<string, unknown> | null;
+  datasetSlug: string | null;
+  datasetPrefix: string | null;
+  bucket: string | null;
+  basePrefix: string | null;
+  datasetId?: string | null;
+  endpointId?: string | null;
+  unitId?: string | null;
+  artifactId?: string | null;
+  stageRef?: string | null;
+  batchRefs?: string[] | null;
+  stagingProviderId?: string | null;
+}) {
+  const registryPrefix =
+    args.datasetPrefix ??
+    (args.bucket && args.basePrefix && args.datasetSlug && args.tenantId
+      ? `minio://${args.bucket}/${trimSlashes([args.basePrefix, args.tenantId, args.datasetSlug].join("/"))}`
+      : null);
+  if (!registryPrefix) return;
+  const profileFamily = args.sourceFamily?.split(".")[0] ?? args.sourceFamily;
+  const profiles = await listVectorProfilesByFamilyActivity({ family: profileFamily });
+  if (!profiles.length) {
+    log.info("vector-indexing-skip", { reason: "no profiles for family", sourceFamily: args.sourceFamily });
+    return;
+  }
+  const artifactKind = args.datasetSlug ?? args.sourceFamily ?? "unknown";
+  try {
+    const reg = await registerMaterializedArtifactActivity({
+      runId: args.runId,
+      artifactKind,
+      datasetId: args.datasetId ?? null,
+      datasetSlug: args.datasetSlug ?? null,
+      datasetPrefix: registryPrefix,
+      bucket: args.bucket ?? null,
+      basePrefix: args.basePrefix ?? null,
+      sinkId: args.sinkId,
+      sinkEndpointId: args.sinkEndpointId ?? null,
+      sourceFamily: args.sourceFamily ?? null,
+      tenantId: args.tenantId,
+      endpointId: args.endpointId ?? null,
+      unitId: args.unitId ?? null,
+    });
+    log.info("materialized-artifact-registered", {
+      id: reg.id,
+      status: reg.status,
+      datasetPrefix: registryPrefix,
+      artifactKind,
+    });
+    // Run post-ingestion steps inline (index, insights) to avoid child task failures.
+    const artifactId = reg.id;
+    if (args.sinkEndpointId) {
+      await postIngestionWorkflow({
+        runId: args.runId,
+        artifactId,
+        datasetSlug: args.datasetSlug ?? artifactKind,
+        sinkEndpointId: args.sinkEndpointId,
+        sinkEndpointConfig: args.sinkEndpointConfig ?? null,
+        tenantId: args.tenantId ?? null,
+        sourceFamily: args.sourceFamily ?? null,
+        bucket: args.bucket ?? null,
+        basePrefix: args.basePrefix ?? null,
+        stageRef: args.stageRef ?? null,
+        batchRefs: args.batchRefs ?? null,
+        stagingProviderId: args.stagingProviderId ?? null,
+      });
+    }
+  } catch (error) {
+    log.warn("vector-indexing-trigger-failed", {
+      datasetPrefix: registryPrefix,
+      artifactKind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+// Child workflow to run post-ingestion steps (indexing, signals, clustering)
+export async function postIngestionWorkflow(args: {
+  runId: string;
+  artifactId: string;
+  datasetSlug: string;
+  sinkEndpointId: string;
+  sinkEndpointConfig?: Record<string, unknown> | null;
+  tenantId?: string | null;
+  sourceFamily?: string | null;
+  bucket?: string | null;
+  basePrefix?: string | null;
+  stageRef?: string | null;
+  batchRefs?: string[] | null;
+  stagingProviderId?: string | null;
+}) {
+  log.info("post-ingestion-start", {
+    artifactId: args.artifactId,
+    sinkEndpointId: args.sinkEndpointId,
+    datasetSlug: args.datasetSlug,
+  });
+  try {
+    const indexResult = await goBrainActivities.IndexArtifact({
+      artifactId: args.artifactId,
+      datasetSlug: args.datasetSlug,
+      sinkEndpointId: args.sinkEndpointId,
+      endpointConfig: args.sinkEndpointConfig ?? undefined,
+      runId: args.runId,
+      tenantId: args.tenantId ?? undefined,
+      bucket: args.bucket ?? null,
+      basePrefix: args.basePrefix ?? null,
+      sourceFamily: args.sourceFamily ?? null,
+      stageRef: args.stageRef ?? null,
+      batchRefs: args.batchRefs ?? undefined,
+      stagingProviderId: args.stagingProviderId ?? null,
+    });
+    log.info("post-ingestion-indexed", {
+      artifactId: args.artifactId,
+      status: indexResult.status,
+      recordsIndexed: indexResult.recordsIndexed,
+    });
+    await goBrainActivities.ExtractInsights({
+      artifactId: args.artifactId,
+      sinkEndpointId: args.sinkEndpointId,
+      datasetSlug: args.datasetSlug,
+      sourceFamily: args.sourceFamily ?? null,
+      tenantId: args.tenantId ?? null,
+      endpointConfig: args.sinkEndpointConfig ?? null,
+      stageRef: args.stageRef ?? null,
+      batchRefs: args.batchRefs ?? undefined,
+      stagingProviderId: args.stagingProviderId ?? null,
+    });
+  } catch (error) {
+    log.warn("post-ingestion-index-failed", {
+      artifactId: args.artifactId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  try {
+    await goBrainActivities.ExtractSignals({
+      artifactId: args.artifactId,
+      sinkEndpointId: args.sinkEndpointId,
+      datasetSlug: args.datasetSlug,
+      sourceFamily: args.sourceFamily ?? null,
+      tenantId: args.tenantId ?? null,
+      stageRef: args.stageRef ?? null,
+      batchRefs: args.batchRefs ?? undefined,
+      stagingProviderId: args.stagingProviderId ?? null,
+    });
+    log.info("post-ingestion-signals-finished", { artifactId: args.artifactId });
+  } catch (error) {
+    log.warn("post-ingestion-signals-failed", {
+      artifactId: args.artifactId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  try {
+    await goBrainActivities.BuildClusters({
+      artifactId: args.artifactId,
+      sinkEndpointId: args.sinkEndpointId,
+      datasetSlug: args.datasetSlug,
+      sourceFamily: args.sourceFamily ?? null,
+      tenantId: args.tenantId ?? null,
+      stageRef: args.stageRef ?? null,
+      batchRefs: args.batchRefs ?? undefined,
+      stagingProviderId: args.stagingProviderId ?? null,
+    });
+    log.info("post-ingestion-clusters-finished", { artifactId: args.artifactId });
+  } catch (error) {
+    log.warn("post-ingestion-clusters-failed", {
+      artifactId: args.artifactId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function trimSlashes(value: string): string {
+  return value.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
 type PythonIngestionRequest = {
   endpointId: string;
   unitId: string;
@@ -159,6 +433,11 @@ type PythonIngestionRequest = {
   transientStateVersion?: string | null;
   slice?: Record<string, unknown> | null;
   slice_index?: number | null;
+  sourceFamily?: string | null;
+  datasetSlug?: string | null;
+  datasetPrefix?: string | null;
+  bucket?: string | null;
+  basePrefix?: string | null;
 };
 
 type PythonIngestionResult = {
@@ -169,6 +448,8 @@ type PythonIngestionResult = {
   stagingPath?: string | null;
   stagingProviderId?: string | null;
   staging?: Array<{ path: string; providerId?: string | null }>;
+  stageRef?: string | null;
+  batchRefs?: string[];
 };
 
 type NormalizedRecordInput = {
@@ -306,6 +587,10 @@ type IngestionWorkflowInput = {
   endpointId: string;
   unitId: string;
   sinkId?: string | null;
+  sinkEndpointId?: string | null;
+  stagingProviderId?: string | null;
+  tenantId?: string | null;
+  datasetId?: string | null;
 };
 
 export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
@@ -316,7 +601,12 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
     endpointId: input.endpointId,
     unitId: input.unitId,
     sinkId: input.sinkId ?? null,
+    sinkEndpointId: input.sinkEndpointId ?? null,
+    stagingProviderId: input.stagingProviderId ?? null,
+    tenantId: input.tenantId ?? null,
+    datasetId: input.datasetId ?? null,
   });
+  const tenantId = context.tenantId ?? input.tenantId ?? null;
   try {
     log.info("ingestion-policy", {
       endpointId: input.endpointId,
@@ -324,9 +614,22 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       policyKeys: context.policy ? Object.keys(context.policy) : [],
       hasParameters: Boolean(context.policy && (context.policy as Record<string, unknown>).parameters),
     });
-    const baseRequest: PythonIngestionRequest = {
+    const unitIdForGo = context.datasetId ?? input.datasetId ?? input.unitId;
+    const unitIdForActivities = USE_GO_WORKER ? unitIdForGo : input.unitId;
+    log.info("ingestion-context", {
       endpointId: input.endpointId,
       unitId: input.unitId,
+      datasetId: context.datasetId,
+      unitIdForGo,
+      unitIdForActivities,
+      sinkEndpointTemplateId: context.sinkEndpointTemplateId,
+      sinkEndpointId: context.sinkEndpointId,
+      sinkId: context.sinkId,
+    });
+    const sinkEndpointIdForGo = context.sinkEndpointTemplateId ?? context.sinkEndpointId ?? "";
+    const baseRequest: PythonIngestionRequest = {
+      endpointId: input.endpointId,
+      unitId: unitIdForActivities,
       sinkId: context.sinkId ?? null,
       checkpoint: context.policy?.reset || context.policy?.resetCheckpoint ? null : context.checkpoint,
       stagingProviderId: context.stagingProviderId ?? null,
@@ -338,11 +641,18 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
       filter: context.filter ?? null,
       transientState: context.transientState ?? null,
       transientStateVersion: context.transientStateVersion ?? null,
+      sourceFamily: context.sourceFamily ?? null,
+      datasetSlug: context.datasetSlug ?? null,
+      datasetPrefix: context.datasetPrefix ?? null,
+      bucket: context.bucket ?? null,
+      basePrefix: context.basePrefix ?? null,
     };
 
   const plan = await ingestionActivities.planIngestionUnit(baseRequest);
   const slices = Array.isArray(plan.slices) ? plan.slices : [];
   const planMetadata = (plan.plan_metadata as Record<string, unknown> | undefined) ?? {};
+  const planSchema =
+    (planMetadata as any)?.schema ?? (planMetadata as any)?.cdmSchema ?? (planMetadata as any)?.sourceSchema ?? null;
   const planStrategy = (plan.strategy as string | null | undefined) ?? (planMetadata as any)?.strategy ?? null;
   const sliceResults: PythonIngestionResult[] = [];
 
@@ -376,24 +686,36 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
   }
 
   const stagingHandles: Array<{ path: string; providerId?: string | null }> = [];
+  const stageContexts: Array<{ stageRef: string; batchRefs: string[]; providerId?: string | null }> = [];
   const sliceStats: Array<Record<string, unknown>> = [];
   let transientState: Record<string, unknown> | null = context.transientState ?? null;
+  let collectedRecords: unknown[] = [];
   for (let idx = 0; idx < sliceResults.length; idx += 1) {
     const res = sliceResults[idx];
+    if (res.stageRef && Array.isArray(res.batchRefs) && res.batchRefs.length > 0) {
+      stageContexts.push({
+        stageRef: res.stageRef,
+        batchRefs: res.batchRefs,
+        providerId: res.stagingProviderId ?? context.stagingProviderId ?? DEFAULT_STAGING_PROVIDER,
+      });
+    }
     if (Array.isArray(res.staging)) {
       for (const handle of res.staging) {
         if (handle?.path) {
           stagingHandles.push({
             path: handle.path,
-            providerId: handle.providerId ?? res.stagingProviderId ?? context.stagingProviderId ?? null,
+            providerId: handle.providerId ?? res.stagingProviderId ?? context.stagingProviderId ?? DEFAULT_STAGING_PROVIDER,
           });
         }
       }
     } else if (res.stagingPath) {
       stagingHandles.push({
         path: res.stagingPath,
-        providerId: res.stagingProviderId ?? context.stagingProviderId ?? null,
+        providerId: res.stagingProviderId ?? context.stagingProviderId ?? DEFAULT_STAGING_PROVIDER,
       });
+    }
+    if (Array.isArray(res.records) && res.records.length > 0) {
+      collectedRecords = collectedRecords.concat(res.records);
     }
     if (res.stats) {
       sliceStats.push({ ...res.stats, sliceIndex: idx });
@@ -404,6 +726,12 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
   }
 
   const newCheckpoint = sliceResults.find((r) => r?.newCheckpoint !== undefined)?.newCheckpoint ?? null;
+  log.info("checkpoint-extraction", {
+    sliceResultsCount: sliceResults.length,
+    hasNewCheckpoint: newCheckpoint != null,
+    newCheckpointType: typeof newCheckpoint,
+    watermark: newCheckpoint && typeof newCheckpoint === "object" ? (newCheckpoint as Record<string, unknown>).watermark : null,
+  });
   let aggregatedStats: Record<string, unknown> | null = null;
   if (sliceStats.length > 0) {
     aggregatedStats = { planMetadata, slices: sliceStats };
@@ -421,26 +749,61 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
   if (GO_SHADOW_MODE) {
     void runGoShadow(
       "RunIngestionUnit",
-      () => goActivities.RunIngestionUnit(baseRequest),
+      () => goIngestionActivities.RunIngestionUnit(baseRequest),
       aggregatedStats
     );
   }
 
   const fallbackRecords = sliceResults[0]?.records ?? null;
-  if (context.sinkId && (stagingHandles.length > 0 || (fallbackRecords && fallbackRecords.length > 0))) {
-    await persistIngestionBatchesActivity({
-      endpointId: input.endpointId,
-      unitId: input.unitId,
+  // datasetIdForSink is the sink destination identifier (table/prefix). Prefer CDM-aligned naming,
+  // then datasetId/slug/unitId, normalized for sink compatibility.
+  const datasetIdForSink = deriveSinkDatasetId({
+    cdmModelId: context.cdmModelId ?? (planMetadata as any)?.cdmModelId ?? null,
+    datasetId: context.datasetId ?? input.datasetId ?? null,
+    datasetSlug: context.datasetSlug ?? null,
+    unitId: unitIdForGo,
+  });
+  if (context.sinkId) {
+    log.info("ingestion-sink-context", {
       sinkId: context.sinkId,
-      runId: context.runId,
-      staging: stagingHandles,
-      records: stagingHandles.length === 0 ? fallbackRecords ?? undefined : undefined,
-      stats: aggregatedStats ?? null,
-      sinkEndpointId: context.sinkEndpointId ?? null,
-      dataMode: context.dataMode ?? null,
-      cdmModelId: context.cdmModelId ?? null,
+      sinkEndpointId: sinkEndpointIdForGo,
+      stageContexts,
+      stagingHandles,
+      datasetIdForSink,
     });
-  } else if (!context.sinkId && (stagingHandles.length > 0 || (fallbackRecords?.length ?? 0) > 0)) {
+    if (stageContexts.length > 0) {
+      for (const stageCtx of stageContexts) {
+        if (!stageCtx.providerId) {
+          throw new Error("stagingProviderId is required for staged batches");
+        }
+        await goIngestionActivities.SinkRunner({
+          sinkEndpointId: sinkEndpointIdForGo,
+          endpointConfig: context.sinkEndpointConfig ?? undefined,
+          datasetId: datasetIdForSink,
+          stageRef: stageCtx.stageRef,
+          batchRefs: stageCtx.batchRefs,
+          stagingProviderId: stageCtx.providerId ?? undefined,
+          schema: planSchema as Record<string, unknown> | undefined,
+          loadDate: null,
+          mode: null,
+        });
+      }
+    } else if (collectedRecords.length > 0 || (fallbackRecords && fallbackRecords.length > 0)) {
+      // Records path is only for preview/legacy runners; still routed through sink runner.
+      const recordsToWrite = (collectedRecords.length > 0 ? collectedRecords : fallbackRecords) as Array<Record<string, unknown>>;
+      await goIngestionActivities.SinkRunner({
+        sinkEndpointId: sinkEndpointIdForGo,
+        endpointConfig: context.sinkEndpointConfig ?? undefined,
+        datasetId: datasetIdForSink,
+        records: recordsToWrite,
+        schema: planSchema as Record<string, unknown> | undefined,
+        loadDate: null,
+        mode: null,
+      });
+    } else {
+      throw new Error("No staged batches or records available for sink write.");
+    }
+  } else if (!context.sinkId && (stageContexts.length > 0 || collectedRecords.length > 0 || (fallbackRecords?.length ?? 0) > 0)) {
     throw new Error("Ingestion sink is not defined for this run.");
   }
   await completeIngestionRunActivity({
@@ -454,6 +817,24 @@ export async function ingestionRunWorkflow(input: IngestionWorkflowInput) {
     stats: aggregatedStats ?? null,
     transientStateVersion: context.transientStateVersion,
     newTransientState: transientState,
+  });
+  await triggerVectorIndexingIfConfigured({
+    runId: context.runId,
+    sinkId: context.sinkId,
+    tenantId,
+    sourceFamily: context.sourceFamily ?? null,
+    sinkEndpointId: context.sinkEndpointId ?? null,
+    sinkEndpointConfig: context.sinkEndpointConfig ?? null,
+    datasetSlug: context.datasetSlug ?? null,
+    datasetPrefix: context.datasetPrefix ?? null,
+    bucket: context.bucket ?? null,
+    basePrefix: context.basePrefix ?? null,
+    datasetId: context.datasetId ?? input.datasetId ?? null,
+    endpointId: input.endpointId,
+    unitId: input.unitId,
+    stageRef: stageContexts[0]?.stageRef ?? null,
+    batchRefs: stageContexts[0]?.batchRefs ?? null,
+    stagingProviderId: stageContexts[0]?.providerId ?? null,
   });
   } catch (error) {
     await failIngestionRunActivity({

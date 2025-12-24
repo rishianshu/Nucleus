@@ -1,0 +1,3 @@
+2025-12-14T12:08:20Z {done: booted materialized-registry-and-index-trigger-v1 run, next: follow RESUME protocol (PLAN/LOG/TODO) + review intent/spec/acceptance, risks: none}
+2025-12-14T12:45:01Z {done: reshaped materialized_artifacts schema/status + registry/store/helpers, wired ingestion workflow/register + GraphQL query to tenant-scoped registry with canonical meta + indexer/worker updates and new tests, next: run metadata-api brain tests and fix any regressions, risks: prisma schema/generation drift and new indexer path may surface edge-case failures}
+2025-12-14T12:59:51Z {done: pnpm --filter @apps/metadata-api test:brain (green) covering registry/idempotency/tenant-scope/index trigger, next: finalize run artifacts + STATE sync, risks: none}

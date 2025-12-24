@@ -1,0 +1,1 @@
+-- restored placeholder migration for graph store (schema already present)

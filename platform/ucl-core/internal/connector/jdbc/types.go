@@ -19,19 +19,23 @@ type Config struct {
 	Password         string
 	SSLMode          string
 	ConnectionString string
+	Schema           string
+	TablePrefix      string
 }
 
 // ParseConfig extracts configuration from a map.
 // Supports common aliases: username→user, db→database.
 func ParseConfig(m map[string]interface{}) *Config {
 	cfg := &Config{
-		Driver:   strings.ToLower(getString(m, "driver", "postgres")),
-		Host:     getString(m, "host", "localhost"),
-		Port:     getInt(m, "port", 5432),
-		Database: getStringWithFallback(m, "database", "db", ""),
-		User:     getStringWithFallback(m, "user", "username", ""),
-		Password: getString(m, "password", ""),
-		SSLMode:  getString(m, "sslMode", getString(m, "ssl_mode", "disable")),
+		Driver:      strings.ToLower(getString(m, "driver", "postgres")),
+		Host:        getString(m, "host", "localhost"),
+		Port:        getInt(m, "port", 5432),
+		Database:    getStringWithFallback(m, "database", "db", ""),
+		User:        getStringWithFallback(m, "user", "username", ""),
+		Password:    getString(m, "password", ""),
+		SSLMode:     getString(m, "sslMode", getString(m, "ssl_mode", "disable")),
+		Schema:      getString(m, "schema", "public"),
+		TablePrefix: getString(m, "tablePrefix", getString(m, "table_prefix", "")),
 	}
 
 	connStr := getString(m, "connectionString", getString(m, "connection_string", ""))

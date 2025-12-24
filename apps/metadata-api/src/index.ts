@@ -5,11 +5,11 @@ import { URL } from "node:url";
 import { createResolvers, typeDefs } from "./schema.js";
 import { getMetadataStore, getGraphStore } from "./context.js";
 import { authenticateRequest } from "./auth.js";
-import { registerDefaultIngestionSinks } from "./ingestion/index.js";
 import { completeOneDriveAuthCallback, markOneDriveEndpointDelegatedConnected } from "./onedriveAuth.js";
+import { registerDefaultIngestionDrivers } from "./ingestion/register.js";
 
 async function main() {
-  registerDefaultIngestionSinks();
+  registerDefaultIngestionDrivers();
   const store = await getMetadataStore();
   console.info("[metadata-api] using store", store.constructor?.name ?? "unknown");
   const graphStore = await getGraphStore();

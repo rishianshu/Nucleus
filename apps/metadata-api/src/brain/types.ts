@@ -15,34 +15,6 @@ export interface IndexProfileStore {
   getProfile(id: string): Promise<IndexProfile | null>;
 }
 
-export type VectorIndexEntryInput = {
-  nodeId: string;
-  profileId: string;
-  chunkId: string;
-  embedding: number[];
-  tenantId: string;
-  projectKey?: string | null;
-  profileKind: string;
-  sourceSystem?: string | null;
-  rawMetadata?: Record<string, unknown> | null;
-};
-
-export type VectorIndexQueryFilter = {
-  tenantId?: string;
-  projectKeyIn?: string[];
-  profileKindIn?: string[];
-};
-
-export interface VectorIndexStore {
-  upsertEntries(entries: VectorIndexEntryInput[]): Promise<void>;
-  query(args: {
-    profileId: string;
-    queryEmbedding: number[];
-    topK: number;
-    filter?: VectorIndexQueryFilter;
-  }): Promise<Array<{ nodeId: string; score: number; metadata: Record<string, unknown> }>>;
-}
-
 export interface EmbeddingProvider {
   embedText(model: string, texts: string[]): Promise<number[][]>;
 }
@@ -60,6 +32,53 @@ export interface BrainVectorSearch {
     projectKeyIn?: string[];
     profileKindIn?: string[];
   }): Promise<BrainVectorSearchHit[]>;
+}
+
+export type MaterializedStatus = "READY" | "INDEXING" | "INDEXED" | "FAILED";
+
+export type MaterializedArtifactHandle = {
+  uri: string;
+  bucket?: string | null;
+  basePrefix?: string | null;
+  datasetSlug?: string | null;
+  sinkId?: string | null;
+};
+
+export type MaterializedArtifact = {
+  id: string;
+  tenantId: string;
+  sourceRunId: string;
+  artifactKind: string;
+  sourceFamily?: string | null;
+  sinkEndpointId?: string | null;
+  handle: Record<string, unknown>;
+  canonicalMeta: Record<string, unknown>;
+  sourceMeta?: Record<string, unknown> | null;
+  status: MaterializedStatus;
+  counters?: Record<string, unknown> | null;
+  lastError?: unknown;
+  indexStatus?: MaterializedStatus;
+  indexCounters?: Record<string, unknown> | null;
+  indexLastError?: unknown;
+};
+
+export interface MaterializedRegistry {
+  upsertArtifact(args: {
+    tenantId: string;
+    sourceRunId: string;
+    artifactKind: string;
+    sourceFamily?: string | null;
+    sinkEndpointId?: string | null;
+    handle: Record<string, unknown>;
+    canonicalMeta: Record<string, unknown>;
+    sourceMeta?: Record<string, unknown> | null;
+  }): Promise<MaterializedArtifact>;
+  markIndexing(id: string): Promise<MaterializedArtifact>;
+  completeIndexRun(
+    id: string,
+    args: { status: MaterializedStatus; counters?: Record<string, unknown>; lastError?: unknown },
+  ): Promise<MaterializedArtifact>;
+  getArtifact(id: string): Promise<MaterializedArtifact | null>;
 }
 
 export type ClusterSummary = {

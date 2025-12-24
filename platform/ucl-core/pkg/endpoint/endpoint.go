@@ -17,14 +17,20 @@ type (
 	Schema               = internal.Schema
 	FieldDefinition      = internal.FieldDefinition
 	Capabilities         = internal.Capabilities
+	CapabilityDescriptor = internal.CapabilityDescriptor
 	Checkpoint           = internal.Checkpoint
 	IngestionPlan        = internal.IngestionPlan
 	IngestionSlice       = internal.IngestionSlice
+	WriteRequest         = internal.WriteRequest
+	WriteResult          = internal.WriteResult
+	FinalizeResult       = internal.FinalizeResult
 	PlanRequest          = internal.PlanRequest
 	ReadRequest          = internal.ReadRequest
 	SliceReadRequest     = internal.SliceReadRequest
 	ValidationResult     = internal.ValidationResult
 	Descriptor           = internal.Descriptor
+	AuthDescriptor       = internal.AuthDescriptor
+	AuthModeDescriptor   = internal.AuthModeDescriptor
 	FieldDescriptor      = internal.FieldDescriptor
 	Factory              = internal.Factory
 	Registry             = internal.Registry
@@ -32,6 +38,9 @@ type (
 	ProbeRequest         = internal.ProbeRequest
 	ProbeResult          = internal.ProbeResult
 	PlanIngestionRequest = internal.PlanIngestionRequest
+	CDMRegistry          = internal.CDMRegistry
+	CDMMapping           = internal.CDMMapping
+	CDMMapperFunc        = internal.CDMMapperFunc
 )
 
 // Strategy type for ingestion planning
@@ -87,6 +96,21 @@ func CreateSliceCapable(endpointID string, config map[string]any) (SliceCapable,
 // Register adds a factory to the default registry.
 func Register(endpointID string, factory Factory) {
 	DefaultRegistry().Register(endpointID, factory)
+}
+
+// DefaultCDMRegistry exposes the global CDM registry.
+func DefaultCDMRegistry() *internal.CDMRegistry {
+	return internal.DefaultCDMRegistry()
+}
+
+// RegisterCDM adds CDM mappings to the global registry.
+func RegisterCDM(endpointID string, mappings []internal.CDMMapping) {
+	internal.RegisterCDM(endpointID, mappings)
+}
+
+// RegisterCDMMapper registers a mapper for a dataset in the global registry.
+func RegisterCDMMapper(datasetID string, mapper internal.CDMMapperFunc) {
+	internal.RegisterCDMMapper(datasetID, mapper)
 }
 
 // ErrNotFound indicates an endpoint was not found.

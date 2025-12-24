@@ -256,7 +256,13 @@ export class ClusterBuilderService implements ClusterBuilder {
 }
 
 export class ClusterReadService implements ClusterRead {
-  constructor(private readonly graphStore: GraphStore) {}
+  private readonly clusterClient?: ClusterClient;
+  private readonly graphStore: GraphStore;
+
+  constructor(graphStore: GraphStore, clusterClient?: ClusterClient) {
+    this.graphStore = graphStore;
+    this.clusterClient = clusterClient ?? (process.env.CLUSTER_GRPC_ADDR ? new ClusterClient() : undefined);
+  }
 
   async listClustersForProject(args: {
     tenantId: string;
@@ -264,6 +270,20 @@ export class ClusterReadService implements ClusterRead {
     windowStart?: Date;
     windowEnd?: Date;
   }): Promise<ClusterSummary[]> {
+    if (this.clusterClient) {
+      const clusters = await this.clusterClient.listClusters({
+        tenantId: args.tenantId,
+        projectId: args.projectKey,
+        windowStart: args.windowStart?.toISOString(),
+        windowEnd: args.windowEnd?.toISOString(),
+      });
+      return clusters.map((c) => ({
+        clusterNodeId: c.clusterNodeId,
+        clusterKind: c.clusterKind,
+        memberNodeIds: c.memberNodeIds,
+      }));
+    }
+
     const tenant: TenantContext = { tenantId: args.tenantId, projectId: args.projectKey };
     const clusters = await this.graphStore.listEntities({ entityTypes: ["kg.cluster"] }, tenant);
     const filtered = clusters

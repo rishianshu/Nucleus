@@ -1,5 +1,4 @@
-import type { KeyValueStore } from "@metadata/core";
-import { createKeyValueStore } from "@metadata/core";
+import { GrpcKVStore, getGrpcKVStore } from "./grpcKVStore.js";
 
 const CHECKPOINT_PREFIX = "ingest";
 
@@ -11,7 +10,11 @@ export type IngestionCheckpointKey = {
 };
 
 export type IngestionCheckpointRecord = {
-  cursor?: unknown;
+  // Primary field for incremental ingestion - RFC3339 timestamp
+  watermark?: string | null;
+  // Scalar cursor - MUST be string or null, never an object (same value as watermark for compatibility)
+  cursor?: string | null;
+  // Metadata fields
   lastUpdatedAt?: string;
   lastRunId?: string | null;
   lastError?: string | null;
@@ -19,19 +22,15 @@ export type IngestionCheckpointRecord = {
   metadata?: Record<string, unknown> | null;
 };
 
-let kvStore: KeyValueStore | null = null;
-let kvStoreSignature: string | null = null;
+let kvStore: GrpcKVStore | null = null;
 
-function resolveStore(): KeyValueStore {
-  const driver = process.env.INGESTION_KV_DRIVER;
-  const filePath = process.env.INGESTION_KV_FILE;
-  const signature = `${driver ?? "file"}:${filePath ?? ""}`;
-  if (!kvStore || signature !== kvStoreSignature) {
-    kvStore = createKeyValueStore({
-      driver,
-      filePath,
-    });
-    kvStoreSignature = signature;
+/**
+ * Resolve the KV store - uses gRPC store-core service for PostgreSQL-backed persistence
+ */
+function resolveStore(): GrpcKVStore {
+  if (!kvStore) {
+    kvStore = getGrpcKVStore();
+    console.log("[checkpoints] Using gRPC KV store for checkpoint persistence");
   }
   return kvStore;
 }
@@ -42,6 +41,12 @@ export async function readCheckpoint(args: IngestionCheckpointKey): Promise<{
 }> {
   const key = buildCheckpointKey(args);
   const { value, version } = await resolveStore().get<IngestionCheckpointRecord>(key);
+  console.log("[checkpoint-debug] readCheckpoint gRPC result:", {
+    key,
+    hasCheckpoint: value != null,
+    checkpointKeys: value ? Object.keys(value) : [],
+    version,
+  });
   return {
     checkpoint: value,
     version,
@@ -58,6 +63,12 @@ export async function writeCheckpoint(
     ...checkpoint,
     lastUpdatedAt: checkpoint.lastUpdatedAt ?? new Date().toISOString(),
   };
+  console.log("[checkpoint-debug] writeCheckpoint gRPC:", {
+    key,
+    watermark: payload.watermark,
+    cursor: payload.cursor,
+    version: options?.expectedVersion,
+  });
   return resolveStore().put(key, payload, {
     expectedVersion: options?.expectedVersion ?? null,
   });
@@ -100,5 +111,4 @@ function cleanSegment(value: string): string {
 
 export function __resetCheckpointStoreForTests() {
   kvStore = null;
-  kvStoreSignature = null;
 }

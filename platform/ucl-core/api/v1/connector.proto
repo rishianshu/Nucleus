@@ -11,6 +11,7 @@ service ConnectorService {
   rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
   rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
   rpc GetDescriptor(GetDescriptorRequest) returns (GetDescriptorResponse);
+  rpc ListActions(ListActionsRequest) returns (ListActionsResponse);
   
   // --- Data Plane: Source Operations ---
   rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
@@ -280,4 +281,11 @@ message ExecuteRequest {
 }
 message ExecuteResponse {
   google.protobuf.Struct result = 1;
+}
+
+message ListActionsRequest {
+  google.protobuf.Struct config = 1;
+}
+message ListActionsResponse {
+  repeated string actions = 1;
 }

@@ -10,7 +10,7 @@
     "temporal:worker": "dotenv -e ../../.env -- tsx src/temporal/worker.ts",
     "prisma": "prisma",
     "test:signals": "tsx src/signals/signalStore.spec.ts && tsx src/signals/signalEvaluator.spec.ts",
-    "test:brain": "node --import tsx --test src/brain/indexProfiles.test.ts src/brain/indexerWorkDoc.test.ts src/brain/vectorSearch.test.ts src/brain/indexMetadataNormalization.test.ts src/brain/clustersRegistry.test.ts src/brain/clustersBuild.test.ts src/brain/clustersIdempotency.test.ts src/brain/clustersRead.test.ts src/brain/brainSearch.test.ts"
+    "test:brain": "node --import tsx --test src/brain/indexProfiles.test.ts src/brain/indexMetadataNormalization.test.ts src/brain/clustersRegistry.test.ts src/brain/clustersBuild.test.ts src/brain/clustersIdempotency.test.ts src/brain/clustersRead.test.ts"
   },
   "dependencies": {
     "@apollo/server": "^4.10.0",

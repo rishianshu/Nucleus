@@ -34,3 +34,4 @@ test-results/
 .cache/
 .artifacts/
 platform/ucl-core/.gocache/
+.gocache/

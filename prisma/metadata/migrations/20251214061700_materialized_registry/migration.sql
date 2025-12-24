@@ -1,0 +1,1 @@
+-- restored placeholder migration for materialized registry (schema already present)

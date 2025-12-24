@@ -1,16 +1,16 @@
 # STATE SYNC (auto-updated)
 
 ## Focus Feature
-semantic-github-code-source-v1 (in-progress @ 2025-12-13T17:50Z)
+ingestion-checkpoint-and-store-hardening-v1 (success @ 2025-12-22T14:55Z)
 
 ## Last Run
-- slug: semantic-github-code-source-v1
+- slug: code-vector-profile-and-indexing-v1
 - status: in-progress
-- duration: ~1h
-- tests: GOCACHE=./.gocache go test ./... (ucl-core); GOCACHE=./.gocache go test -mod=mod ./... (ucl-worker); pnpm ci-check failed (docker socket permission denied)
+- duration: ~0.8h
+- tests: GOCACHE=/tmp/go-cache go test ./internal/activities (green)
 - commits: none
-- decisions: 0
-- next_step: rerun pnpm ci-check once Docker/socket access is available; verify GitHub connector outputs + update story/summary
+- decisions: 1
+- next_step: validate IndexArtifact against store-core/minio with production embeddings and rerun indexing if needed
 
 ## Global Queue
 TODAY:
@@ -20,6 +20,15 @@ NEXT:
 LATER:
 - 
 
+- 2025-12-22T14:55Z run success (ingestion-checkpoint-and-store-hardening-v1, validated sinkId and flattened checkpoints; tests passed)
+- 2025-12-22T14:06Z run in-progress (code-vector-profile-and-indexing-v1, staging replay exposes vectorPayload/rawPayload; go activities tests green)
+- 2025-12-14T12:59Z run success (materialized-registry-and-index-trigger-v1, registry/index trigger v1 landed; test:brain green)
+- 2025-12-14T12:48Z run success (materialized-registry-and-index-trigger-v1, registry/index trigger v1 landed; test:brain green)
+- 2025-12-14T07:02Z run in-progress (code-vector-profile-and-indexing-v1, materialized_artifacts registry + registry-aware CodeIndexRunner; test:brain still green)
+- 2025-12-14T06:17Z run in-progress (code-vector-profile-and-indexing-v1, real GitHub→MinIO ingestion and CodeIndexRunner wrote vectors to metadata.vector_index_entries using deterministic embeddings)
+- 2025-12-14T05:27Z run in-progress (code-vector-profile-and-indexing-v1, prisma migrate deploy applied 20251213195500_code_vector_documents to localhost:5434 metadata schema)
+- 2025-12-14T05:07Z run in-progress (code-vector-profile-and-indexing-v1, unified vector_index_entries docId schema + in-memory stores; test:brain green with deterministic embeddings)
+- 2025-12-13T20:33Z run in-progress (code-vector-profile-and-indexing-v1, vector_documents schema/indexer/tests added; test:brain blocked by missing METADATA_DATABASE_URL)
 - 2025-12-13T17:50Z run in-progress (semantic-github-code-source-v1, go tests green; pnpm ci-check blocked by docker socket)
 - 2025-12-13T17:15Z run started (semantic-github-code-source-v1, boot + context sync)
 - 2025-12-13T11:28Z run success (minio-endpoint-and-staging-v1, MinIO endpoint/staging/sink added; go test ./... green with local GOCACHE)

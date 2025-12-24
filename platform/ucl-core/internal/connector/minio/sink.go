@@ -3,6 +3,7 @@ package minio
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/nucleus/ucl-core/internal/endpoint"
 	"github.com/nucleus/ucl-core/pkg/staging"
+	writerfile "github.com/xitongsys/parquet-go-source/writerfile"
+	"github.com/xitongsys/parquet-go/parquet"
+	"github.com/xitongsys/parquet-go/writer"
 )
 
 // SinkResult captures sink write outcomes.
@@ -45,6 +49,16 @@ func (e *Endpoint) WriteRaw(ctx context.Context, req *endpoint.WriteRequest) (*e
 	}
 
 	artifacts := map[string]string{}
+	// Prefer Parquet when schema is provided; fallback to JSONL.GZ.
+	if req.Schema != nil && len(req.Schema.Fields) > 0 {
+		path, rows, err := e.writeParquet(ctx, sinkID, loadDate, runID, req)
+		if err == nil {
+			artifacts[sinkID] = fmt.Sprintf("minio://%s/%s", e.config.Bucket, joinPath(e.config.BasePrefix, e.config.TenantID, sinkID))
+			return &endpoint.WriteResult{RowsWritten: rows, Path: path}, nil
+		}
+		// Fallback to JSONL on error.
+	}
+
 	var objects []string
 	var rows int64
 	var bytesWritten int64
@@ -60,7 +74,6 @@ func (e *Endpoint) WriteRaw(ctx context.Context, req *endpoint.WriteRequest) (*e
 		if err := encodeEnvelopes(buf, []staging.RecordEnvelope{envelope}, true); err != nil {
 			return nil, wrapError(CodeSinkWriteFailed, true, err)
 		}
-		// FIX: Use resolved loadDate and runID instead of raw req.LoadDate
 		key := joinPath(e.config.BasePrefix, e.config.TenantID, sinkID, fmt.Sprintf("dt=%s", loadDate), fmt.Sprintf("run=%s", runID), fmt.Sprintf("part-%06d.jsonl.gz", seq))
 		if err := e.store.PutObject(ctx, e.config.Bucket, key, buf.Bytes()); err != nil {
 			return nil, err
@@ -181,6 +194,20 @@ func (e *Endpoint) GetLatestWatermark(ctx context.Context, datasetID string) (st
 	return "", nil
 }
 
+// Provision ensures the sink destination is available. For MinIO, verify bucket exists.
+func (e *Endpoint) Provision(ctx context.Context, datasetID string, schema *endpoint.Schema) error {
+	_ = datasetID
+	_ = schema
+	exists, err := e.store.BucketExists(ctx, e.config.Bucket)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return wrapError(CodeBucketNotFound, false, fmt.Errorf("bucket %s not found", e.config.Bucket))
+	}
+	return nil
+}
+
 func slugFromEnvelope(rec staging.RecordEnvelope) string {
 	recordKind := rec.RecordKind
 	if recordKind == "" {
@@ -192,4 +219,87 @@ func slugFromEnvelope(rec staging.RecordEnvelope) string {
 	}
 	entity = strings.ReplaceAll(entity, "/", ".")
 	return fmt.Sprintf("%s.%s", recordKind, entity)
+}
+
+// writeParquet writes all records in a single Parquet file using the provided schema.
+func (e *Endpoint) writeParquet(ctx context.Context, sinkID, loadDate, runID string, req *endpoint.WriteRequest) (string, int64, error) {
+	buf := &bytes.Buffer{}
+	pfw := writerfile.NewWriterFile(buf)
+	schemaDef := buildParquetSchema(req.Schema)
+	pw, err := writer.NewJSONWriter(schemaDef, pfw, 4)
+	if err != nil {
+		return "", 0, wrapError(CodeSinkWriteFailed, true, err)
+	}
+	pw.CompressionType = parquet.CompressionCodec_SNAPPY
+
+	var rows int64
+	for _, rec := range req.Records {
+		row := projectParquetRow(rec, req.Schema)
+		if err := pw.Write(row); err != nil {
+			_ = pw.WriteStop()
+			_ = pfw.Close()
+			return "", rows, wrapError(CodeSinkWriteFailed, true, err)
+		}
+		rows++
+	}
+	if err := pw.WriteStop(); err != nil {
+		_ = pfw.Close()
+		return "", rows, wrapError(CodeSinkWriteFailed, true, err)
+	}
+	_ = pfw.Close()
+
+	key := joinPath(
+		e.config.BasePrefix,
+		e.config.TenantID,
+		sinkID,
+		fmt.Sprintf("dt=%s", loadDate),
+		fmt.Sprintf("run=%s", runID),
+		fmt.Sprintf("part-%06d.parquet", 0),
+	)
+	if err := e.store.PutObject(ctx, e.config.Bucket, key, buf.Bytes()); err != nil {
+		return "", rows, err
+	}
+	return fmt.Sprintf("minio://%s/%s", e.config.Bucket, key), rows, nil
+}
+
+func buildParquetSchema(schema *endpoint.Schema) string {
+	fields := make([]map[string]string, 0, len(schema.Fields))
+	for _, f := range schema.Fields {
+		fieldType := parquetPhysicalType(f.DataType)
+		fields = append(fields, map[string]string{
+			"Tag": fmt.Sprintf("name=%s, type=%s, repetitiontype=OPTIONAL", f.Name, fieldType),
+		})
+	}
+	out := map[string]any{
+		"Tag":    "name=parquet_go_root, repetitiontype=REQUIRED",
+		"Fields": fields,
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
+func parquetPhysicalType(dataType string) string {
+	switch strings.ToUpper(dataType) {
+	case "BOOLEAN":
+		return "BOOLEAN"
+	case "INTEGER", "INT", "BIGINT":
+		return "INT64"
+	case "FLOAT", "DOUBLE", "NUMBER", "NUMERIC", "DECIMAL":
+		return "DOUBLE"
+	default:
+		return "BYTE_ARRAY"
+	}
+}
+
+func projectParquetRow(rec endpoint.Record, schema *endpoint.Schema) map[string]any {
+	row := make(map[string]any, len(schema.Fields))
+	payload, _ := rec["payload"].(map[string]any)
+	for _, f := range schema.Fields {
+		var val any
+		if payload != nil {
+			val = payload[f.Name]
+		}
+		row[f.Name] = val
+	}
+	return row
 }

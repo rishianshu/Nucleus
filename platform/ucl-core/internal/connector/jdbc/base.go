@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nucleus/ucl-core/internal/core/cdm"
 	"github.com/nucleus/ucl-core/internal/endpoint"
 )
 
@@ -36,20 +37,86 @@ type Base struct {
 	Descriptor *endpoint.Descriptor
 }
 
+// ensureSinkTable creates a sink table for normalized records if it does not exist.
+// If columns are provided, they will be used; otherwise a generic schema is created.
+func (b *Base) ensureSinkTable(ctx context.Context, fullTable string, columns []string) error {
+	schema, table := splitSchemaTable(fullTable)
+	if schema == "" || table == "" {
+		return fmt.Errorf("invalid table name: %s", fullTable)
+	}
+	if len(columns) == 0 {
+		columns = []string{
+			"id TEXT PRIMARY KEY",
+			"entity_type TEXT",
+			"display_name TEXT",
+			"payload JSONB",
+			"observed_at TIMESTAMPTZ DEFAULT NOW()",
+		}
+	}
+	ddl := fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s;
+CREATE TABLE IF NOT EXISTS %s (
+  %s
+);`, quoteIdent(schema), fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table)), strings.Join(columns, ",\n  "))
+	_, err := b.DB.ExecContext(ctx, ddl)
+	return err
+}
+
+// splitSchemaTable splits schema.table or table into schema, table.
+func splitSchemaTable(value string) (string, string) {
+	parts := strings.SplitN(value, ".", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", value
+}
+
+func quoteIdent(val string) string {
+	escaped := strings.ReplaceAll(val, `"`, `""`)
+	return `"` + escaped + `"`
+}
+
+// modelColumnsFromCDM attempts to resolve column definitions from the CDM registry.
+func modelColumnsFromCDM(modelID string) []string {
+	if modelID == "" {
+		return nil
+	}
+	return cdm.ColumnDDLs(strings.ToLower(modelID))
+}
+
+// schemaColumns converts endpoint.Schema into column DDLs.
+func schemaColumns(schema *endpoint.Schema) []string {
+	if schema == nil || len(schema.Fields) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(schema.Fields))
+	for _, f := range schema.Fields {
+		colType := strings.ToUpper(f.DataType)
+		if colType == "" {
+			colType = "TEXT"
+		}
+		nullable := ""
+		if !f.Nullable {
+			nullable = " NOT NULL"
+		}
+		out = append(out, fmt.Sprintf("%s %s%s", f.Name, colType, nullable))
+	}
+	return out
+}
+
 // NewBase creates a generic JDBC connector.
 func NewBase(config map[string]interface{}) (*Base, error) {
 	cfg := ParseConfig(config)
-	
+
 	db, err := sql.Open(cfg.Driver, cfg.ConnectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	
+
 	// Configure pool
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	
+
 	return &Base{Config: cfg, DB: db, DriverName: cfg.Driver}, nil
 }
 
@@ -78,11 +145,11 @@ func (b *Base) ID() string {
 func (b *Base) ValidateConfig(ctx context.Context) (*ValidateResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	
+
 	if err := b.DB.PingContext(ctx); err != nil {
 		return &ValidateResult{Valid: false, Message: err.Error()}, nil
 	}
-	
+
 	return &ValidateResult{
 		Valid:   true,
 		Message: "Connection successful",
@@ -109,32 +176,32 @@ func (b *Base) ListDatasets(ctx context.Context) ([]*DatasetItem, error) {
 		FROM information_schema.tables
 		ORDER BY table_schema, table_name
 	`
-	
+
 	rows, err := b.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list datasets: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var datasets []*DatasetItem
 	for rows.Next() {
 		var schema, name, tableType string
 		if err := rows.Scan(&schema, &name, &tableType); err != nil {
 			continue
 		}
-		
+
 		kind := "table"
 		if strings.Contains(strings.ToLower(tableType), "view") {
 			kind = "view"
 		}
-		
+
 		datasets = append(datasets, &DatasetItem{
 			ID:   fmt.Sprintf("%s.%s", schema, name),
 			Name: name,
 			Kind: kind,
 		})
 	}
-	
+
 	return datasets, nil
 }
 
@@ -148,7 +215,7 @@ func (b *Base) GetSchema(ctx context.Context, datasetID string) (*SchemaResult, 
 		// Default to 'public' schema if not specified
 		schema, table = "public", datasetID
 	}
-	
+
 	query := `
 		SELECT 
 			column_name,
@@ -159,28 +226,28 @@ func (b *Base) GetSchema(ctx context.Context, datasetID string) (*SchemaResult, 
 		WHERE table_schema = $1 AND table_name = $2
 		ORDER BY ordinal_position
 	`
-	
+
 	rows, err := b.DB.QueryContext(ctx, query, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var fields []*FieldDefinition
 	for rows.Next() {
 		var f FieldDefinition
 		var isNullable string
 		var position int
-		
+
 		if err := rows.Scan(&f.Name, &f.DataType, &isNullable, &position); err != nil {
 			continue
 		}
-		
+
 		f.Nullable = isNullable == "YES"
 		f.Position = position
 		fields = append(fields, &f)
 	}
-	
+
 	return &SchemaResult{Fields: fields}, nil
 }
 
@@ -191,13 +258,13 @@ func (b *Base) GetStatistics(ctx context.Context, datasetID string, filter map[s
 		return nil, fmt.Errorf("invalid dataset_id format")
 	}
 	schema, table := parts[0], parts[1]
-	
+
 	// Fallback to COUNT(*) - slow but universal
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s", schema, table)
-	
+
 	var rowCount int64
 	b.DB.QueryRowContext(ctx, query).Scan(&rowCount)
-	
+
 	return map[string]interface{}{
 		"row_count": rowCount,
 	}, nil
@@ -210,44 +277,44 @@ func (b *Base) Read(ctx context.Context, datasetID string, limit int64, onRecord
 		return fmt.Errorf("invalid dataset_id format")
 	}
 	schema, table := parts[0], parts[1]
-	
+
 	query := fmt.Sprintf("SELECT * FROM %s.%s", schema, table)
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	
+
 	rows, err := b.DB.QueryContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("read query failed: %w", err)
 	}
 	defer rows.Close()
-	
+
 	cols, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("failed to get columns: %w", err)
 	}
-	
+
 	for rows.Next() {
 		values := make([]interface{}, len(cols))
 		valuePtrs := make([]interface{}, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
-		
+
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return fmt.Errorf("scan failed: %w", err)
 		}
-		
+
 		record := make(map[string]interface{})
 		for i, col := range cols {
 			record[col] = values[i]
 		}
-		
+
 		if err := onRecord(record); err != nil {
 			return err
 		}
 	}
-	
+
 	return rows.Err()
 }
 
@@ -258,17 +325,17 @@ func (b *Base) ReadSlice(ctx context.Context, datasetID string, slice *Ingestion
 		return fmt.Errorf("invalid dataset_id format")
 	}
 	schema, table := parts[0], parts[1]
-	
+
 	query := fmt.Sprintf("SELECT * FROM %s.%s", schema, table)
 	var args []interface{}
-	
+
 	if slice != nil {
 		// Get incremental column from params if specified
 		column := "id" // default
 		if col, ok := slice.Params["incremental_column"].(string); ok {
 			column = col
 		}
-		
+
 		if slice.Lower != "" && slice.Upper != "" {
 			query += fmt.Sprintf(" WHERE %s >= ? AND %s <= ?", column, column)
 			args = append(args, slice.Lower, slice.Upper)
@@ -280,39 +347,39 @@ func (b *Base) ReadSlice(ctx context.Context, datasetID string, slice *Ingestion
 			args = append(args, slice.Upper)
 		}
 	}
-	
+
 	rows, err := b.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("read slice query failed: %w", err)
 	}
 	defer rows.Close()
-	
+
 	cols, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("failed to get columns: %w", err)
 	}
-	
+
 	for rows.Next() {
 		values := make([]interface{}, len(cols))
 		valuePtrs := make([]interface{}, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
-		
+
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return fmt.Errorf("scan failed: %w", err)
 		}
-		
+
 		record := make(map[string]interface{})
 		for i, col := range cols {
 			record[col] = values[i]
 		}
-		
+
 		if err := onRecord(record); err != nil {
 			return err
 		}
 	}
-	
+
 	return rows.Err()
 }
 
@@ -323,12 +390,12 @@ func (b *Base) CountBetween(ctx context.Context, datasetID string, lower, upper 
 		return 0, fmt.Errorf("invalid dataset_id format")
 	}
 	schema, table := parts[0], parts[1]
-	
+
 	// Default to counting with incremental_column = id
 	// In practice, the column should come from dataset metadata
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s", schema, table)
 	var args []interface{}
-	
+
 	if lower != "" && upper != "" {
 		query += " WHERE id >= ? AND id <= ?"
 		args = append(args, lower, upper)
@@ -339,12 +406,12 @@ func (b *Base) CountBetween(ctx context.Context, datasetID string, lower, upper 
 		query += " WHERE id <= ?"
 		args = append(args, upper)
 	}
-	
+
 	var count int64
 	if err := b.DB.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count between query failed: %w", err)
 	}
-	
+
 	return count, nil
 }
 
@@ -353,13 +420,13 @@ func (b *Base) PlanIncrementalSlices(ctx context.Context, dataset *DatasetItem, 
 	if dataset == nil {
 		return nil, fmt.Errorf("dataset required")
 	}
-	
+
 	plan := &IngestionPlan{
 		DatasetID:  dataset.ID,
 		Strategy:   "adaptive",
 		Statistics: make(map[string]interface{}),
 	}
-	
+
 	// If no incremental column, return single full slice
 	if dataset.IncrementalColumn == "" {
 		plan.Strategy = "full"
@@ -369,7 +436,7 @@ func (b *Base) PlanIncrementalSlices(ctx context.Context, dataset *DatasetItem, 
 		}}
 		return plan, nil
 	}
-	
+
 	// Get bounds
 	parts := strings.SplitN(dataset.ID, ".", 2)
 	if len(parts) != 2 {
@@ -377,7 +444,7 @@ func (b *Base) PlanIncrementalSlices(ctx context.Context, dataset *DatasetItem, 
 	}
 	schema, table := parts[0], parts[1]
 	column := dataset.IncrementalColumn
-	
+
 	// Find min/max for slicing
 	var minVal, maxVal sql.NullString
 	bounds := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s.%s", column, column, schema, table)
@@ -385,27 +452,27 @@ func (b *Base) PlanIncrementalSlices(ctx context.Context, dataset *DatasetItem, 
 		bounds = fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s.%s WHERE %s > '%s'",
 			column, column, schema, table, column, checkpoint.Watermark)
 	}
-	
+
 	if err := b.DB.QueryRowContext(ctx, bounds).Scan(&minVal, &maxVal); err != nil {
 		return nil, fmt.Errorf("failed to get bounds: %w", err)
 	}
-	
+
 	if !minVal.Valid || !maxVal.Valid {
 		// No data to process
 		plan.Slices = []*IngestionSlice{}
 		return plan, nil
 	}
-	
+
 	plan.Statistics["min"] = minVal.String
 	plan.Statistics["max"] = maxVal.String
-	
+
 	// Get total count
 	totalCount, err := b.CountBetween(ctx, dataset.ID, minVal.String, maxVal.String)
 	if err != nil {
 		return nil, err
 	}
 	plan.Statistics["total_count"] = totalCount
-	
+
 	// If small enough, one slice
 	if targetSliceSize <= 0 || totalCount <= targetSliceSize {
 		plan.Slices = []*IngestionSlice{{
@@ -419,12 +486,12 @@ func (b *Base) PlanIncrementalSlices(ctx context.Context, dataset *DatasetItem, 
 		}}
 		return plan, nil
 	}
-	
+
 	// For simplicity, create estimated slices based on count
 	// A more sophisticated implementation would use NTILE or similar
 	numSlices := int((totalCount + targetSliceSize - 1) / targetSliceSize)
 	plan.Statistics["num_slices"] = numSlices
-	
+
 	// For now, return a single slice - vendor-specific connectors can override
 	// with NTILE-based slicing for true adaptive behavior
 	plan.Slices = []*IngestionSlice{{
@@ -437,7 +504,7 @@ func (b *Base) PlanIncrementalSlices(ctx context.Context, dataset *DatasetItem, 
 			"estimated_slices":   numSlices,
 		},
 	}}
-	
+
 	return plan, nil
 }
 
@@ -615,17 +682,17 @@ func (b *Base) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) (*endp
 			Metadata:       req.Checkpoint.Metadata,
 		}
 	}
-	
+
 	dataset := &DatasetItem{
-		ID:                req.DatasetID,
+		ID:                  req.DatasetID,
 		SupportsIncremental: true,
 	}
-	
+
 	plan, err := b.PlanIncrementalSlices(ctx, dataset, checkpoint, req.TargetSliceSize)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	slices := make([]*endpoint.IngestionSlice, len(plan.Slices))
 	for i, s := range plan.Slices {
 		slices[i] = &endpoint.IngestionSlice{
@@ -636,7 +703,7 @@ func (b *Base) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) (*endp
 			Params:   s.Params,
 		}
 	}
-	
+
 	return &endpoint.IngestionPlan{
 		DatasetID:  plan.DatasetID,
 		Strategy:   plan.Strategy,
@@ -651,7 +718,7 @@ func (b *Base) ReadSliceEndpoint(ctx context.Context, req *endpoint.SliceReadReq
 	// For now, collect all records and return a slice iterator
 	// TODO: Implement true streaming iterator
 	var records []endpoint.Record
-	
+
 	var slice *IngestionSlice
 	if req.Slice != nil {
 		slice = &IngestionSlice{
@@ -662,7 +729,7 @@ func (b *Base) ReadSliceEndpoint(ctx context.Context, req *endpoint.SliceReadReq
 			Params:   req.Slice.Params,
 		}
 	}
-	
+
 	err := b.ReadSlice(ctx, req.DatasetID, slice, func(record map[string]interface{}) error {
 		r := make(endpoint.Record)
 		for k, v := range record {
@@ -674,7 +741,7 @@ func (b *Base) ReadSliceEndpoint(ctx context.Context, req *endpoint.SliceReadReq
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &sliceIterator{records: records, index: -1}, nil
 }
 
@@ -708,4 +775,3 @@ func (it *sliceIterator) Close() error {
 	it.records = nil
 	return nil
 }
-

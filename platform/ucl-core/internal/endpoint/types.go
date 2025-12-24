@@ -155,6 +155,7 @@ type WriteRequest struct {
 	Mode      string // "append", "overwrite"
 	LoadDate  string
 	Records   []Record
+	Schema    *Schema
 }
 
 type WriteResult struct {

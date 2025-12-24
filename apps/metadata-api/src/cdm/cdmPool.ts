@@ -1,7 +1,14 @@
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import type { MetadataEndpointDescriptor } from "@metadata/core";
 import { getMetadataStore } from "../context.js";
-import { parseSinkEndpointConfig, type SinkConnectionConfig } from "../ingestion/cdmSink.js";
+// Deprecated TS CDM sink removed; keep placeholder for future Go-backed sink config.
+export type SinkConnectionConfig = Record<string, unknown>;
+export function parseSinkEndpointConfig(config: unknown): SinkConnectionConfig {
+  if (config && typeof config === "object") {
+    return config as Record<string, unknown>;
+  }
+  return {};
+}
 
 type PoolEntry = {
   pool: Pool;
@@ -89,10 +96,11 @@ export function isCdmSinkEndpoint(endpoint: MetadataEndpointDescriptor) {
 export type { PoolEntry };
 
 function createPoolEntry(config: SinkConnectionConfig): PoolEntry {
-  const connectionString = normalizeConnectionUrl(config.connectionUrl);
+  const rawUrl = typeof config.connectionUrl === "string" ? config.connectionUrl : String(config.connectionUrl ?? "");
+  const connectionString = normalizeConnectionUrl(rawUrl);
   const pool = new Pool({
     connectionString,
-    ssl: config.ssl,
+    ssl: (config.ssl as PoolConfig["ssl"]) ?? undefined,
     max: 5,
   });
   return { pool, config };

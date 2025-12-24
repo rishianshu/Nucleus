@@ -163,6 +163,16 @@ func (s *S3Client) ListPrefix(ctx context.Context, bucket, prefix string) ([]str
 	return keys, nil
 }
 
+func (s *S3Client) DeleteObject(ctx context.Context, bucket, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if bucket == "" || key == "" {
+		return wrapError(CodeBucketNotFound, false, fmt.Errorf("bucket/key is required"))
+	}
+	return s.client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{})
+}
+
 // classifyMinioError converts minio-go errors to our structured Error type.
 func classifyMinioError(err error) *Error {
 	if err == nil {

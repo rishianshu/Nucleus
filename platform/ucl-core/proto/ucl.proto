@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ucl.v1;
 
-option go_package = "github.com/nucleus/ucl-core/pkg/uclpb";
+option go_package = "github.com/nucleus/ucl-core/gen/go/proto;proto";
 
 // UCLService provides the Universal Connectivity Layer API.
 // This replaces the Python CLI (endpoint_registry_cli.py) with gRPC.
@@ -33,6 +33,12 @@ service UCLService {
 
   // GetOperation polls long-running workflow state.
   rpc GetOperation(GetOperationRequest) returns (OperationState);
+
+  // GetRunSummary returns clustering/indexing summary for an artifact/run.
+  rpc GetRunSummary(RunSummaryRequest) returns (RunSummaryResponse);
+
+  // DiffRunSummaries compares two artifacts by version hash and returns log paths for replay.
+  rpc DiffRunSummaries(DiffRunSummariesRequest) returns (DiffRunSummariesResponse);
 }
 
 // ===== Templates =====
@@ -307,6 +313,37 @@ message StartOperationResponse {
 
 message GetOperationRequest {
   string operation_id = 1;
+}
+
+// ===== Observability =====
+message RunSummaryRequest {
+  string artifact_id = 1;
+}
+
+message RunSummaryResponse {
+  string artifact_id = 1;
+  string tenant_id = 2;
+  string source_family = 3;
+  string sink_endpoint_id = 4;
+  string version_hash = 5;
+  int64 nodes_touched = 6;
+  int64 edges_touched = 7;
+  int64 cache_hits = 8;
+  string log_events_path = 9;
+  string log_snapshot_path = 10;
+}
+
+message DiffRunSummariesRequest {
+  string left_artifact_id = 1;
+  string right_artifact_id = 2;
+}
+
+message DiffRunSummariesResponse {
+  RunSummaryResponse left = 1;
+  RunSummaryResponse right = 2;
+  bool version_equal = 3;
+  string notes = 4;
+  string log_events_path = 5;
 }
 
 message OperationState {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -115,6 +116,14 @@ func (m *Manager) runIngestion(opID string, req *pb.StartOperationRequest) {
 		m.failOperation(opID, code, err, retryable)
 		return
 	}
+	if provider == nil || provider.ID() == "" {
+		err := fmt.Errorf("stagingProviderId is required for ingestion")
+		m.failOperation(opID, string(staging.CodeStagingUnavailable), err, false)
+		return
+	}
+	m.updateState(opID, func(state *pb.OperationState) {
+		setStat(state, "stagingProviderId", provider.ID())
+	})
 
 	var recordsStaged int64
 	var bytesStaged int64
@@ -331,34 +340,30 @@ func (m *Manager) executeSlice(ctx context.Context, provider staging.Provider, s
 func (m *Manager) selectProvider(plan *endpoint.IngestionPlan, params map[string]string) (staging.Provider, error) {
 	registry := staging.NewRegistry(staging.NewMemoryProvider(staging.DefaultMemoryCapBytes))
 
-	preferred := params["staging_provider"]
-	wantMinio := strings.EqualFold(preferred, staging.ProviderMinIO)
-	minioProvider, minioErr := buildMinioProvider(params, wantMinio)
-	if minioProvider != nil {
-		registry.Register(minioProvider)
-		if preferred == "" {
-			preferred = minioProvider.ID()
-		}
-	}
+	preferred := staging.ProviderMinIO
 
-	if !paramBool(params, false, "disable_object_store", "disableObjectStore") {
-		registry.Register(staging.NewObjectStoreProvider(""))
-	}
-
-	estimatedBytes := int64(paramInt(params, "estimated_bytes", "estimatedBytes"))
-	if estimatedBytes == 0 && plan != nil && plan.Statistics != nil {
-		if v, ok := plan.Statistics["estimatedCount"]; ok {
-			if count, ok2 := toInt64(v); ok2 {
-				estimatedBytes = count * 512
-			}
-		}
-	}
-
-	provider, err := registry.SelectProvider(preferred, estimatedBytes, staging.DefaultLargeRunThresholdBytes)
-	if err != nil && minioErr != nil && (wantMinio || preferred == staging.ProviderMinIO) {
+	minioProvider, minioErr := buildMinioProvider(params, true)
+	if minioErr != nil {
 		return nil, minioErr
 	}
-	return provider, err
+	if minioProvider == nil {
+		return nil, &staging.Error{
+			Code:      staging.CodeStagingUnavailable,
+			Retryable: false,
+			Err:       fmt.Errorf("MinIO staging is required but not configured"),
+		}
+	}
+	registry.Register(minioProvider)
+
+	provider, ok := registry.Get(preferred)
+	if !ok || provider == nil {
+		return nil, &staging.Error{
+			Code:      staging.CodeStagingUnavailable,
+			Retryable: false,
+			Err:       fmt.Errorf("MinIO staging is required but not available"),
+		}
+	}
+	return provider, nil
 }
 
 func (m *Manager) markSucceeded(opID string) {
@@ -497,11 +502,50 @@ func buildMinioProvider(params map[string]string, force bool) (staging.Provider,
 	copyParam("tenantId", "staging_tenant_id", "tenant_id", "tenantId")
 	copyParam("rootPath", "staging_root_path", "stagingRootPath")
 
+	if _, ok := cfgParams["endpointUrl"]; !ok {
+		if v := os.Getenv("MINIO_ENDPOINT"); v != "" {
+			cfgParams["endpointUrl"] = v
+		}
+	}
+	if _, ok := cfgParams["accessKeyId"]; !ok {
+		if v := os.Getenv("MINIO_ACCESS_KEY"); v != "" {
+			cfgParams["accessKeyId"] = v
+		}
+	}
+	if _, ok := cfgParams["secretAccessKey"]; !ok {
+		if v := os.Getenv("MINIO_SECRET_KEY"); v != "" {
+			cfgParams["secretAccessKey"] = v
+		}
+	}
+	if _, ok := cfgParams["bucket"]; !ok {
+		if v := os.Getenv("MINIO_BUCKET"); v != "" {
+			cfgParams["bucket"] = v
+		}
+	}
+	if _, ok := cfgParams["basePrefix"]; !ok {
+		if v := os.Getenv("MINIO_STAGE_PREFIX"); v != "" {
+			cfgParams["basePrefix"] = v
+		}
+	}
+	if _, ok := cfgParams["tenantId"]; !ok {
+		if v := os.Getenv("TENANT_ID"); v != "" {
+			cfgParams["tenantId"] = v
+		}
+	}
+
 	if !force && len(cfgParams) == 0 {
 		return nil, nil
 	}
 
 	cfg := minio.ParseConfig(cfgParams)
+	if validation := cfg.Validate(); validation != nil && !validation.Valid {
+		return nil, &staging.Error{
+			Code:      staging.CodeStagingUnavailable,
+			Retryable: validation.Retryable,
+			Err:       fmt.Errorf("MinIO staging is required: %s", validation.Message),
+		}
+	}
+
 	return minio.NewStagingProvider(cfg, nil)
 }
 

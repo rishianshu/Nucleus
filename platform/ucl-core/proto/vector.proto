@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package vector;
+
+option go_package = "github.com/nucleus/ucl-core/pkg/vectorpb";
+
+// Vector search service backed by pgvector.
+service VectorService {
+  // Search performs a similarity search against stored embeddings.
+  rpc Search (SearchRequest) returns (SearchResponse) {}
+}
+
+message SearchRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  repeated string profile_ids = 3;
+  string source_family = 4;
+  string artifact_id = 5;
+  string run_id = 6;
+  string sink_endpoint_id = 7;
+  string dataset_slug = 8;
+  int32 top_k = 9;
+  repeated float embedding = 10;
+}
+
+message SearchHit {
+  string node_id = 1;
+  string profile_id = 2;
+  float score = 3;
+  string content_text = 4;
+  map<string, string> metadata = 5;
+}
+
+message SearchResponse {
+  repeated SearchHit hits = 1;
+}

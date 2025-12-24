@@ -54,5 +54,73 @@ Nucleus is our opinionated platform for unifying metadata, AI-assisted reporting
 1.  **Start Stack**: `pnpm dev:stack` (services) + `pnpm dev:designer` (UI).
 2.  **Run Tests**: `apps/metadata-api-go/scripts/run-integration-tests.sh`.
 
+## Go Services (ingestion/brain/store) – what they do & how to run
+| Service | Role | Start | Stop | Debug (Delve) | Logs |
+|---------|------|-------|------|---------------|------|
+| store-core | gRPC for kv/vector/signal/logstore | `bash scripts/start-store-core.sh` | `bash scripts/stop-store-core.sh` | `DEBUG=1 bash scripts/start-store-core.sh` (port 40001) | `/tmp/nucleus/store_core_server.log` |
+| brain worker | Temporal activities: IndexArtifact, ExtractSignals, ExtractInsights, BuildClusters | `bash scripts/start-brain-worker.sh` | stop via `scripts/stop-go-stack.sh` | `DEBUG=1 ...` (port 40002) | `/tmp/nucleus/brain_worker.log` |
+| ucl worker | Temporal ingestion activities: Collect/Preview/Plan/Run/SinkRunner on queue `metadata-go` | `bash scripts/start-ucl-worker.sh` | stop via `scripts/stop-go-stack.sh` | `DEBUG=1 ...` (port 40004) | `/tmp/nucleus/metadata_go_worker.log` |
+| Go stack (all three) | Convenience wrapper | `bash scripts/start-go-stack.sh` | `bash scripts/stop-go-stack.sh` | `DEBUG=1 bash scripts/start-go-stack.sh` | see above |
+
+Required env (in `.env`):  
+`METADATA_DATABASE_URL=postgresql://postgres:postgres@localhost:5434/jira_plus_plus?schema=metadata&search_path=metadata`  
+`KV_DATABASE_URL`, `VECTOR_DATABASE_URL`, `SIGNAL_DATABASE_URL` (defaults to METADATA_DATABASE_URL)  
+`LOGSTORE_GATEWAY_ADDR=localhost:50051`, `LOGSTORE_ENDPOINT_ID=<minio endpoint id>`, `LOGSTORE_BUCKET=logstore`, `LOGSTORE_PREFIX=logs`  
+`TEMPORAL_ADDRESS=127.0.0.1:7233`, queues: TS worker `metadata`, Go ingestion `metadata-go`, brain `brain-go`.
+
+VS Code attach (Delve): use host `127.0.0.1` and ports 40001/40002/40004 with `"mode": "remote"`.
+
+## Ingestion/Indexing sanity checks
+- Start workers (above) and metadata API (`pnpm --filter @apps/metadata-api dev` with `METADATA_DATABASE_URL` set).
+- Kick ingestion via GraphQL `startIngestion(endpointId, unitId, sinkEndpointId)`; check `ingestionStatus`.
+- Verify outputs:
+  - MinIO: `sink-bucket/ingestion/<tenant>/<datasetSlug>/dt=<date>/run=<runId>/part-*.jsonl.gz`
+  - DB: `SELECT "sourceRunId", status, "indexStatus" FROM metadata."MaterializedArtifact" ORDER BY "createdAt" DESC LIMIT 3;`
+  - Vectors: `SELECT COUNT(*) FROM metadata.vector_index_entries;`
+  - Signals: `SELECT COUNT(*) FROM metadata.signal_instances;`
+  - Clusters: `SELECT COUNT(*) FROM metadata.graph_edges WHERE edge_type LIKE 'cluster.%';`
+
+## Ingestion → Post-Ingestion flow (what runs where)
+- Workflows: TS worker on queue `metadata` runs `ingestionRunWorkflow`. It calls:
+  - TS activities for bookkeeping (startIngestionRun, persistIngestionBatches, loadStagedRecords, registerMaterializedArtifact).
+  - Go ingestion activities on queue `metadata-go` for Collect/Preview/Plan/Run/SinkRunner.
+- Staging/Sink: RunIngestionUnit writes stage refs (default staging provider `object.minio`). SinkRunner reads stage/batches and writes to MinIO sink under `sink-bucket/ingestion/<tenant>/<datasetSlug>/dt=<date>/run=<runId>/part-*.jsonl.gz`.
+- Post-ingestion (brain): brain worker on queue `brain-go` runs:
+  - IndexArtifact (vector indexing via store-core vector gRPC)
+  - ExtractSignals (signal service via store-core)
+  - ExtractInsights (LLM skills, writes insights/logs if configured)
+  - BuildClusters (cluster edges/nodes via KG/logstore if configured)
+- Registry: MaterializedArtifact captures `sourceRunId`, `status`, `indexStatus`, handle (MinIO URI).
+
+### Sample GraphQL calls
+- Start ingestion:
+```
+mutation Start($endpointId:ID!,$unitId:ID!,$sinkEndpointId:ID!){
+  startIngestion(endpointId:$endpointId, unitId:$unitId, sinkEndpointId:$sinkEndpointId){
+    ok runId state message
+  }
+}
+```
+- Check status:
+```
+query Status($endpointId:ID!,$unitId:ID!){
+  ingestionStatus(endpointId:$endpointId, unitId:$unitId){
+    state lastRunId lastError
+  }
+}
+```
+
+### Troubleshooting checklist
+- Schema mismatch: ensure `METADATA_DATABASE_URL` includes `schema=metadata&search_path=metadata`; otherwise Prisma looks in `public` and fails (e.g., missing MetadataEndpoint table).
+- Staging not found: ensure staging provider is `object.minio` and SinkRunner sees the same `stagingProviderId` as RunIngestionUnit.
+- Store-core not running: vector/signal/insight/cluster steps will no-op/fail; start store-core (9099) and brain worker (brain-go).
+- Queues misaligned: TS worker must be on `metadata`; Go ingestion on `metadata-go`; brain on `brain-go`.
+- Logs:
+  - `/tmp/nucleus/store_core_server.log`
+  - `/tmp/nucleus/brain_worker.log`
+  - `/tmp/nucleus/metadata_go_worker.log`
+  - `/tmp/nucleus/metadata_ts_worker.log`
+  - `/tmp/nucleus/metadata_api.log`
+
 ## Project Operations
 This repository follows a structured **Plan -> Code -> Review** cycle. See `AGENT_INSTRUCTIONS.md` for details on how `task.md` and `implementation_plan.md` drive development.

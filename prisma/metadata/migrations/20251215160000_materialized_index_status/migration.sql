@@ -1,0 +1,1 @@
+-- restored placeholder migration for materialized index status (schema already present)

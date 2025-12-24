@@ -1,4 +1,5 @@
-import type { SinkConnectionConfig } from "../ingestion/cdmSink.js";
+// Deprecated TS CDM sink removed; keep placeholder for future Go-backed sink config.
+export type SinkConnectionConfig = Record<string, unknown>;
 import { getCdmSinkPool, resolveFallbackConfigFromEnv, type PoolEntry } from "./cdmPool.js";
 
 export type CdmWorkProjectRow = {
@@ -471,23 +472,33 @@ function buildWorkUserWhereClause(filter?: WorkUserFilter | null) {
 }
 
 function projectTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}work_project`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_work";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}work_project`)}`;
 }
 
 function workItemTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}work_item`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_work";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}work_item`)}`;
 }
 
 function userTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}work_user`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_work";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}work_user`)}`;
 }
 
 function commentTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}work_comment`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_work";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}work_comment`)}`;
 }
 
 function worklogTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}work_worklog`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_work";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}work_worklog`)}`;
 }
 
 function quoteIdent(input: string) {

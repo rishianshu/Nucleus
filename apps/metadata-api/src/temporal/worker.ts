@@ -3,12 +3,13 @@ import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { activities } from "./activities.js";
 import { WORKFLOW_NAMES } from "./workflows.js";
-import { registerDefaultIngestionSinks } from "../ingestion/index.js";
+import { registerDefaultIngestionDrivers } from "../ingestion/register.js";
 
+// Default TS worker queue hosts workflows plus TS-only activities; Go activities stay on metadata-go.
 const DEFAULT_TASK_QUEUE = process.env.METADATA_TEMPORAL_TASK_QUEUE ?? "metadata";
 
 async function main() {
-  registerDefaultIngestionSinks();
+  registerDefaultIngestionDrivers();
   const workflowsPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./workflows.ts");
   const temporalAddress = process.env.TEMPORAL_ADDRESS ?? "127.0.0.1:7233";
   const temporalNamespace = process.env.TEMPORAL_NAMESPACE ?? "default";
@@ -19,6 +20,7 @@ async function main() {
     taskQueue: DEFAULT_TASK_QUEUE,
     workflowsPath,
     activities,
+    // Allow TS workflow + metadata bookkeeping activities; Go ingestion activities stay on a separate queue.
   });
   // eslint-disable-next-line no-console
   console.log(

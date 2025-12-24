@@ -337,10 +337,25 @@ func (j *Jira) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) (*endp
 
 // ReadSlice reads a specific slice of data.
 func (j *Jira) ReadSlice(ctx context.Context, req *endpoint.SliceReadRequest) (endpoint.Iterator[endpoint.Record], error) {
+	// CHECKPOINT FIX: Wire checkpoint watermark to Slice.Lower for JQL incremental filtering
+	slice := req.Slice
+	if slice == nil {
+		slice = &endpoint.IngestionSlice{}
+	}
+	// Extract watermark from checkpoint and set as Slice.Lower for JQL
+	if req.Checkpoint != nil && slice.Lower == "" {
+		if wm, ok := req.Checkpoint["watermark"].(string); ok && wm != "" {
+			slice.Lower = wm
+		} else if wm, ok := req.Checkpoint["cursor"].(string); ok && wm != "" {
+			slice.Lower = wm
+		}
+	}
+
 	return j.Read(ctx, &endpoint.ReadRequest{
-		DatasetID: req.DatasetID,
-		Limit:     0,
-		Slice:     req.Slice,
+		DatasetID:  req.DatasetID,
+		Limit:      0,
+		Slice:      slice,
+		Checkpoint: req.Checkpoint,
 	})
 }
 
@@ -501,6 +516,28 @@ func (it *issueIterator) Value() endpoint.Record {
 
 func (it *issueIterator) Err() error   { return it.err }
 func (it *issueIterator) Close() error { return nil }
+
+// Checkpoint returns the checkpoint with high watermark for incremental reads.
+func (it *issueIterator) Checkpoint() *endpoint.Checkpoint {
+	// Track the highest updatedAt from fetched issues
+	var highWatermark string
+	for _, issue := range it.current {
+		if issue != nil && issue.Fields.Updated > highWatermark {
+			highWatermark = issue.Fields.Updated
+		}
+	}
+	if highWatermark == "" {
+		return nil
+	}
+	return &endpoint.Checkpoint{
+		Watermark: highWatermark,
+		Metadata: map[string]any{
+			"cursorField": "updatedAt",
+			"total":       it.total,
+			"fetched":     it.fetched,
+		},
+	}
+}
 
 // =============================================================================
 // SLICE ITERATOR

@@ -54,7 +54,10 @@ func NewStagingProvider(cfg *Config, store ObjectStore) (*StagingProvider, error
 	if exists, err := store.BucketExists(context.Background(), cfg.Bucket); err != nil {
 		return nil, err
 	} else if !exists {
-		return nil, wrapError(CodeBucketNotFound, false, fmt.Errorf("bucket %s not found", cfg.Bucket))
+		// Auto-provision the bucket when it does not exist yet.
+		if err := store.EnsureBucket(context.Background(), cfg.Bucket); err != nil {
+			return nil, wrapError(CodeBucketNotFound, false, fmt.Errorf("bucket %s not found: %w", cfg.Bucket, err))
+		}
 	}
 
 	root := strings.TrimPrefix(cfg.TenantID, "/")

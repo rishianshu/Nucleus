@@ -1,4 +1,5 @@
-import type { SinkConnectionConfig } from "../ingestion/cdmSink.js";
+// Deprecated TS CDM sink removed; keep placeholder for future Go-backed sink config.
+export type SinkConnectionConfig = Record<string, unknown>;
 import { getCdmSinkPool, resolveFallbackConfigFromEnv, type PoolEntry } from "./cdmPool.js";
 
 export type DocItemFilter = {
@@ -197,16 +198,20 @@ function buildDocItemWhereClause(filter?: DocItemFilter | null, config?: SinkCon
 }
 
 function docItemTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}doc_item`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_docs";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}doc_item`)}`;
 }
 
 function docSpaceTable(config: SinkConnectionConfig) {
-  return `${quoteIdent(config.schema)}.${quoteIdent(`${config.tablePrefix}doc_space`)}`;
+  const schema = typeof config.schema === "string" ? config.schema : "cdm_docs";
+  const prefix = typeof config.tablePrefix === "string" ? config.tablePrefix : "cdm_";
+  return `${quoteIdent(schema)}.${quoteIdent(`${prefix}doc_space`)}`;
 }
 
 function docAccessTable(config?: SinkConnectionConfig) {
-  const schema = config?.schema ?? "cdm_docs";
-  const prefix = config?.tablePrefix ?? "cdm_";
+  const schema = typeof config?.schema === "string" ? config.schema : "cdm_docs";
+  const prefix = typeof config?.tablePrefix === "string" ? config.tablePrefix : "cdm_";
   return `${quoteIdent(schema)}.${quoteIdent(`${prefix}doc_access`)}`;
 }
 

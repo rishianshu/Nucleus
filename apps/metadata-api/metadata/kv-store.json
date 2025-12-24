@@ -3222,5 +3222,2302 @@
     },
     "version": "b9acb7a76b9940f4bc97f6089132905c",
     "updatedAt": "2025-12-12T13:28:58.348Z"
+  },
+  "ingest::code.github::endpoint::775747feaae24c338b9b20bd71a2069b::unit::github.issues::sink::kb": {
+    "value": {
+      "cursor": {
+        "dataMode": "raw",
+        "lastError": "Activity task failed",
+        "lastRunAt": "2025-12-15T12:11:06Z",
+        "lastRunId": "e7d22abf-7999-426c-ab03-b45d3a721250",
+        "lastUpdatedAt": "2025-12-15T12:08:12.930Z",
+        "recordCount": 50
+      },
+      "lastRunId": "a7c94a9f-ba72-46ad-b999-cbd8b9503852",
+      "stats": {
+        "planMetadata": {
+          "datasetId": "github.issues:dev:octocat/hello-world",
+          "schema": {
+            "Fields": [
+              {
+                "Name": "projectKey",
+                "DataType": "STRING",
+                "Nullable": false,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 1,
+                "Statistics": null
+              },
+              {
+                "Name": "defaultBranch",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 2,
+                "Statistics": null
+              },
+              {
+                "Name": "htmlUrl",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 3,
+                "Statistics": null
+              },
+              {
+                "Name": "apiUrl",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 4,
+                "Statistics": null
+              },
+              {
+                "Name": "visibility",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 5,
+                "Statistics": null
+              },
+              {
+                "Name": "updatedAt",
+                "DataType": "TIMESTAMP",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 6,
+                "Statistics": null
+              }
+            ],
+            "Constraints": null,
+            "Statistics": null
+          },
+          "sliceCount": 1,
+          "statistics": {
+            "limit": 100,
+            "repos": 1
+          },
+          "targetSliceSize": 100,
+          "templateId": "http.github"
+        },
+        "slices": [
+          {
+            "batches": 1,
+            "bytesStaged": 2432,
+            "dataMode": "raw",
+            "mode": "INCREMENTAL",
+            "recordCount": 50,
+            "recordsRead": 50,
+            "recordsStaged": 50,
+            "stageRef": "object:stage-082937dbb6b5460186a1fd17449b7f1c",
+            "templateId": "http.github",
+            "unitId": "github.issues:dev:octocat/hello-world",
+            "sliceIndex": 0
+          }
+        ],
+        "strategy": "incremental"
+      },
+      "lastUpdatedAt": "2025-12-15T12:11:09.594Z"
+    },
+    "version": "8be024c740e444908a1c0ff58a994213",
+    "updatedAt": "2025-12-15T12:11:09.599Z"
+  },
+  "ingest_state::endpoint::775747feaae24c338b9b20bd71a2069b::unit::github.issues::sink::kb": {
+    "value": {
+      "state": {
+        "lastProcessedAt": "2025-12-15T12:11:06Z",
+        "mode": "INCREMENTAL",
+        "recordsProcessed": 50,
+        "templateId": "http.github"
+      },
+      "lastUpdatedAt": "2025-12-15T12:11:09.608Z"
+    },
+    "version": "d502292a8822443f936f1f28064f4b1e",
+    "updatedAt": "2025-12-15T12:11:09.611Z"
+  },
+  "ingest_state::endpoint::775747feaae24c338b9b20bd71a2069b::unit::github.issues::sink::minio": {
+    "value": {
+      "state": {
+        "lastProcessedAt": "2025-12-24T10:31:59Z",
+        "mode": "INCREMENTAL",
+        "recordsProcessed": 50,
+        "templateId": "http.github"
+      },
+      "lastUpdatedAt": "2025-12-24T10:32:00.551Z"
+    },
+    "version": "02d327c6edd84160bd28592cabc8c6ed",
+    "updatedAt": "2025-12-24T10:32:00.559Z"
+  },
+  "ingest::code.github::endpoint::775747feaae24c338b9b20bd71a2069b::unit::github.issues-dev-octocat/hello-world::sink::minio": {
+    "value": {
+      "cursor": {
+        "cursor": {
+          "cursor": {
+            "cursor": {
+              "cursor": {
+                "cursor": {
+                  "cursor": {
+                    "cursor": {
+                      "cursor": {
+                        "cursor": {
+                          "cursor": {
+                            "cursor": {
+                              "cursor": {
+                                "cursor": {
+                                  "cursor": {
+                                    "cursor": {
+                                      "cursor": {
+                                        "cursor": {
+                                          "cursor": {
+                                            "lastError": "Activity task failed",
+                                            "lastRunAt": "2025-12-22T06:07:54Z",
+                                            "lastRunId": "fa98bbf3-079c-4e05-8a92-a057de5f5c1d",
+                                            "lastUpdatedAt": "2025-12-22T06:06:03.460Z",
+                                            "recordCount": 50
+                                          },
+                                          "lastError": "Activity task failed",
+                                          "lastRunAt": "2025-12-22T06:29:48Z",
+                                          "lastRunId": "b6812e8b-3bd1-45d4-97d6-ad4e2699036a",
+                                          "lastUpdatedAt": "2025-12-22T06:24:51.468Z",
+                                          "recordCount": 50,
+                                          "stats": {
+                                            "planMetadata": {
+                                              "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                              "schema": {
+                                                "Constraints": null,
+                                                "Fields": [
+                                                  {
+                                                    "Comment": "",
+                                                    "DataType": "STRING",
+                                                    "Length": 0,
+                                                    "Name": "projectKey",
+                                                    "Nullable": false,
+                                                    "Position": 1,
+                                                    "Precision": 0,
+                                                    "Scale": 0,
+                                                    "Statistics": null
+                                                  },
+                                                  {
+                                                    "Comment": "",
+                                                    "DataType": "STRING",
+                                                    "Length": 0,
+                                                    "Name": "defaultBranch",
+                                                    "Nullable": true,
+                                                    "Position": 2,
+                                                    "Precision": 0,
+                                                    "Scale": 0,
+                                                    "Statistics": null
+                                                  },
+                                                  {
+                                                    "Comment": "",
+                                                    "DataType": "STRING",
+                                                    "Length": 0,
+                                                    "Name": "htmlUrl",
+                                                    "Nullable": true,
+                                                    "Position": 3,
+                                                    "Precision": 0,
+                                                    "Scale": 0,
+                                                    "Statistics": null
+                                                  },
+                                                  {
+                                                    "Comment": "",
+                                                    "DataType": "STRING",
+                                                    "Length": 0,
+                                                    "Name": "apiUrl",
+                                                    "Nullable": true,
+                                                    "Position": 4,
+                                                    "Precision": 0,
+                                                    "Scale": 0,
+                                                    "Statistics": null
+                                                  },
+                                                  {
+                                                    "Comment": "",
+                                                    "DataType": "STRING",
+                                                    "Length": 0,
+                                                    "Name": "visibility",
+                                                    "Nullable": true,
+                                                    "Position": 5,
+                                                    "Precision": 0,
+                                                    "Scale": 0,
+                                                    "Statistics": null
+                                                  },
+                                                  {
+                                                    "Comment": "",
+                                                    "DataType": "TIMESTAMP",
+                                                    "Length": 0,
+                                                    "Name": "updatedAt",
+                                                    "Nullable": true,
+                                                    "Position": 6,
+                                                    "Precision": 0,
+                                                    "Scale": 0,
+                                                    "Statistics": null
+                                                  }
+                                                ],
+                                                "Statistics": null
+                                              },
+                                              "sliceCount": 1,
+                                              "statistics": {
+                                                "limit": 100,
+                                                "repos": 1
+                                              },
+                                              "targetSliceSize": 0,
+                                              "templateId": "http.github"
+                                            },
+                                            "slices": [
+                                              {
+                                                "batches": 1,
+                                                "bytesStaged": 2603,
+                                                "dataMode": "",
+                                                "mode": "",
+                                                "recordCount": 50,
+                                                "recordsRead": 50,
+                                                "recordsStaged": 50,
+                                                "sliceIndex": 0,
+                                                "stageRef": "object.minio:stage-5a9cfc3fb8e04797b2d5a0781bc35e32",
+                                                "templateId": "http.github",
+                                                "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                              }
+                                            ],
+                                            "strategy": "full"
+                                          }
+                                        },
+                                        "lastError": "Activity task failed",
+                                        "lastRunAt": "2025-12-22T06:47:53Z",
+                                        "lastRunId": "d8e94cbe-ee99-4c04-aa92-419d2811faa0",
+                                        "lastUpdatedAt": "2025-12-22T06:44:57.352Z",
+                                        "recordCount": 50,
+                                        "stats": {
+                                          "planMetadata": {
+                                            "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                            "schema": {
+                                              "Constraints": null,
+                                              "Fields": [
+                                                {
+                                                  "Comment": "",
+                                                  "DataType": "STRING",
+                                                  "Length": 0,
+                                                  "Name": "projectKey",
+                                                  "Nullable": false,
+                                                  "Position": 1,
+                                                  "Precision": 0,
+                                                  "Scale": 0,
+                                                  "Statistics": null
+                                                },
+                                                {
+                                                  "Comment": "",
+                                                  "DataType": "STRING",
+                                                  "Length": 0,
+                                                  "Name": "defaultBranch",
+                                                  "Nullable": true,
+                                                  "Position": 2,
+                                                  "Precision": 0,
+                                                  "Scale": 0,
+                                                  "Statistics": null
+                                                },
+                                                {
+                                                  "Comment": "",
+                                                  "DataType": "STRING",
+                                                  "Length": 0,
+                                                  "Name": "htmlUrl",
+                                                  "Nullable": true,
+                                                  "Position": 3,
+                                                  "Precision": 0,
+                                                  "Scale": 0,
+                                                  "Statistics": null
+                                                },
+                                                {
+                                                  "Comment": "",
+                                                  "DataType": "STRING",
+                                                  "Length": 0,
+                                                  "Name": "apiUrl",
+                                                  "Nullable": true,
+                                                  "Position": 4,
+                                                  "Precision": 0,
+                                                  "Scale": 0,
+                                                  "Statistics": null
+                                                },
+                                                {
+                                                  "Comment": "",
+                                                  "DataType": "STRING",
+                                                  "Length": 0,
+                                                  "Name": "visibility",
+                                                  "Nullable": true,
+                                                  "Position": 5,
+                                                  "Precision": 0,
+                                                  "Scale": 0,
+                                                  "Statistics": null
+                                                },
+                                                {
+                                                  "Comment": "",
+                                                  "DataType": "TIMESTAMP",
+                                                  "Length": 0,
+                                                  "Name": "updatedAt",
+                                                  "Nullable": true,
+                                                  "Position": 6,
+                                                  "Precision": 0,
+                                                  "Scale": 0,
+                                                  "Statistics": null
+                                                }
+                                              ],
+                                              "Statistics": null
+                                            },
+                                            "sliceCount": 1,
+                                            "statistics": {
+                                              "limit": 100,
+                                              "repos": 1
+                                            },
+                                            "targetSliceSize": 0,
+                                            "templateId": "http.github"
+                                          },
+                                          "slices": [
+                                            {
+                                              "batches": 1,
+                                              "bytesStaged": 2611,
+                                              "dataMode": "",
+                                              "mode": "",
+                                              "recordCount": 50,
+                                              "recordsRead": 50,
+                                              "recordsStaged": 50,
+                                              "sliceIndex": 0,
+                                              "stageRef": "object.minio:stage-923ec698b9e34ef9bec29315b6fe003c",
+                                              "templateId": "http.github",
+                                              "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                            }
+                                          ],
+                                          "strategy": "full"
+                                        }
+                                      },
+                                      "lastError": "Activity task failed",
+                                      "lastRunAt": "2025-12-22T08:40:28Z",
+                                      "lastRunId": "e988e5b8-cb6b-4206-acc5-7b6e061a8a7c",
+                                      "lastUpdatedAt": "2025-12-22T07:21:56.151Z",
+                                      "recordCount": 50,
+                                      "stats": {
+                                        "planMetadata": {
+                                          "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                          "schema": {
+                                            "Constraints": null,
+                                            "Fields": [
+                                              {
+                                                "Comment": "",
+                                                "DataType": "STRING",
+                                                "Length": 0,
+                                                "Name": "projectKey",
+                                                "Nullable": false,
+                                                "Position": 1,
+                                                "Precision": 0,
+                                                "Scale": 0,
+                                                "Statistics": null
+                                              },
+                                              {
+                                                "Comment": "",
+                                                "DataType": "STRING",
+                                                "Length": 0,
+                                                "Name": "defaultBranch",
+                                                "Nullable": true,
+                                                "Position": 2,
+                                                "Precision": 0,
+                                                "Scale": 0,
+                                                "Statistics": null
+                                              },
+                                              {
+                                                "Comment": "",
+                                                "DataType": "STRING",
+                                                "Length": 0,
+                                                "Name": "htmlUrl",
+                                                "Nullable": true,
+                                                "Position": 3,
+                                                "Precision": 0,
+                                                "Scale": 0,
+                                                "Statistics": null
+                                              },
+                                              {
+                                                "Comment": "",
+                                                "DataType": "STRING",
+                                                "Length": 0,
+                                                "Name": "apiUrl",
+                                                "Nullable": true,
+                                                "Position": 4,
+                                                "Precision": 0,
+                                                "Scale": 0,
+                                                "Statistics": null
+                                              },
+                                              {
+                                                "Comment": "",
+                                                "DataType": "STRING",
+                                                "Length": 0,
+                                                "Name": "visibility",
+                                                "Nullable": true,
+                                                "Position": 5,
+                                                "Precision": 0,
+                                                "Scale": 0,
+                                                "Statistics": null
+                                              },
+                                              {
+                                                "Comment": "",
+                                                "DataType": "TIMESTAMP",
+                                                "Length": 0,
+                                                "Name": "updatedAt",
+                                                "Nullable": true,
+                                                "Position": 6,
+                                                "Precision": 0,
+                                                "Scale": 0,
+                                                "Statistics": null
+                                              }
+                                            ],
+                                            "Statistics": null
+                                          },
+                                          "sliceCount": 1,
+                                          "statistics": {
+                                            "limit": 100,
+                                            "repos": 1
+                                          },
+                                          "targetSliceSize": 0,
+                                          "templateId": "http.github"
+                                        },
+                                        "slices": [
+                                          {
+                                            "batches": 1,
+                                            "bytesStaged": 2609,
+                                            "dataMode": "",
+                                            "mode": "",
+                                            "recordCount": 50,
+                                            "recordsRead": 50,
+                                            "recordsStaged": 50,
+                                            "sliceIndex": 0,
+                                            "stageRef": "object:stage-399e5d368abb4c6492fb6d07e8e97752",
+                                            "templateId": "http.github",
+                                            "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                          }
+                                        ],
+                                        "strategy": "full"
+                                      }
+                                    },
+                                    "lastRunAt": "2025-12-22T10:01:30Z",
+                                    "lastRunId": "68fc5c4b-3ed2-4cea-a22b-02e6348ffff5",
+                                    "lastUpdatedAt": "2025-12-22T08:40:29.305Z",
+                                    "recordCount": 50,
+                                    "stats": {
+                                      "planMetadata": {
+                                        "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                        "schema": {
+                                          "Constraints": null,
+                                          "Fields": [
+                                            {
+                                              "Comment": "",
+                                              "DataType": "STRING",
+                                              "Length": 0,
+                                              "Name": "projectKey",
+                                              "Nullable": false,
+                                              "Position": 1,
+                                              "Precision": 0,
+                                              "Scale": 0,
+                                              "Statistics": null
+                                            },
+                                            {
+                                              "Comment": "",
+                                              "DataType": "STRING",
+                                              "Length": 0,
+                                              "Name": "defaultBranch",
+                                              "Nullable": true,
+                                              "Position": 2,
+                                              "Precision": 0,
+                                              "Scale": 0,
+                                              "Statistics": null
+                                            },
+                                            {
+                                              "Comment": "",
+                                              "DataType": "STRING",
+                                              "Length": 0,
+                                              "Name": "htmlUrl",
+                                              "Nullable": true,
+                                              "Position": 3,
+                                              "Precision": 0,
+                                              "Scale": 0,
+                                              "Statistics": null
+                                            },
+                                            {
+                                              "Comment": "",
+                                              "DataType": "STRING",
+                                              "Length": 0,
+                                              "Name": "apiUrl",
+                                              "Nullable": true,
+                                              "Position": 4,
+                                              "Precision": 0,
+                                              "Scale": 0,
+                                              "Statistics": null
+                                            },
+                                            {
+                                              "Comment": "",
+                                              "DataType": "STRING",
+                                              "Length": 0,
+                                              "Name": "visibility",
+                                              "Nullable": true,
+                                              "Position": 5,
+                                              "Precision": 0,
+                                              "Scale": 0,
+                                              "Statistics": null
+                                            },
+                                            {
+                                              "Comment": "",
+                                              "DataType": "TIMESTAMP",
+                                              "Length": 0,
+                                              "Name": "updatedAt",
+                                              "Nullable": true,
+                                              "Position": 6,
+                                              "Precision": 0,
+                                              "Scale": 0,
+                                              "Statistics": null
+                                            }
+                                          ],
+                                          "Statistics": null
+                                        },
+                                        "sliceCount": 1,
+                                        "statistics": {
+                                          "limit": 100,
+                                          "repos": 1
+                                        },
+                                        "targetSliceSize": 0,
+                                        "templateId": "http.github"
+                                      },
+                                      "slices": [
+                                        {
+                                          "batches": 1,
+                                          "bytesStaged": 2613,
+                                          "dataMode": "",
+                                          "mode": "",
+                                          "recordCount": 50,
+                                          "recordsRead": 50,
+                                          "recordsStaged": 50,
+                                          "sliceIndex": 0,
+                                          "stageRef": "object:stage-a973a7d7354d446ea5dffa57401c9eed",
+                                          "templateId": "http.github",
+                                          "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                        }
+                                      ],
+                                      "strategy": "full"
+                                    }
+                                  },
+                                  "lastRunAt": "2025-12-22T10:04:47Z",
+                                  "lastRunId": "e8f0c44d-c2a9-4b63-b307-6f81505eb8a1",
+                                  "lastUpdatedAt": "2025-12-22T10:01:31.165Z",
+                                  "recordCount": 50,
+                                  "stats": {
+                                    "planMetadata": {
+                                      "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                      "schema": {
+                                        "Constraints": null,
+                                        "Fields": [
+                                          {
+                                            "Comment": "",
+                                            "DataType": "STRING",
+                                            "Length": 0,
+                                            "Name": "projectKey",
+                                            "Nullable": false,
+                                            "Position": 1,
+                                            "Precision": 0,
+                                            "Scale": 0,
+                                            "Statistics": null
+                                          },
+                                          {
+                                            "Comment": "",
+                                            "DataType": "STRING",
+                                            "Length": 0,
+                                            "Name": "defaultBranch",
+                                            "Nullable": true,
+                                            "Position": 2,
+                                            "Precision": 0,
+                                            "Scale": 0,
+                                            "Statistics": null
+                                          },
+                                          {
+                                            "Comment": "",
+                                            "DataType": "STRING",
+                                            "Length": 0,
+                                            "Name": "htmlUrl",
+                                            "Nullable": true,
+                                            "Position": 3,
+                                            "Precision": 0,
+                                            "Scale": 0,
+                                            "Statistics": null
+                                          },
+                                          {
+                                            "Comment": "",
+                                            "DataType": "STRING",
+                                            "Length": 0,
+                                            "Name": "apiUrl",
+                                            "Nullable": true,
+                                            "Position": 4,
+                                            "Precision": 0,
+                                            "Scale": 0,
+                                            "Statistics": null
+                                          },
+                                          {
+                                            "Comment": "",
+                                            "DataType": "STRING",
+                                            "Length": 0,
+                                            "Name": "visibility",
+                                            "Nullable": true,
+                                            "Position": 5,
+                                            "Precision": 0,
+                                            "Scale": 0,
+                                            "Statistics": null
+                                          },
+                                          {
+                                            "Comment": "",
+                                            "DataType": "TIMESTAMP",
+                                            "Length": 0,
+                                            "Name": "updatedAt",
+                                            "Nullable": true,
+                                            "Position": 6,
+                                            "Precision": 0,
+                                            "Scale": 0,
+                                            "Statistics": null
+                                          }
+                                        ],
+                                        "Statistics": null
+                                      },
+                                      "sliceCount": 1,
+                                      "statistics": {
+                                        "limit": 100,
+                                        "repos": 1
+                                      },
+                                      "targetSliceSize": 0,
+                                      "templateId": "http.github"
+                                    },
+                                    "slices": [
+                                      {
+                                        "batches": 1,
+                                        "bytesStaged": 2605,
+                                        "dataMode": "",
+                                        "mode": "",
+                                        "recordCount": 50,
+                                        "recordsRead": 50,
+                                        "recordsStaged": 50,
+                                        "sliceIndex": 0,
+                                        "stageRef": "object:stage-04f5c46199274c90ba10b617fc6ba136",
+                                        "templateId": "http.github",
+                                        "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                      }
+                                    ],
+                                    "strategy": "full"
+                                  }
+                                },
+                                "lastRunAt": "2025-12-22T10:13:53Z",
+                                "lastRunId": "7e3712d4-1dd7-4d80-b710-5f5fec4c5af9",
+                                "lastUpdatedAt": "2025-12-22T10:04:47.404Z",
+                                "recordCount": 50,
+                                "stats": {
+                                  "planMetadata": {
+                                    "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                    "schema": {
+                                      "Constraints": null,
+                                      "Fields": [
+                                        {
+                                          "Comment": "",
+                                          "DataType": "STRING",
+                                          "Length": 0,
+                                          "Name": "projectKey",
+                                          "Nullable": false,
+                                          "Position": 1,
+                                          "Precision": 0,
+                                          "Scale": 0,
+                                          "Statistics": null
+                                        },
+                                        {
+                                          "Comment": "",
+                                          "DataType": "STRING",
+                                          "Length": 0,
+                                          "Name": "defaultBranch",
+                                          "Nullable": true,
+                                          "Position": 2,
+                                          "Precision": 0,
+                                          "Scale": 0,
+                                          "Statistics": null
+                                        },
+                                        {
+                                          "Comment": "",
+                                          "DataType": "STRING",
+                                          "Length": 0,
+                                          "Name": "htmlUrl",
+                                          "Nullable": true,
+                                          "Position": 3,
+                                          "Precision": 0,
+                                          "Scale": 0,
+                                          "Statistics": null
+                                        },
+                                        {
+                                          "Comment": "",
+                                          "DataType": "STRING",
+                                          "Length": 0,
+                                          "Name": "apiUrl",
+                                          "Nullable": true,
+                                          "Position": 4,
+                                          "Precision": 0,
+                                          "Scale": 0,
+                                          "Statistics": null
+                                        },
+                                        {
+                                          "Comment": "",
+                                          "DataType": "STRING",
+                                          "Length": 0,
+                                          "Name": "visibility",
+                                          "Nullable": true,
+                                          "Position": 5,
+                                          "Precision": 0,
+                                          "Scale": 0,
+                                          "Statistics": null
+                                        },
+                                        {
+                                          "Comment": "",
+                                          "DataType": "TIMESTAMP",
+                                          "Length": 0,
+                                          "Name": "updatedAt",
+                                          "Nullable": true,
+                                          "Position": 6,
+                                          "Precision": 0,
+                                          "Scale": 0,
+                                          "Statistics": null
+                                        }
+                                      ],
+                                      "Statistics": null
+                                    },
+                                    "sliceCount": 1,
+                                    "statistics": {
+                                      "limit": 100,
+                                      "repos": 1
+                                    },
+                                    "targetSliceSize": 0,
+                                    "templateId": "http.github"
+                                  },
+                                  "slices": [
+                                    {
+                                      "batches": 1,
+                                      "bytesStaged": 2604,
+                                      "dataMode": "",
+                                      "mode": "",
+                                      "recordCount": 50,
+                                      "recordsRead": 50,
+                                      "recordsStaged": 50,
+                                      "sliceIndex": 0,
+                                      "stageRef": "object:stage-b0015245a75c498786e5372fcbf085cf",
+                                      "templateId": "http.github",
+                                      "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                    }
+                                  ],
+                                  "strategy": "full"
+                                }
+                              },
+                              "lastRunAt": "2025-12-22T10:16:45Z",
+                              "lastRunId": "1526595e-5ab7-4d7f-ba93-fa99e3c378e2",
+                              "lastUpdatedAt": "2025-12-22T10:13:53.831Z",
+                              "recordCount": 50,
+                              "stats": {
+                                "planMetadata": {
+                                  "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                  "schema": {
+                                    "Constraints": null,
+                                    "Fields": [
+                                      {
+                                        "Comment": "",
+                                        "DataType": "STRING",
+                                        "Length": 0,
+                                        "Name": "projectKey",
+                                        "Nullable": false,
+                                        "Position": 1,
+                                        "Precision": 0,
+                                        "Scale": 0,
+                                        "Statistics": null
+                                      },
+                                      {
+                                        "Comment": "",
+                                        "DataType": "STRING",
+                                        "Length": 0,
+                                        "Name": "defaultBranch",
+                                        "Nullable": true,
+                                        "Position": 2,
+                                        "Precision": 0,
+                                        "Scale": 0,
+                                        "Statistics": null
+                                      },
+                                      {
+                                        "Comment": "",
+                                        "DataType": "STRING",
+                                        "Length": 0,
+                                        "Name": "htmlUrl",
+                                        "Nullable": true,
+                                        "Position": 3,
+                                        "Precision": 0,
+                                        "Scale": 0,
+                                        "Statistics": null
+                                      },
+                                      {
+                                        "Comment": "",
+                                        "DataType": "STRING",
+                                        "Length": 0,
+                                        "Name": "apiUrl",
+                                        "Nullable": true,
+                                        "Position": 4,
+                                        "Precision": 0,
+                                        "Scale": 0,
+                                        "Statistics": null
+                                      },
+                                      {
+                                        "Comment": "",
+                                        "DataType": "STRING",
+                                        "Length": 0,
+                                        "Name": "visibility",
+                                        "Nullable": true,
+                                        "Position": 5,
+                                        "Precision": 0,
+                                        "Scale": 0,
+                                        "Statistics": null
+                                      },
+                                      {
+                                        "Comment": "",
+                                        "DataType": "TIMESTAMP",
+                                        "Length": 0,
+                                        "Name": "updatedAt",
+                                        "Nullable": true,
+                                        "Position": 6,
+                                        "Precision": 0,
+                                        "Scale": 0,
+                                        "Statistics": null
+                                      }
+                                    ],
+                                    "Statistics": null
+                                  },
+                                  "sliceCount": 1,
+                                  "statistics": {
+                                    "limit": 100,
+                                    "repos": 1
+                                  },
+                                  "targetSliceSize": 0,
+                                  "templateId": "http.github"
+                                },
+                                "slices": [
+                                  {
+                                    "batches": 1,
+                                    "bytesStaged": 2606,
+                                    "dataMode": "",
+                                    "mode": "",
+                                    "recordCount": 50,
+                                    "recordsRead": 50,
+                                    "recordsStaged": 50,
+                                    "sliceIndex": 0,
+                                    "stageRef": "object:stage-44ed6c62f1c04fbd8fbb0c90866eb3bf",
+                                    "templateId": "http.github",
+                                    "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                  }
+                                ],
+                                "strategy": "full"
+                              }
+                            },
+                            "lastRunAt": "2025-12-22T10:21:12Z",
+                            "lastRunId": "37583f62-dc88-4191-af25-2faa4fac2ea2",
+                            "lastUpdatedAt": "2025-12-22T10:16:46.256Z",
+                            "recordCount": 50,
+                            "stats": {
+                              "planMetadata": {
+                                "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                                "schema": {
+                                  "Constraints": null,
+                                  "Fields": [
+                                    {
+                                      "Comment": "",
+                                      "DataType": "STRING",
+                                      "Length": 0,
+                                      "Name": "projectKey",
+                                      "Nullable": false,
+                                      "Position": 1,
+                                      "Precision": 0,
+                                      "Scale": 0,
+                                      "Statistics": null
+                                    },
+                                    {
+                                      "Comment": "",
+                                      "DataType": "STRING",
+                                      "Length": 0,
+                                      "Name": "defaultBranch",
+                                      "Nullable": true,
+                                      "Position": 2,
+                                      "Precision": 0,
+                                      "Scale": 0,
+                                      "Statistics": null
+                                    },
+                                    {
+                                      "Comment": "",
+                                      "DataType": "STRING",
+                                      "Length": 0,
+                                      "Name": "htmlUrl",
+                                      "Nullable": true,
+                                      "Position": 3,
+                                      "Precision": 0,
+                                      "Scale": 0,
+                                      "Statistics": null
+                                    },
+                                    {
+                                      "Comment": "",
+                                      "DataType": "STRING",
+                                      "Length": 0,
+                                      "Name": "apiUrl",
+                                      "Nullable": true,
+                                      "Position": 4,
+                                      "Precision": 0,
+                                      "Scale": 0,
+                                      "Statistics": null
+                                    },
+                                    {
+                                      "Comment": "",
+                                      "DataType": "STRING",
+                                      "Length": 0,
+                                      "Name": "visibility",
+                                      "Nullable": true,
+                                      "Position": 5,
+                                      "Precision": 0,
+                                      "Scale": 0,
+                                      "Statistics": null
+                                    },
+                                    {
+                                      "Comment": "",
+                                      "DataType": "TIMESTAMP",
+                                      "Length": 0,
+                                      "Name": "updatedAt",
+                                      "Nullable": true,
+                                      "Position": 6,
+                                      "Precision": 0,
+                                      "Scale": 0,
+                                      "Statistics": null
+                                    }
+                                  ],
+                                  "Statistics": null
+                                },
+                                "sliceCount": 1,
+                                "statistics": {
+                                  "limit": 100,
+                                  "repos": 1
+                                },
+                                "targetSliceSize": 0,
+                                "templateId": "http.github"
+                              },
+                              "slices": [
+                                {
+                                  "batches": 1,
+                                  "bytesStaged": 2605,
+                                  "dataMode": "",
+                                  "mode": "",
+                                  "recordCount": 50,
+                                  "recordsRead": 50,
+                                  "recordsStaged": 50,
+                                  "sliceIndex": 0,
+                                  "stageRef": "object:stage-311b1d0997284358b81fbf114b3dc25e",
+                                  "templateId": "http.github",
+                                  "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                                }
+                              ],
+                              "strategy": "full"
+                            }
+                          },
+                          "lastRunAt": "2025-12-22T10:26:59Z",
+                          "lastRunId": "c45d174f-1eea-4419-b3d5-7ebb49cd2d29",
+                          "lastUpdatedAt": "2025-12-22T10:21:12.427Z",
+                          "recordCount": 50,
+                          "stats": {
+                            "planMetadata": {
+                              "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                              "schema": {
+                                "Constraints": null,
+                                "Fields": [
+                                  {
+                                    "Comment": "",
+                                    "DataType": "STRING",
+                                    "Length": 0,
+                                    "Name": "projectKey",
+                                    "Nullable": false,
+                                    "Position": 1,
+                                    "Precision": 0,
+                                    "Scale": 0,
+                                    "Statistics": null
+                                  },
+                                  {
+                                    "Comment": "",
+                                    "DataType": "STRING",
+                                    "Length": 0,
+                                    "Name": "defaultBranch",
+                                    "Nullable": true,
+                                    "Position": 2,
+                                    "Precision": 0,
+                                    "Scale": 0,
+                                    "Statistics": null
+                                  },
+                                  {
+                                    "Comment": "",
+                                    "DataType": "STRING",
+                                    "Length": 0,
+                                    "Name": "htmlUrl",
+                                    "Nullable": true,
+                                    "Position": 3,
+                                    "Precision": 0,
+                                    "Scale": 0,
+                                    "Statistics": null
+                                  },
+                                  {
+                                    "Comment": "",
+                                    "DataType": "STRING",
+                                    "Length": 0,
+                                    "Name": "apiUrl",
+                                    "Nullable": true,
+                                    "Position": 4,
+                                    "Precision": 0,
+                                    "Scale": 0,
+                                    "Statistics": null
+                                  },
+                                  {
+                                    "Comment": "",
+                                    "DataType": "STRING",
+                                    "Length": 0,
+                                    "Name": "visibility",
+                                    "Nullable": true,
+                                    "Position": 5,
+                                    "Precision": 0,
+                                    "Scale": 0,
+                                    "Statistics": null
+                                  },
+                                  {
+                                    "Comment": "",
+                                    "DataType": "TIMESTAMP",
+                                    "Length": 0,
+                                    "Name": "updatedAt",
+                                    "Nullable": true,
+                                    "Position": 6,
+                                    "Precision": 0,
+                                    "Scale": 0,
+                                    "Statistics": null
+                                  }
+                                ],
+                                "Statistics": null
+                              },
+                              "sliceCount": 1,
+                              "statistics": {
+                                "limit": 100,
+                                "repos": 1
+                              },
+                              "targetSliceSize": 0,
+                              "templateId": "http.github"
+                            },
+                            "slices": [
+                              {
+                                "batches": 1,
+                                "bytesStaged": 2602,
+                                "dataMode": "",
+                                "mode": "",
+                                "recordCount": 50,
+                                "recordsRead": 50,
+                                "recordsStaged": 50,
+                                "sliceIndex": 0,
+                                "stageRef": "object:stage-7600d211c6a2479c9b3ad2553f9bff27",
+                                "templateId": "http.github",
+                                "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                              }
+                            ],
+                            "strategy": "full"
+                          }
+                        },
+                        "lastRunAt": "2025-12-22T10:38:49Z",
+                        "lastRunId": "9c102498-8691-4631-900a-e8992632f6b9",
+                        "lastUpdatedAt": "2025-12-22T10:26:59.889Z",
+                        "recordCount": 50,
+                        "stats": {
+                          "planMetadata": {
+                            "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                            "schema": {
+                              "Constraints": null,
+                              "Fields": [
+                                {
+                                  "Comment": "",
+                                  "DataType": "STRING",
+                                  "Length": 0,
+                                  "Name": "projectKey",
+                                  "Nullable": false,
+                                  "Position": 1,
+                                  "Precision": 0,
+                                  "Scale": 0,
+                                  "Statistics": null
+                                },
+                                {
+                                  "Comment": "",
+                                  "DataType": "STRING",
+                                  "Length": 0,
+                                  "Name": "defaultBranch",
+                                  "Nullable": true,
+                                  "Position": 2,
+                                  "Precision": 0,
+                                  "Scale": 0,
+                                  "Statistics": null
+                                },
+                                {
+                                  "Comment": "",
+                                  "DataType": "STRING",
+                                  "Length": 0,
+                                  "Name": "htmlUrl",
+                                  "Nullable": true,
+                                  "Position": 3,
+                                  "Precision": 0,
+                                  "Scale": 0,
+                                  "Statistics": null
+                                },
+                                {
+                                  "Comment": "",
+                                  "DataType": "STRING",
+                                  "Length": 0,
+                                  "Name": "apiUrl",
+                                  "Nullable": true,
+                                  "Position": 4,
+                                  "Precision": 0,
+                                  "Scale": 0,
+                                  "Statistics": null
+                                },
+                                {
+                                  "Comment": "",
+                                  "DataType": "STRING",
+                                  "Length": 0,
+                                  "Name": "visibility",
+                                  "Nullable": true,
+                                  "Position": 5,
+                                  "Precision": 0,
+                                  "Scale": 0,
+                                  "Statistics": null
+                                },
+                                {
+                                  "Comment": "",
+                                  "DataType": "TIMESTAMP",
+                                  "Length": 0,
+                                  "Name": "updatedAt",
+                                  "Nullable": true,
+                                  "Position": 6,
+                                  "Precision": 0,
+                                  "Scale": 0,
+                                  "Statistics": null
+                                }
+                              ],
+                              "Statistics": null
+                            },
+                            "sliceCount": 1,
+                            "statistics": {
+                              "limit": 100,
+                              "repos": 1
+                            },
+                            "targetSliceSize": 0,
+                            "templateId": "http.github"
+                          },
+                          "slices": [
+                            {
+                              "batches": 1,
+                              "bytesStaged": 2602,
+                              "dataMode": "",
+                              "mode": "",
+                              "recordCount": 50,
+                              "recordsRead": 50,
+                              "recordsStaged": 50,
+                              "sliceIndex": 0,
+                              "stageRef": "object:stage-bd52f489b74c45629eb1c49d05bcdd37",
+                              "templateId": "http.github",
+                              "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                            }
+                          ],
+                          "strategy": "full"
+                        }
+                      },
+                      "lastRunAt": "2025-12-22T10:46:33Z",
+                      "lastRunId": "b3fc00c5-cb4c-47ed-8eb0-95ed8e69531e",
+                      "lastUpdatedAt": "2025-12-22T10:38:49.818Z",
+                      "recordCount": 50,
+                      "stats": {
+                        "planMetadata": {
+                          "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                          "schema": {
+                            "Constraints": null,
+                            "Fields": [
+                              {
+                                "Comment": "",
+                                "DataType": "STRING",
+                                "Length": 0,
+                                "Name": "projectKey",
+                                "Nullable": false,
+                                "Position": 1,
+                                "Precision": 0,
+                                "Scale": 0,
+                                "Statistics": null
+                              },
+                              {
+                                "Comment": "",
+                                "DataType": "STRING",
+                                "Length": 0,
+                                "Name": "defaultBranch",
+                                "Nullable": true,
+                                "Position": 2,
+                                "Precision": 0,
+                                "Scale": 0,
+                                "Statistics": null
+                              },
+                              {
+                                "Comment": "",
+                                "DataType": "STRING",
+                                "Length": 0,
+                                "Name": "htmlUrl",
+                                "Nullable": true,
+                                "Position": 3,
+                                "Precision": 0,
+                                "Scale": 0,
+                                "Statistics": null
+                              },
+                              {
+                                "Comment": "",
+                                "DataType": "STRING",
+                                "Length": 0,
+                                "Name": "apiUrl",
+                                "Nullable": true,
+                                "Position": 4,
+                                "Precision": 0,
+                                "Scale": 0,
+                                "Statistics": null
+                              },
+                              {
+                                "Comment": "",
+                                "DataType": "STRING",
+                                "Length": 0,
+                                "Name": "visibility",
+                                "Nullable": true,
+                                "Position": 5,
+                                "Precision": 0,
+                                "Scale": 0,
+                                "Statistics": null
+                              },
+                              {
+                                "Comment": "",
+                                "DataType": "TIMESTAMP",
+                                "Length": 0,
+                                "Name": "updatedAt",
+                                "Nullable": true,
+                                "Position": 6,
+                                "Precision": 0,
+                                "Scale": 0,
+                                "Statistics": null
+                              }
+                            ],
+                            "Statistics": null
+                          },
+                          "sliceCount": 1,
+                          "statistics": {
+                            "limit": 100,
+                            "repos": 1
+                          },
+                          "targetSliceSize": 0,
+                          "templateId": "http.github"
+                        },
+                        "slices": [
+                          {
+                            "batches": 1,
+                            "bytesStaged": 2603,
+                            "dataMode": "",
+                            "mode": "",
+                            "recordCount": 50,
+                            "recordsRead": 50,
+                            "recordsStaged": 50,
+                            "sliceIndex": 0,
+                            "stageRef": "object.minio:stage-d20d19eb0f1642558cd685f2fb063f95",
+                            "templateId": "http.github",
+                            "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                          }
+                        ],
+                        "strategy": "full"
+                      }
+                    },
+                    "lastRunAt": "2025-12-22T10:51:10Z",
+                    "lastRunId": "136a4139-afbe-4fb9-9c1e-fa103dacfaed",
+                    "lastUpdatedAt": "2025-12-22T10:46:34.135Z",
+                    "recordCount": 50,
+                    "stats": {
+                      "planMetadata": {
+                        "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                        "schema": {
+                          "Constraints": null,
+                          "Fields": [
+                            {
+                              "Comment": "",
+                              "DataType": "STRING",
+                              "Length": 0,
+                              "Name": "projectKey",
+                              "Nullable": false,
+                              "Position": 1,
+                              "Precision": 0,
+                              "Scale": 0,
+                              "Statistics": null
+                            },
+                            {
+                              "Comment": "",
+                              "DataType": "STRING",
+                              "Length": 0,
+                              "Name": "defaultBranch",
+                              "Nullable": true,
+                              "Position": 2,
+                              "Precision": 0,
+                              "Scale": 0,
+                              "Statistics": null
+                            },
+                            {
+                              "Comment": "",
+                              "DataType": "STRING",
+                              "Length": 0,
+                              "Name": "htmlUrl",
+                              "Nullable": true,
+                              "Position": 3,
+                              "Precision": 0,
+                              "Scale": 0,
+                              "Statistics": null
+                            },
+                            {
+                              "Comment": "",
+                              "DataType": "STRING",
+                              "Length": 0,
+                              "Name": "apiUrl",
+                              "Nullable": true,
+                              "Position": 4,
+                              "Precision": 0,
+                              "Scale": 0,
+                              "Statistics": null
+                            },
+                            {
+                              "Comment": "",
+                              "DataType": "STRING",
+                              "Length": 0,
+                              "Name": "visibility",
+                              "Nullable": true,
+                              "Position": 5,
+                              "Precision": 0,
+                              "Scale": 0,
+                              "Statistics": null
+                            },
+                            {
+                              "Comment": "",
+                              "DataType": "TIMESTAMP",
+                              "Length": 0,
+                              "Name": "updatedAt",
+                              "Nullable": true,
+                              "Position": 6,
+                              "Precision": 0,
+                              "Scale": 0,
+                              "Statistics": null
+                            }
+                          ],
+                          "Statistics": null
+                        },
+                        "sliceCount": 1,
+                        "statistics": {
+                          "limit": 100,
+                          "repos": 1
+                        },
+                        "targetSliceSize": 0,
+                        "templateId": "http.github"
+                      },
+                      "slices": [
+                        {
+                          "batches": 1,
+                          "bytesStaged": 2602,
+                          "dataMode": "",
+                          "mode": "",
+                          "recordCount": 50,
+                          "recordsRead": 50,
+                          "recordsStaged": 50,
+                          "sliceIndex": 0,
+                          "stageRef": "object.minio:stage-c4e7e382b0ff4cef9f68f1a0240d65ba",
+                          "templateId": "http.github",
+                          "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                        }
+                      ],
+                      "strategy": "full"
+                    }
+                  },
+                  "lastRunAt": "2025-12-22T11:56:52Z",
+                  "lastRunId": "25910dbb-d020-4c2d-b903-15591d029584",
+                  "lastUpdatedAt": "2025-12-22T10:51:10.912Z",
+                  "recordCount": 50,
+                  "stats": {
+                    "planMetadata": {
+                      "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                      "schema": {
+                        "Constraints": null,
+                        "Fields": [
+                          {
+                            "Comment": "",
+                            "DataType": "STRING",
+                            "Length": 0,
+                            "Name": "projectKey",
+                            "Nullable": false,
+                            "Position": 1,
+                            "Precision": 0,
+                            "Scale": 0,
+                            "Statistics": null
+                          },
+                          {
+                            "Comment": "",
+                            "DataType": "STRING",
+                            "Length": 0,
+                            "Name": "defaultBranch",
+                            "Nullable": true,
+                            "Position": 2,
+                            "Precision": 0,
+                            "Scale": 0,
+                            "Statistics": null
+                          },
+                          {
+                            "Comment": "",
+                            "DataType": "STRING",
+                            "Length": 0,
+                            "Name": "htmlUrl",
+                            "Nullable": true,
+                            "Position": 3,
+                            "Precision": 0,
+                            "Scale": 0,
+                            "Statistics": null
+                          },
+                          {
+                            "Comment": "",
+                            "DataType": "STRING",
+                            "Length": 0,
+                            "Name": "apiUrl",
+                            "Nullable": true,
+                            "Position": 4,
+                            "Precision": 0,
+                            "Scale": 0,
+                            "Statistics": null
+                          },
+                          {
+                            "Comment": "",
+                            "DataType": "STRING",
+                            "Length": 0,
+                            "Name": "visibility",
+                            "Nullable": true,
+                            "Position": 5,
+                            "Precision": 0,
+                            "Scale": 0,
+                            "Statistics": null
+                          },
+                          {
+                            "Comment": "",
+                            "DataType": "TIMESTAMP",
+                            "Length": 0,
+                            "Name": "updatedAt",
+                            "Nullable": true,
+                            "Position": 6,
+                            "Precision": 0,
+                            "Scale": 0,
+                            "Statistics": null
+                          }
+                        ],
+                        "Statistics": null
+                      },
+                      "sliceCount": 1,
+                      "statistics": {
+                        "limit": 100,
+                        "repos": 1
+                      },
+                      "targetSliceSize": 0,
+                      "templateId": "http.github"
+                    },
+                    "slices": [
+                      {
+                        "batches": 1,
+                        "bytesStaged": 2601,
+                        "dataMode": "",
+                        "mode": "",
+                        "recordCount": 50,
+                        "recordsRead": 50,
+                        "recordsStaged": 50,
+                        "sliceIndex": 0,
+                        "stageRef": "object.minio:stage-970fff6a1776424ea07c03c84727a6e2",
+                        "templateId": "http.github",
+                        "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                      }
+                    ],
+                    "strategy": "full"
+                  }
+                },
+                "lastRunAt": "2025-12-22T12:01:04Z",
+                "lastRunId": "3c2493dc-debc-48fa-86c1-752d82e90c53",
+                "lastUpdatedAt": "2025-12-22T11:56:52.698Z",
+                "recordCount": 50,
+                "stats": {
+                  "planMetadata": {
+                    "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                    "schema": {
+                      "Constraints": null,
+                      "Fields": [
+                        {
+                          "Comment": "",
+                          "DataType": "STRING",
+                          "Length": 0,
+                          "Name": "projectKey",
+                          "Nullable": false,
+                          "Position": 1,
+                          "Precision": 0,
+                          "Scale": 0,
+                          "Statistics": null
+                        },
+                        {
+                          "Comment": "",
+                          "DataType": "STRING",
+                          "Length": 0,
+                          "Name": "defaultBranch",
+                          "Nullable": true,
+                          "Position": 2,
+                          "Precision": 0,
+                          "Scale": 0,
+                          "Statistics": null
+                        },
+                        {
+                          "Comment": "",
+                          "DataType": "STRING",
+                          "Length": 0,
+                          "Name": "htmlUrl",
+                          "Nullable": true,
+                          "Position": 3,
+                          "Precision": 0,
+                          "Scale": 0,
+                          "Statistics": null
+                        },
+                        {
+                          "Comment": "",
+                          "DataType": "STRING",
+                          "Length": 0,
+                          "Name": "apiUrl",
+                          "Nullable": true,
+                          "Position": 4,
+                          "Precision": 0,
+                          "Scale": 0,
+                          "Statistics": null
+                        },
+                        {
+                          "Comment": "",
+                          "DataType": "STRING",
+                          "Length": 0,
+                          "Name": "visibility",
+                          "Nullable": true,
+                          "Position": 5,
+                          "Precision": 0,
+                          "Scale": 0,
+                          "Statistics": null
+                        },
+                        {
+                          "Comment": "",
+                          "DataType": "TIMESTAMP",
+                          "Length": 0,
+                          "Name": "updatedAt",
+                          "Nullable": true,
+                          "Position": 6,
+                          "Precision": 0,
+                          "Scale": 0,
+                          "Statistics": null
+                        }
+                      ],
+                      "Statistics": null
+                    },
+                    "sliceCount": 1,
+                    "statistics": {
+                      "limit": 100,
+                      "repos": 1
+                    },
+                    "targetSliceSize": 0,
+                    "templateId": "http.github"
+                  },
+                  "slices": [
+                    {
+                      "batches": 1,
+                      "bytesStaged": 2546,
+                      "dataMode": "",
+                      "mode": "",
+                      "recordCount": 50,
+                      "recordsRead": 50,
+                      "recordsStaged": 50,
+                      "sliceIndex": 0,
+                      "stageRef": "object.minio:stage-0b0447d0a047467f83f35a4c4bc9853b",
+                      "templateId": "http.github",
+                      "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                    }
+                  ],
+                  "strategy": "full"
+                }
+              },
+              "lastRunAt": "2025-12-22T12:05:59Z",
+              "lastRunId": "0c01d5dd-9065-43af-a095-22651d96c3c8",
+              "lastUpdatedAt": "2025-12-22T12:01:04.946Z",
+              "recordCount": 50,
+              "stats": {
+                "planMetadata": {
+                  "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                  "schema": {
+                    "Constraints": null,
+                    "Fields": [
+                      {
+                        "Comment": "",
+                        "DataType": "STRING",
+                        "Length": 0,
+                        "Name": "projectKey",
+                        "Nullable": false,
+                        "Position": 1,
+                        "Precision": 0,
+                        "Scale": 0,
+                        "Statistics": null
+                      },
+                      {
+                        "Comment": "",
+                        "DataType": "STRING",
+                        "Length": 0,
+                        "Name": "defaultBranch",
+                        "Nullable": true,
+                        "Position": 2,
+                        "Precision": 0,
+                        "Scale": 0,
+                        "Statistics": null
+                      },
+                      {
+                        "Comment": "",
+                        "DataType": "STRING",
+                        "Length": 0,
+                        "Name": "htmlUrl",
+                        "Nullable": true,
+                        "Position": 3,
+                        "Precision": 0,
+                        "Scale": 0,
+                        "Statistics": null
+                      },
+                      {
+                        "Comment": "",
+                        "DataType": "STRING",
+                        "Length": 0,
+                        "Name": "apiUrl",
+                        "Nullable": true,
+                        "Position": 4,
+                        "Precision": 0,
+                        "Scale": 0,
+                        "Statistics": null
+                      },
+                      {
+                        "Comment": "",
+                        "DataType": "STRING",
+                        "Length": 0,
+                        "Name": "visibility",
+                        "Nullable": true,
+                        "Position": 5,
+                        "Precision": 0,
+                        "Scale": 0,
+                        "Statistics": null
+                      },
+                      {
+                        "Comment": "",
+                        "DataType": "TIMESTAMP",
+                        "Length": 0,
+                        "Name": "updatedAt",
+                        "Nullable": true,
+                        "Position": 6,
+                        "Precision": 0,
+                        "Scale": 0,
+                        "Statistics": null
+                      }
+                    ],
+                    "Statistics": null
+                  },
+                  "sliceCount": 1,
+                  "statistics": {
+                    "limit": 100,
+                    "repos": 1
+                  },
+                  "targetSliceSize": 0,
+                  "templateId": "http.github"
+                },
+                "slices": [
+                  {
+                    "batches": 1,
+                    "bytesStaged": 2509,
+                    "dataMode": "",
+                    "mode": "",
+                    "recordCount": 50,
+                    "recordsRead": 50,
+                    "recordsStaged": 50,
+                    "sliceIndex": 0,
+                    "stageRef": "object.minio:stage-c687d7a03aa64606bac109efdb005035",
+                    "templateId": "http.github",
+                    "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                  }
+                ],
+                "strategy": "full"
+              }
+            },
+            "lastRunAt": "2025-12-22T12:25:47Z",
+            "lastRunId": "d2e4192b-91ef-4cf4-a9b8-81039ee0a1b1",
+            "lastUpdatedAt": "2025-12-22T12:05:59.699Z",
+            "recordCount": 50,
+            "stats": {
+              "planMetadata": {
+                "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+                "schema": {
+                  "Constraints": null,
+                  "Fields": [
+                    {
+                      "Comment": "",
+                      "DataType": "STRING",
+                      "Length": 0,
+                      "Name": "projectKey",
+                      "Nullable": false,
+                      "Position": 1,
+                      "Precision": 0,
+                      "Scale": 0,
+                      "Statistics": null
+                    },
+                    {
+                      "Comment": "",
+                      "DataType": "STRING",
+                      "Length": 0,
+                      "Name": "defaultBranch",
+                      "Nullable": true,
+                      "Position": 2,
+                      "Precision": 0,
+                      "Scale": 0,
+                      "Statistics": null
+                    },
+                    {
+                      "Comment": "",
+                      "DataType": "STRING",
+                      "Length": 0,
+                      "Name": "htmlUrl",
+                      "Nullable": true,
+                      "Position": 3,
+                      "Precision": 0,
+                      "Scale": 0,
+                      "Statistics": null
+                    },
+                    {
+                      "Comment": "",
+                      "DataType": "STRING",
+                      "Length": 0,
+                      "Name": "apiUrl",
+                      "Nullable": true,
+                      "Position": 4,
+                      "Precision": 0,
+                      "Scale": 0,
+                      "Statistics": null
+                    },
+                    {
+                      "Comment": "",
+                      "DataType": "STRING",
+                      "Length": 0,
+                      "Name": "visibility",
+                      "Nullable": true,
+                      "Position": 5,
+                      "Precision": 0,
+                      "Scale": 0,
+                      "Statistics": null
+                    },
+                    {
+                      "Comment": "",
+                      "DataType": "TIMESTAMP",
+                      "Length": 0,
+                      "Name": "updatedAt",
+                      "Nullable": true,
+                      "Position": 6,
+                      "Precision": 0,
+                      "Scale": 0,
+                      "Statistics": null
+                    }
+                  ],
+                  "Statistics": null
+                },
+                "sliceCount": 1,
+                "statistics": {
+                  "limit": 100,
+                  "repos": 1
+                },
+                "targetSliceSize": 0,
+                "templateId": "http.github"
+              },
+              "slices": [
+                {
+                  "batches": 1,
+                  "bytesStaged": 2508,
+                  "dataMode": "",
+                  "mode": "",
+                  "recordCount": 50,
+                  "recordsRead": 50,
+                  "recordsStaged": 50,
+                  "sliceIndex": 0,
+                  "stageRef": "object.minio:stage-2ba06ad93faa444393557889b12a66be",
+                  "templateId": "http.github",
+                  "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+                }
+              ],
+              "strategy": "full"
+            }
+          },
+          "lastRunAt": "2025-12-22T12:28:36Z",
+          "lastRunId": "83d6765c-2d08-4a17-8ab7-9641a443ae80",
+          "lastUpdatedAt": "2025-12-22T12:25:47.951Z",
+          "recordCount": 50,
+          "stats": {
+            "planMetadata": {
+              "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+              "schema": {
+                "Constraints": null,
+                "Fields": [
+                  {
+                    "Comment": "",
+                    "DataType": "STRING",
+                    "Length": 0,
+                    "Name": "projectKey",
+                    "Nullable": false,
+                    "Position": 1,
+                    "Precision": 0,
+                    "Scale": 0,
+                    "Statistics": null
+                  },
+                  {
+                    "Comment": "",
+                    "DataType": "STRING",
+                    "Length": 0,
+                    "Name": "defaultBranch",
+                    "Nullable": true,
+                    "Position": 2,
+                    "Precision": 0,
+                    "Scale": 0,
+                    "Statistics": null
+                  },
+                  {
+                    "Comment": "",
+                    "DataType": "STRING",
+                    "Length": 0,
+                    "Name": "htmlUrl",
+                    "Nullable": true,
+                    "Position": 3,
+                    "Precision": 0,
+                    "Scale": 0,
+                    "Statistics": null
+                  },
+                  {
+                    "Comment": "",
+                    "DataType": "STRING",
+                    "Length": 0,
+                    "Name": "apiUrl",
+                    "Nullable": true,
+                    "Position": 4,
+                    "Precision": 0,
+                    "Scale": 0,
+                    "Statistics": null
+                  },
+                  {
+                    "Comment": "",
+                    "DataType": "STRING",
+                    "Length": 0,
+                    "Name": "visibility",
+                    "Nullable": true,
+                    "Position": 5,
+                    "Precision": 0,
+                    "Scale": 0,
+                    "Statistics": null
+                  },
+                  {
+                    "Comment": "",
+                    "DataType": "TIMESTAMP",
+                    "Length": 0,
+                    "Name": "updatedAt",
+                    "Nullable": true,
+                    "Position": 6,
+                    "Precision": 0,
+                    "Scale": 0,
+                    "Statistics": null
+                  }
+                ],
+                "Statistics": null
+              },
+              "sliceCount": 1,
+              "statistics": {
+                "limit": 100,
+                "repos": 1
+              },
+              "targetSliceSize": 0,
+              "templateId": "http.github"
+            },
+            "slices": [
+              {
+                "batches": 1,
+                "bytesStaged": 3633,
+                "dataMode": "",
+                "mode": "",
+                "recordCount": 50,
+                "recordsRead": 50,
+                "recordsStaged": 50,
+                "sliceIndex": 0,
+                "stageRef": "object.minio:stage-590a92bea8c0415fbf80a89cdf0b8b31",
+                "templateId": "http.github",
+                "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+              }
+            ],
+            "strategy": "full"
+          }
+        },
+        "lastRunAt": "2025-12-22T12:58:41Z",
+        "lastRunId": "b8c60dbf-6717-4442-af0a-b773fbd57994",
+        "lastUpdatedAt": "2025-12-22T12:28:36.795Z",
+        "recordCount": 50,
+        "stats": {
+          "planMetadata": {
+            "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+            "schema": {
+              "Constraints": null,
+              "Fields": [
+                {
+                  "Comment": "",
+                  "DataType": "STRING",
+                  "Length": 0,
+                  "Name": "projectKey",
+                  "Nullable": false,
+                  "Position": 1,
+                  "Precision": 0,
+                  "Scale": 0,
+                  "Statistics": null
+                },
+                {
+                  "Comment": "",
+                  "DataType": "STRING",
+                  "Length": 0,
+                  "Name": "defaultBranch",
+                  "Nullable": true,
+                  "Position": 2,
+                  "Precision": 0,
+                  "Scale": 0,
+                  "Statistics": null
+                },
+                {
+                  "Comment": "",
+                  "DataType": "STRING",
+                  "Length": 0,
+                  "Name": "htmlUrl",
+                  "Nullable": true,
+                  "Position": 3,
+                  "Precision": 0,
+                  "Scale": 0,
+                  "Statistics": null
+                },
+                {
+                  "Comment": "",
+                  "DataType": "STRING",
+                  "Length": 0,
+                  "Name": "apiUrl",
+                  "Nullable": true,
+                  "Position": 4,
+                  "Precision": 0,
+                  "Scale": 0,
+                  "Statistics": null
+                },
+                {
+                  "Comment": "",
+                  "DataType": "STRING",
+                  "Length": 0,
+                  "Name": "visibility",
+                  "Nullable": true,
+                  "Position": 5,
+                  "Precision": 0,
+                  "Scale": 0,
+                  "Statistics": null
+                },
+                {
+                  "Comment": "",
+                  "DataType": "TIMESTAMP",
+                  "Length": 0,
+                  "Name": "updatedAt",
+                  "Nullable": true,
+                  "Position": 6,
+                  "Precision": 0,
+                  "Scale": 0,
+                  "Statistics": null
+                }
+              ],
+              "Statistics": null
+            },
+            "sliceCount": 1,
+            "statistics": {
+              "limit": 100,
+              "repos": 1
+            },
+            "targetSliceSize": 0,
+            "templateId": "http.github"
+          },
+          "slices": [
+            {
+              "batches": 1,
+              "bytesStaged": 2446,
+              "dataMode": "",
+              "mode": "",
+              "recordCount": 50,
+              "recordsRead": 50,
+              "recordsStaged": 50,
+              "sliceIndex": 0,
+              "stageRef": "object.minio:stage-82ce9b7d8f034296999da653fb687323",
+              "templateId": "http.github",
+              "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world"
+            }
+          ],
+          "strategy": "full"
+        }
+      },
+      "lastRunId": "547279d4-b498-4938-ae2c-e54ce8d52663",
+      "stats": {
+        "planMetadata": {
+          "datasetId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+          "schema": {
+            "Fields": [
+              {
+                "Name": "projectKey",
+                "DataType": "STRING",
+                "Nullable": false,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 1,
+                "Statistics": null
+              },
+              {
+                "Name": "defaultBranch",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 2,
+                "Statistics": null
+              },
+              {
+                "Name": "htmlUrl",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 3,
+                "Statistics": null
+              },
+              {
+                "Name": "apiUrl",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 4,
+                "Statistics": null
+              },
+              {
+                "Name": "visibility",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 5,
+                "Statistics": null
+              },
+              {
+                "Name": "updatedAt",
+                "DataType": "TIMESTAMP",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 6,
+                "Statistics": null
+              }
+            ],
+            "Constraints": null,
+            "Statistics": null
+          },
+          "sliceCount": 1,
+          "statistics": {
+            "limit": 100,
+            "repos": 1
+          },
+          "targetSliceSize": 0,
+          "templateId": "http.github"
+        },
+        "slices": [
+          {
+            "batches": 1,
+            "bytesStaged": 2446,
+            "dataMode": "",
+            "mode": "",
+            "recordCount": 50,
+            "recordsRead": 50,
+            "recordsStaged": 50,
+            "stageRef": "object.minio:stage-2d4ff788eb4b44ed87c9fadd2b0429f8",
+            "templateId": "http.github",
+            "unitId": "github.issues:dev:octocat/hello-world:dev:octocat/hello-world",
+            "sliceIndex": 0
+          }
+        ],
+        "strategy": "full"
+      },
+      "lastUpdatedAt": "2025-12-22T12:58:41.767Z"
+    },
+    "version": "797b9638127645c7a22d284dc976cb11",
+    "updatedAt": "2025-12-22T12:58:41.769Z"
+  },
+  "ingest_state::endpoint::775747feaae24c338b9b20bd71a2069b::unit::github.issues-dev-octocat/hello-world::sink::minio": {
+    "value": {
+      "state": {
+        "lastProcessedAt": "2025-12-22T12:58:41Z",
+        "mode": "",
+        "recordsProcessed": 50,
+        "templateId": "http.github"
+      },
+      "lastUpdatedAt": "2025-12-22T12:58:41.771Z"
+    },
+    "version": "73ef1a2e61234204b56ad311545d7115",
+    "updatedAt": "2025-12-22T12:58:41.771Z"
+  },
+  "ingest::code.github::endpoint::775747feaae24c338b9b20bd71a2069b::unit::github.issues::sink::minio": {
+    "value": {
+      "cursor": {
+        "cursor": null,
+        "cursorField": "updatedAt",
+        "dataMode": "raw",
+        "lastRunAt": "2025-12-24T07:49:54Z",
+        "recordCount": 50,
+        "watermark": "2025-12-24T07:37:52Z"
+      },
+      "lastRunId": "b21bc985-8920-48e5-84e1-955e701826b9",
+      "stats": {
+        "planMetadata": {
+          "datasetId": "github.issues:dev:octocat/hello-world",
+          "schema": {
+            "Fields": [
+              {
+                "Name": "projectKey",
+                "DataType": "STRING",
+                "Nullable": false,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 1,
+                "Statistics": null
+              },
+              {
+                "Name": "defaultBranch",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 2,
+                "Statistics": null
+              },
+              {
+                "Name": "htmlUrl",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 3,
+                "Statistics": null
+              },
+              {
+                "Name": "apiUrl",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 4,
+                "Statistics": null
+              },
+              {
+                "Name": "visibility",
+                "DataType": "STRING",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 5,
+                "Statistics": null
+              },
+              {
+                "Name": "updatedAt",
+                "DataType": "TIMESTAMP",
+                "Nullable": true,
+                "Precision": 0,
+                "Scale": 0,
+                "Length": 0,
+                "Comment": "",
+                "Position": 6,
+                "Statistics": null
+              }
+            ],
+            "Constraints": null,
+            "Statistics": null
+          },
+          "sliceCount": 1,
+          "statistics": {
+            "limit": 100,
+            "repos": 1
+          },
+          "targetSliceSize": 100,
+          "templateId": "http.github"
+        },
+        "slices": [
+          {
+            "batches": 1,
+            "bytesStaged": 3769,
+            "dataMode": "raw",
+            "mode": "INCREMENTAL",
+            "recordCount": 50,
+            "recordsRead": 50,
+            "recordsStaged": 50,
+            "stageRef": "object.minio:stage-d00a997deb9b4b9682edd2f38aa91001",
+            "templateId": "http.github",
+            "unitId": "github.issues:dev:octocat/hello-world",
+            "sliceIndex": 0
+          }
+        ],
+        "strategy": "incremental"
+      },
+      "lastUpdatedAt": "2025-12-24T07:49:56.301Z"
+    },
+    "version": "7cd6b50e9bd643f896cd7f773975a348",
+    "updatedAt": "2025-12-24T07:49:56.329Z"
   }
 }

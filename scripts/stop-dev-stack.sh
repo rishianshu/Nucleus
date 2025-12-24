@@ -16,6 +16,9 @@ stop_component() {
 
 stop_component "metadata ui" "$PROJECT_ROOT/scripts/stop-metadata-ui-bg.sh"
 stop_component "metadata api" "$PROJECT_ROOT/scripts/stop-metadata-api-bg.sh"
+stop_component "ucl core" "$PROJECT_ROOT/scripts/stop-ucl-core-bg.sh"
+stop_component "brain worker" "$PROJECT_ROOT/scripts/stop-brain-worker-bg.sh"
+stop_component "brain core" "$PROJECT_ROOT/scripts/stop-brain-core-bg.sh"
 stop_component "keycloak" "$PROJECT_ROOT/scripts/stop-keycloak.sh"
 stop_component "infra services" "$PROJECT_ROOT/scripts/stop-infra-services.sh"
 

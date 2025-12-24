@@ -16,6 +16,7 @@ import type {
   TenantContext,
   IngestionUnitDescriptor,
   IngestionSinkCapabilities,
+  MetadataEndpointTemplateFamily,
 } from "@metadata/core";
 import {
   getIngestionDriver,
@@ -58,8 +59,7 @@ import type { IngestionUnitStateRow } from "./ingestion/stateStore.js";
 import { findConfigByDataset, getIngestionUnitConfig, listIngestionUnitConfigs, saveIngestionUnitConfig, type IngestionUnitConfigRow } from "./ingestion/configStore.js";
 import { resetCheckpoint as clearIngestionCheckpoint } from "./ingestion/checkpoints.js";
 import { writeTransientState } from "./ingestion/transientState.js";
-import { provisionCdmSinkTables } from "./ingestion/cdmProvisioner.js";
-import { CDM_MODEL_TABLES } from "./ingestion/cdmSink.js";
+// Deprecated TS CDM sink removed; CDM models are sourced from Go pipeline now.
 import {
   getOperation as getUclOperation,
   probeEndpointCapabilities,
@@ -67,7 +67,10 @@ import {
   type AuthDescriptor as UclAuthDescriptor,
   type CapabilityProbeResult as UclCapabilityProbeResult,
   type OperationState as UclOperationState,
+  getRunSummary as getUclRunSummary,
+  diffRunSummaries as diffUclRunSummaries,
 } from "./temporal/ucl-client.js";
+// Brain run summaries now live in brain-core; stubbed out locally.
 import {
   CdmWorkStore,
   encodeCursor as encodeWorkCursor,
@@ -95,17 +98,17 @@ import { DefaultSignalEvaluator, type SignalEvaluator } from "./signals/evaluato
 import {
   BrainEpisodeReadService,
   BrainSearchService,
-  BrainVectorSearchService,
   ClusterReadService,
   HashingEmbeddingProvider,
   PrismaIndexProfileStore,
-  PrismaVectorIndexStore,
   type BrainSearchOptions,
+  type BrainVectorSearch,
   type ClusterRead,
   type EmbeddingProvider,
   type IndexProfileStore,
   type VectorIndexStore,
 } from "./brain/index.js";
+import { listMaterializedArtifactsForTenant } from "./brain/materializedRegistry.js";
 
 type IngestionStateStoreImpl = {
   getUnitState: typeof getUnitState;
@@ -639,6 +642,7 @@ export const typeDefs = `#graphql
     STRING
     PASSWORD
     NUMBER
+    INTEGER
     BOOLEAN
     URL
     HOSTNAME
@@ -1450,10 +1454,34 @@ type ProvisionCdmSinkResult {
     promptPack: BrainPromptPack!
   }
 
+  type MaterializedArtifact {
+    id: ID!
+    artifactKind: String!
+    sourceRunId: String!
+    sourceFamily: String
+    sinkEndpointId: String
+    handle: JSON!
+    canonicalMeta: JSON!
+    sourceMeta: JSON
+    status: String!
+    counters: JSON
+    lastError: JSON
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  input MaterializedArtifactFilter {
+    projectKey: String
+    sourceFamily: String
+    status: String
+    artifactKind: String
+  }
+
   type Query {
     health: Health!
     metadataDomains: [MetadataDomain!]!
     metadataRecords(domain: String!, projectId: String, labels: [String!], search: String, limit: Int): [MetadataRecord!]!
+    materializedArtifacts(filter: MaterializedArtifactFilter, first: Int = 50, after: ID): [MaterializedArtifact!]!
     signalDefinitions(
       status: [SignalStatus!]
       implMode: [SignalImplMode!]
@@ -1547,7 +1575,7 @@ type ProvisionCdmSinkResult {
     cdmEntity(id: ID!, domain: CdmDomain!): CdmEntity
   }
 
-  type Mutation {
+type Mutation {
     upsertMetadataRecord(input: MetadataRecordInput!): MetadataRecord!
     registerMetadataEndpoint(input: MetadataEndpointInput!): MetadataEndpoint!
     deleteMetadataEndpoint(id: ID!, reason: String): MetadataEndpoint!
@@ -1568,8 +1596,8 @@ type ProvisionCdmSinkResult {
     startIngestion(endpointId: ID!, unitId: ID!, sinkId: String, sinkEndpointId: ID): IngestionActionResult!
     pauseIngestion(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
     resetIngestionCheckpoint(endpointId: ID!, unitId: ID!, sinkId: String): IngestionActionResult!
+    updateIngestionWatermark(endpointId: ID!, unitId: ID!, watermark: String, sinkId: String): IngestionActionResult!
     configureIngestionUnit(input: IngestionUnitConfigInput!): IngestionUnitConfig!
-    provisionCdmSink(input: ProvisionCdmSinkInput!): ProvisionCdmSinkResult!
     evaluateSignals(definitionSlugs: [String!], dryRun: Boolean): SignalEvaluationSummary!
     startEndpointOperation(input: StartOperationInput!): MetadataOperationState!
   }
@@ -1585,13 +1613,12 @@ export function createResolvers(
     cdmDocStore?: CdmDocStore;
     cdmEntityStore?: CdmEntityStore;
     signalEvaluator?: SignalEvaluator;
-    cdmProvisioner?: typeof provisionCdmSinkTables;
     temporalClientFactory?: typeof getTemporalClient;
     prismaClient?: Awaited<ReturnType<typeof getPrismaClient>>;
     signalStore?: SignalStore;
     clusterRead?: ClusterRead;
     brainSearchService?: BrainSearchService;
-    brainVectorSearch?: BrainVectorSearchService;
+  brainVectorSearch?: BrainVectorSearch;
     brainEmbeddingProvider?: EmbeddingProvider;
     brainIndexProfileStore?: IndexProfileStore;
     brainVectorIndexStore?: VectorIndexStore;
@@ -1651,17 +1678,11 @@ export function createResolvers(
       return brainSearchService;
     }
     const graphStore = await resolveGraphStore();
-    const vectorSearch =
-      options?.brainVectorSearch ??
-      new BrainVectorSearchService({
-        embeddingProvider: options?.brainEmbeddingProvider ?? new HashingEmbeddingProvider(),
-        profileStore: options?.brainIndexProfileStore ?? new PrismaIndexProfileStore(resolvePrismaClient),
-        vectorStore: options?.brainVectorIndexStore ?? new PrismaVectorIndexStore(resolvePrismaClient),
-      });
-    brainSearchService = new BrainSearchService({
-      graphStore,
-      vectorSearch,
-    });
+    const vectorSearch = options?.brainVectorSearch;
+    if (!vectorSearch) {
+      throw new Error("BrainVectorSearch is now provided by brain-core; inject via options.brainVectorSearch");
+    }
+    brainSearchService = new BrainSearchService({ graphStore, vectorSearch });
     return brainSearchService;
   };
 
@@ -1712,7 +1733,6 @@ export function createResolvers(
           : new Date(row.updatedAt as Date | string).toISOString(),
     };
   };
-  const provisionCdmSinkFn = options?.cdmProvisioner ?? provisionCdmSinkTables;
   const cdmWorkStore = options?.cdmWorkStore ?? new CdmWorkStore();
   const cdmDocStore = options?.cdmDocStore ?? new CdmDocStore();
   const cdmEntityStore =
@@ -1915,8 +1935,11 @@ export function createResolvers(
           "metadata.endpointTemplates.backgroundRefresh",
         );
         if (Array.isArray(templates) && templates.length > 0) {
+          const normalizedTemplates = normalizeTemplatesForGraphQL(
+            applyTemplateOverrides(templates as EndpointTemplate[]),
+          );
           await storeRef.saveEndpointTemplates(
-            templates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
+            normalizedTemplates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
           );
         }
       } catch (error) {
@@ -1928,22 +1951,23 @@ export function createResolvers(
     })();
   };
   const fetchEndpointTemplates = async (family?: "JDBC" | "HTTP" | "STREAM") => {
-    let cached = applyTemplateOverrides(
-      (await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[],
+    let cached = normalizeTemplatesForGraphQL(
+      applyTemplateOverrides((await store.listEndpointTemplates(family)) as unknown as EndpointTemplate[]),
     );
-    const useCachedOrFallback = async () => {
-      if (cached.length > 0) {
-        return filterTemplatesByFamily(cached, family);
-      }
-      if (!fallbackTemplatesSeeded) {
-        await store.saveEndpointTemplates(
-          DEFAULT_ENDPOINT_TEMPLATES as unknown as MetadataEndpointTemplateDescriptor[],
-        );
-        fallbackTemplatesSeeded = true;
-      }
-      const fallback = filterTemplatesByFamily(
+  const useCachedOrFallback = async () => {
+    if (cached.length > 0) {
+      return filterTemplatesByFamily(cached, family);
+    }
+    if (!fallbackTemplatesSeeded) {
+      const normalizedDefaults = normalizeTemplatesForGraphQL(
         applyTemplateOverrides(DEFAULT_ENDPOINT_TEMPLATES as EndpointTemplate[]),
-        family,
+      );
+      await store.saveEndpointTemplates(normalizedDefaults as unknown as MetadataEndpointTemplateDescriptor[]);
+      fallbackTemplatesSeeded = true;
+    }
+    const fallback = filterTemplatesByFamily(
+      normalizeTemplatesForGraphQL(applyTemplateOverrides(DEFAULT_ENDPOINT_TEMPLATES as EndpointTemplate[])),
+      family,
       );
       if (fallback.length > 0) {
         cached = fallback;
@@ -1979,10 +2003,13 @@ export function createResolvers(
         "metadata.endpointTemplates.refresh",
       );
       if (Array.isArray(templates) && templates.length > 0) {
-        await store.saveEndpointTemplates(
-          templates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
+        const normalizedTemplates = normalizeTemplatesForGraphQL(
+          applyTemplateOverrides(templates as EndpointTemplate[]),
         );
-        return filterTemplatesByFamily(applyTemplateOverrides(templates as EndpointTemplate[]), family);
+        await store.saveEndpointTemplates(
+          normalizedTemplates.map((template) => template as unknown as MetadataEndpointTemplateDescriptor),
+        );
+        return filterTemplatesByFamily(normalizedTemplates, family);
       }
       return useCachedOrFallback();
     } catch (error) {
@@ -2286,6 +2313,8 @@ export function createResolvers(
     JSON: JSONResolver as GraphQLScalarType,
     Query: {
       health: () => ({ status: "ok", version: "0.1.0" }),
+      // runSummary handled by brain-core
+      // diffRunSummaries handled by brain-core
       metadataDomains: async (_parent: unknown, _args: unknown, ctx: ResolverContext) => {
         enforceReadAccess(ctx);
         return store.listDomains();
@@ -2301,6 +2330,29 @@ export function createResolvers(
           labels: args.labels,
           search: args.search,
           limit: args.limit,
+        });
+      },
+      materializedArtifacts: async (
+        _parent: unknown,
+        args: {
+          filter?: { projectKey?: string | null; sourceFamily?: string | null; status?: string | null; artifactKind?: string | null };
+          first?: number | null;
+          after?: string | null;
+        },
+        ctx: ResolverContext,
+      ) => {
+        enforceReadAccess(ctx);
+        const prisma = await getPrismaClient();
+        return listMaterializedArtifactsForTenant(prisma, {
+          tenantId: ctx.auth.tenantId,
+          filter: {
+            projectKey: args.filter?.projectKey ?? null,
+            sourceFamily: args.filter?.sourceFamily ?? null,
+            status: args.filter?.status ?? null,
+            artifactKind: args.filter?.artifactKind ?? null,
+          },
+          limit: args.first ?? null,
+          after: args.after ?? null,
         });
       },
       signalDefinitions: async (
@@ -3442,6 +3494,7 @@ export function createResolvers(
           });
         }
         const sinkId = resolveIngestionSinkId(config.sinkId ?? args.sinkId ?? unit.defaultSinkId);
+        const sinkEndpointId = args.sinkEndpointId ?? config.sinkEndpointId ?? null;
         await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
         if (allowFakeRun) {
           const bypassRunId = `bypass-${randomUUID()}`;
@@ -3457,7 +3510,7 @@ export function createResolvers(
           taskQueue,
           workflowId,
           retry: { maximumAttempts: INGESTION_WORKFLOW_MAX_ATTEMPTS },
-          args: [{ endpointId: endpointRowId, unitId: args.unitId, sinkId }],
+          args: [{ endpointId: endpointRowId, unitId: args.unitId, sinkId, sinkEndpointId, tenantId: ctx.auth.tenantId, datasetId }],
         });
         await stateStore.markUnitState(
           { endpointId: endpointRowId, unitId: args.unitId, sinkId },
@@ -3508,6 +3561,57 @@ export function createResolvers(
           { checkpoint: null, state: "IDLE", lastError: null },
         );
         return { ok: true, state: "IDLE", message: "Checkpoint reset" };
+      },
+      updateIngestionWatermark: async (
+        _parent: unknown,
+        args: { endpointId: string; unitId: string; watermark?: string | null; sinkId?: string | null },
+        ctx: ResolverContext,
+      ) => {
+        enforceIngestionAdmin(ctx);
+        const endpoint = await fetchEndpointForProject(store, ctx, args.endpointId);
+        const endpointRowId = endpoint.id ?? args.endpointId;
+        const { driver } = resolveIngestionDriver(endpoint);
+        await ensureIngestionUnit(store, driver, endpoint, endpointRowId, args.unitId);
+        const config = await configStore.getIngestionUnitConfig(endpointRowId, args.unitId);
+        const sinkId = resolveIngestionSinkId(config?.sinkId ?? args.sinkId);
+        const vendorKey = resolveVendorKeyForEndpoint(endpoint);
+        await stateStore.ensureUnitState({ endpointId: endpointRowId, unitId: args.unitId, sinkId });
+
+        // If watermark is null/undefined, reset the checkpoint entirely
+        if (args.watermark == null) {
+          await clearIngestionCheckpoint({
+            endpointId: endpointRowId,
+            unitId: args.unitId,
+            vendor: vendorKey,
+            sinkId,
+          });
+          await stateStore.markUnitState(
+            { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+            { checkpoint: null, state: "IDLE", lastError: null },
+          );
+          return { ok: true, state: "IDLE", message: "Checkpoint reset (watermark cleared)" };
+        }
+
+        // Update the watermark to the specified value
+        const { updateCheckpoint } = await import("./ingestion/checkpoints.js");
+        const checkpointKey = {
+          endpointId: endpointRowId,
+          unitId: args.unitId,
+          vendor: vendorKey,
+          sinkId,
+        };
+        const { checkpoint: newCheckpoint } = await updateCheckpoint(checkpointKey, (existing) => ({
+          ...existing,
+          cursor: args.watermark,
+          watermark: args.watermark,
+          lastUpdatedAt: new Date().toISOString(),
+        }));
+
+        await stateStore.markUnitState(
+          { endpointId: endpointRowId, unitId: args.unitId, sinkId },
+          { checkpoint: newCheckpoint, state: "IDLE", lastError: null },
+        );
+        return { ok: true, state: "IDLE", message: `Watermark updated to: ${args.watermark}` };
       },
       configureIngestionUnit: async (_parent: unknown, args: { input: IngestionUnitConfigInput }, ctx: ResolverContext) => {
         enforceIngestionAdmin(ctx);
@@ -3568,29 +3672,6 @@ export function createResolvers(
               extensions: { code: "E_CDM_SINK_ENDPOINT_UNSUPPORTED", sinkEndpointId },
             });
           }
-          const targetProjectId = sinkEndpoint.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID;
-          await provisionCdmSinkFn({
-            store,
-            sinkEndpoint,
-            cdmModelId: unit.cdmModelId,
-            projectId: targetProjectId,
-          });
-          if (unit.cdmModelId.startsWith("cdm.doc.")) {
-            const docModels = Object.keys(CDM_MODEL_TABLES).filter((id) => id.startsWith("cdm.doc."));
-            for (const docModelId of docModels) {
-              if (docModelId === unit.cdmModelId) continue;
-              await provisionCdmSinkFn({
-                store,
-                sinkEndpoint,
-                cdmModelId: docModelId,
-                projectId: targetProjectId,
-              });
-            }
-          }
-        } else if (sinkEndpoint && !endpointSupportsCdmSink(sinkEndpoint)) {
-          throw new GraphQLError("Selected sink endpoint only supports CDM mode.", {
-            extensions: { code: "E_SINK_ENDPOINT_MODE_MISMATCH", sinkEndpointId },
-          });
         }
         const scheduleKind = (args.input.scheduleKind ?? existing?.scheduleKind ?? unit.defaultScheduleKind ?? "MANUAL").toUpperCase();
         const scheduleIntervalMinutes =
@@ -3630,35 +3711,6 @@ export function createResolvers(
         }
         const state = await stateStore.getUnitState({ endpointId: saved.endpointId, unitId: saved.unitId, sinkId: saved.sinkId });
         return mapIngestionUnitConfig(saved, state ? mapIngestionStateRow(state) : null);
-      },
-      provisionCdmSink: async (_parent: unknown, args: { input: { sinkEndpointId: string; cdmModelId: string } }, ctx: ResolverContext) => {
-        enforceIngestionAdmin(ctx);
-        const sinkEndpoint = await fetchEndpointForProject(store, ctx, args.input.sinkEndpointId);
-        if (!endpointSupportsCdmSink(sinkEndpoint)) {
-          throw new GraphQLError("Selected endpoint is not a CDM sink.", {
-            extensions: { code: "E_CDM_SINK_ENDPOINT_REQUIRED", sinkEndpointId: args.input.sinkEndpointId },
-          });
-        }
-        const targetProjectId = sinkEndpoint.projectId ?? ctx.auth.projectId ?? DEFAULT_PROJECT_ID;
-        const result = await provisionCdmSinkFn({
-          store,
-          sinkEndpoint,
-          cdmModelId: args.input.cdmModelId,
-          projectId: targetProjectId,
-        });
-        if (args.input.cdmModelId.startsWith("cdm.doc.")) {
-          const docModels = Object.keys(CDM_MODEL_TABLES).filter((id) => id.startsWith("cdm.doc."));
-          for (const docModelId of docModels) {
-            if (docModelId === args.input.cdmModelId) continue;
-            await provisionCdmSinkFn({
-              store,
-              sinkEndpoint,
-              cdmModelId: docModelId,
-              projectId: targetProjectId,
-            });
-          }
-        }
-        return { ok: true, datasetId: result.datasetId, schema: result.schema, tableName: result.tableName };
       },
       evaluateSignals: async (
         _parent: unknown,
@@ -5162,6 +5214,123 @@ function mapOperationStateForGraph(
     retryable: state.retryable ?? null,
     error: state.error ?? null,
     stats: state.stats ?? null,
+  };
+}
+
+const TEMPLATE_FAMILIES = new Set<MetadataEndpointTemplateFamily>(["JDBC", "HTTP", "STREAM"]);
+
+function normalizeTemplateFamilyForGraphQL(family: string | undefined | null): MetadataEndpointTemplateFamily {
+  if (!family) {
+    return "HTTP";
+  }
+  const upper = family.toUpperCase() as MetadataEndpointTemplateFamily;
+  return TEMPLATE_FAMILIES.has(upper) ? upper : "HTTP";
+}
+
+const ENDPOINT_FIELD_VALUE_TYPES = [
+  "STRING",
+  "PASSWORD",
+  "NUMBER",
+  "INTEGER",
+  "BOOLEAN",
+  "URL",
+  "HOSTNAME",
+  "PORT",
+  "JSON",
+  "ENUM",
+  "LIST",
+  "TEXT",
+] as const;
+
+type EndpointFieldValueType = (typeof ENDPOINT_FIELD_VALUE_TYPES)[number];
+
+const ENDPOINT_FIELD_VALUE_TYPE_MAP: Record<string, EndpointFieldValueType> = {
+  string: "TEXT",
+  text: "TEXT",
+  password: "PASSWORD",
+  secret: "PASSWORD",
+  number: "NUMBER",
+  numeric: "NUMBER",
+  float: "NUMBER",
+  double: "NUMBER",
+  integer: "INTEGER",
+  int: "INTEGER",
+  boolean: "BOOLEAN",
+  bool: "BOOLEAN",
+  url: "URL",
+  uri: "URL",
+  host: "HOSTNAME",
+  hostname: "HOSTNAME",
+  port: "PORT",
+  json: "JSON",
+  enum: "ENUM",
+  list: "LIST",
+  array: "LIST",
+};
+
+function normalizeFieldValueTypeForGraphQL(valueType: unknown): EndpointFieldValueType {
+  if (typeof valueType !== "string") {
+    return "TEXT";
+  }
+  const normalized = valueType.trim().toLowerCase();
+  const mapped = ENDPOINT_FIELD_VALUE_TYPE_MAP[normalized];
+  if (mapped) {
+    return mapped;
+  }
+  const upper = normalized.toUpperCase();
+  return ENDPOINT_FIELD_VALUE_TYPES.includes(upper as EndpointFieldValueType)
+    ? (upper as EndpointFieldValueType)
+    : "TEXT";
+}
+
+function normalizeTemplatesForGraphQL(templates: EndpointTemplate[]): EndpointTemplate[] {
+  return templates.map((template) => ({
+    ...hydrateTemplateDefaults(template),
+    family: normalizeTemplateFamilyForGraphQL(template.family),
+    fields: (template.fields ?? []).map((field) => ({
+      ...field,
+      valueType: normalizeFieldValueTypeForGraphQL(field.valueType),
+    })),
+  }));
+}
+
+function hydrateTemplateDefaults(template: EndpointTemplate): EndpointTemplate {
+  const fallback = DEFAULT_ENDPOINT_TEMPLATES.find((entry) => entry.id === template.id);
+  const ensuredLabels = Array.isArray(template.defaultLabels)
+    ? [...template.defaultLabels]
+    : Array.isArray(fallback?.defaultLabels)
+      ? [...fallback.defaultLabels]
+      : [];
+  if (!fallback) {
+    return { ...template, defaultLabels: ensuredLabels };
+  }
+  const mergedFields =
+    Array.isArray(template.fields) && template.fields.length > 0
+      ? template.fields
+      : Array.isArray(fallback.fields)
+        ? fallback.fields
+        : [];
+  const mergedCapabilities =
+    Array.isArray(template.capabilities) && template.capabilities.length > 0
+      ? template.capabilities
+      : Array.isArray(fallback.capabilities)
+        ? fallback.capabilities
+        : [];
+  return {
+    ...fallback,
+    ...template,
+    categories: template.categories?.length ? template.categories : fallback.categories ?? [],
+    protocols: template.protocols?.length ? template.protocols : fallback.protocols ?? [],
+    versions: template.versions?.length ? template.versions : fallback.versions ?? [],
+    capabilities: mergedCapabilities,
+    fields: mergedFields,
+    connection: template.connection ?? fallback.connection ?? null,
+    probing: template.probing ?? fallback.probing ?? null,
+    auth: template.auth ?? fallback.auth ?? null,
+    defaultLabels: ensuredLabels,
+    descriptorVersion: template.descriptorVersion ?? fallback.descriptorVersion,
+    extras: template.extras ?? fallback.extras ?? null,
+    sampleConfig: template.sampleConfig ?? fallback.sampleConfig ?? null,
   };
 }
 

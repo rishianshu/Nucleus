@@ -1,32 +1,33 @@
-# Metadata API
+# metadata-api (GraphQL + TS Temporal worker)
 
-This package exposes the GraphQL API, schedulers, and supporting scripts used by the metadata workspace. Common commands:
+Role
+- GraphQL API for metadata/ingestion and TS Temporal worker (workflows on queue `metadata`; activities include startIngestionRun, persistIngestionBatches, etc.).
 
-```bash
-# Start the API locally (requires .env)
-pnpm --dir apps/metadata-api dev
+Start
+- API: `METADATA_DATABASE_URL="...schema=metadata&search_path=metadata" pnpm --filter @apps/metadata-api dev`
+- TS worker: `bash scripts/metadata/start-workers.sh` (starts TS worker on `metadata`, Go worker on `metadata-go`, UCL gRPC)
 
-# Run Prisma commands
-pnpm --dir apps/metadata-api prisma <subcommand>
-```
+Key env
+- `METADATA_DATABASE_URL` (Postgres, use metadata schema/search_path)
+- `METADATA_TEMPORAL_TASK_QUEUE` (default `metadata`)
+- Keycloak: `KEYCLOAK_BASE_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`
+- `TEMPORAL_ADDRESS` (default `127.0.0.1:7233`)
 
-## Graph identity backfill
+Logs
+- API: `/tmp/nucleus/metadata_api.log` (if run with nohup)
+- TS worker: `/tmp/nucleus/metadata_ts_worker.log`
 
-The graph identity hardening work introduced dedicated `graph_nodes`/`graph_edges` tables with scope-aware logical keys. Existing deployments can migrate legacy graph data by running:
+Ingestion flow
+- Workflows run on queue `metadata` (`ingestionRunWorkflow`).
+- TS activities handle bookkeeping (start/complete/fail run, persistIngestionBatches, loadStagedRecords, registerMaterializedArtifact).
+- Go ingestion activities run on queue `metadata-go`: CollectCatalogSnapshots, PreviewDataset, PlanIngestionUnit, RunIngestionUnit, SinkRunner.
+- Default staging provider is `object.minio`; SinkRunner writes sink files to MinIO: `sink-bucket/ingestion/<tenant>/<datasetSlug>/dt=<date>/run=<runId>/part-*.jsonl.gz`.
 
-```bash
-pnpm --dir apps/metadata-api exec tsx src/scripts/backfillGraphIdentity.ts
-```
+Post-ingestion (brain)
+- Brain worker on queue `brain-go` runs: IndexArtifact, ExtractSignals, ExtractInsights, BuildClusters (requires store-core gRPC at 9099).
 
-The script automatically uses the configured metadata store (Prisma or file-backed) and writes a JSON summary under `.artifacts/<timestamp>-graph-backfill.json` capturing counts, errors, and any edges referencing missing nodes. Re-run is safe; upserts are idempotent by logical key.
-
-## Knowledge Base GraphQL queries
-
-The metadata API now exposes additive queries used by the Knowledge Base admin console:
-
-- `kbNodes` / `kbEdges` return cursor-paginated connections with scope filtering (org/project/team) plus identity + provenance metadata.
-- `kbNode` resolves a single node (used by side panels/provenance).
-- `kbScene` / `kbNeighbors` build bounded subgraphs (≤300 nodes / 600 edges) honoring edge-type allowlists.
-- `kbFacets` returns type/edge/project/domain/team facet values (value + label + count) scoped to the requester, cached for 15 minutes to keep filter combos fast.
-
-When running in local/file-store mode the resolvers fall back to a small synthetic graph seeded from `fixtures/sample-metadata.json`, ensuring the console and tests have representative data even before collections populate the graph tables.
+Debug/verify
+- GraphQL start: `startIngestion(endpointId, unitId, sinkEndpointId)`
+- Status: `ingestionStatus(endpointId, unitId)` → expect `SUCCEEDED` on completion.
+- DB checks: `MaterializedArtifact` rows; `vector_index_entries`; `signal_instances`; cluster edges in `graph_edges`.
+- Logs: see `/tmp/nucleus/metadata_ts_worker.log` and `/tmp/nucleus/metadata_api.log`.

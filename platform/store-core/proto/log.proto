@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package store.log.v1;
+
+option go_package = "github.com/nucleus/store-core/gen/go/logpb;logpb";
+
+service LogService {
+  rpc Append(AppendLogRequest) returns (AppendLogResponse);
+  rpc List(ListLogRequest) returns (ListLogResponse);
+}
+
+message LogScope {
+  string tenant_id = 1;
+  string project_id = 2;
+  string stream = 3;
+}
+
+message AppendLogRequest {
+  LogScope scope = 1;
+  bytes payload = 2;
+  string content_type = 3;
+}
+
+message AppendLogResponse {
+  string offset = 1;
+}
+
+message ListLogRequest {
+  LogScope scope = 1;
+  string start_offset = 2;
+  int32 limit = 3;
+}
+
+message ListLogResponse {
+  repeated LogEntry entries = 1;
+}
+
+message LogEntry {
+  string offset = 1;
+  bytes payload = 2;
+  string content_type = 3;
+}

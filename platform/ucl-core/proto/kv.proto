@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package ucl.kv.v1;
+
+option go_package = "github.com/nucleus/ucl-core/pkg/kvpb";
+
+// KVService provides a multi-tenant key/value store.
+service KVService {
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse);
+}
+
+message Scope {
+  string tenant_id = 1;
+  string project_id = 2;
+}
+
+message PutRequest {
+  Scope scope = 1;
+  string key = 2;
+  bytes value = 3;
+  int64 expected_version = 4; // optional CAS; 0 means no check
+}
+
+message PutResponse {
+  int64 version = 1;
+}
+
+message GetRequest {
+  Scope scope = 1;
+  string key = 2;
+}
+
+message GetResponse {
+  bytes value = 1;
+  int64 version = 2;
+  bool found = 3;
+}
+
+message DeleteRequest {
+  Scope scope = 1;
+  string key = 2;
+  int64 expected_version = 3; // optional CAS; 0 means no check
+}
+
+message DeleteResponse {
+  bool deleted = 1;
+}
+
+message ListKeysRequest {
+  Scope scope = 1;
+  string prefix = 2;
+  int32 limit = 3;
+  string page_token = 4;
+}
+
+message ListKeysResponse {
+  repeated string keys = 1;
+  string next_page_token = 2;
+}

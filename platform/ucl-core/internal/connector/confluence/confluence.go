@@ -248,10 +248,11 @@ func (c *Confluence) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) 
 
 // ReadSlice reads records within a bounded slice.
 func (c *Confluence) ReadSlice(ctx context.Context, req *endpoint.SliceReadRequest) (endpoint.Iterator[endpoint.Record], error) {
-	// Delegate to Read for now
+	// CHECKPOINT FIX: Pass checkpoint to Read for incremental filtering
 	return c.Read(ctx, &endpoint.ReadRequest{
-		DatasetID: req.DatasetID,
-		Slice:     req.Slice,
+		DatasetID:  req.DatasetID,
+		Slice:      req.Slice,
+		Checkpoint: req.Checkpoint,
 	})
 }
 

@@ -1,0 +1,5 @@
+- [x] Implement Endpoint-Driven Vector Normalization (VectorProfileProvider, GitHub connector, Staging integration).
+- [x] Verify Staging (vectorPayload IS present in MinIO).
+- [x] DEBUG: Fix issue where `IndexArtifact` completes but `vector_entries` table is empty. Logs show `checkpoint-save-failed ... err context deadline exceeded`.
+- [ ] Rerun code indexing with the production embedding provider once access is available.
+- [ ] Feed materialized_artifacts registry from sink completion events.

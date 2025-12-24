@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,17 +17,26 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	pb "github.com/nucleus/ucl-core/gen/go/proto"
+	kvpb "github.com/nucleus/ucl-core/gen/go/proto/github.com/nucleus/ucl-core/pkg/kvpb"
 	"github.com/nucleus/ucl-core/internal/endpoint"
+	"github.com/nucleus/ucl-core/internal/kv"
 	"github.com/nucleus/ucl-core/internal/orchestration"
+	kgpb "github.com/nucleus/ucl-core/pkg/kgpb"
+	"github.com/nucleus/ucl-core/pkg/kvstore"
 
 	// Import connector package to register all connectors
+	_ "github.com/lib/pq"
+	"github.com/nucleus/ucl-core/internal/gateway"
 	_ "github.com/nucleus/ucl-core/pkg/connector"
 )
 
 // server implements the UCL gRPC service.
 type server struct {
 	pb.UnimplementedUCLServiceServer
+	db *sql.DB
 }
 
 var opManager = orchestration.NewManager()
@@ -42,8 +52,49 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	var (
+		kgPool *pgxpool.Pool
+		sqlDB  *sql.DB
+	)
+	if dsn := resolveMetadataDSN(); dsn != "" {
+		if cfg, err := pgxpool.ParseConfig(dsn); err == nil {
+			cfg.MaxConns = 10
+			cfg.MinConns = 1
+			cfg.MaxConnIdleTime = 30 * time.Minute
+			if pool, err := pgxpool.NewWithConfig(context.Background(), cfg); err == nil {
+				kgPool = pool
+				sqlDB = stdlib.OpenDBFromPool(pool)
+			} else {
+				log.Printf("kg db init failed, using in-memory KG: %v", err)
+			}
+		}
+	}
+	defer func() {
+		if kgPool != nil {
+			kgPool.Close()
+		}
+		if sqlDB != nil {
+			sqlDB.Close()
+		}
+	}()
+
+	var kvStore kvstore.Store
+	var kvErr error
+	if sqlDB != nil {
+		kvStore, kvErr = kvstore.NewPostgresStoreWithDB(sqlDB)
+	} else {
+		kvStore, kvErr = kvstore.NewPostgresStore()
+	}
+	if kvErr != nil {
+		log.Fatalf("failed to init KV store: %v", kvErr)
+	}
+	defer kvStore.Close()
+
 	s := grpc.NewServer()
-	pb.RegisterUCLServiceServer(s, &server{})
+	srv := &server{db: sqlDB}
+	pb.RegisterUCLServiceServer(s, srv)
+	kvpb.RegisterKVServiceServer(s, kv.NewService(kvStore))
+	kgpb.RegisterKgServiceServer(s, gateway.NewKgService(kgPool))
 
 	// Enable reflection for debugging with grpcurl
 	reflection.Register(s)
@@ -301,6 +352,13 @@ func (s *server) BuildEndpointConfig(ctx context.Context, req *pb.BuildConfigReq
 	connURL := ""
 	if urlProvider, ok := ep.(interface{ ConnectionURL() string }); ok {
 		connURL = urlProvider.ConnectionURL()
+	}
+	if connURL == "" {
+		if v, ok := params["base_url"].(string); ok && strings.TrimSpace(v) != "" {
+			connURL = v
+		} else if v, ok := params["baseUrl"].(string); ok && strings.TrimSpace(v) != "" {
+			connURL = v
+		}
 	}
 
 	return &pb.BuildConfigResponse{
@@ -594,6 +652,81 @@ func (s *server) GetOperation(ctx context.Context, req *pb.GetOperationRequest) 
 	return opManager.GetOperation(ctx, req)
 }
 
+// GetRunSummary exposes run summary from registry counters/log paths.
+func (s *server) GetRunSummary(ctx context.Context, req *pb.RunSummaryRequest) (*pb.RunSummaryResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("metadata db unavailable")
+	}
+	row := s.db.QueryRowContext(ctx, `
+SELECT tenant_id, source_family, sink_endpoint_id, index_counters
+FROM metadata.materialized_artifacts
+WHERE id=$1`, req.GetArtifactId())
+	var tenantID, sourceFamily, sinkID string
+	var countersBytes []byte
+	if err := row.Scan(&tenantID, &sourceFamily, &sinkID, &countersBytes); err != nil {
+		return nil, err
+	}
+	out := &pb.RunSummaryResponse{
+		ArtifactId:     req.GetArtifactId(),
+		TenantId:       tenantID,
+		SourceFamily:   sourceFamily,
+		SinkEndpointId: sinkID,
+	}
+	if len(countersBytes) > 0 {
+		var counters map[string]any
+		if err := json.Unmarshal(countersBytes, &counters); err == nil {
+			if v, ok := counters["versionHash"].(string); ok {
+				out.VersionHash = v
+			}
+			if v, ok := counters["logEventsPath"].(string); ok {
+				out.LogEventsPath = v
+			}
+			if v, ok := counters["logSnapshotPath"].(string); ok {
+				out.LogSnapshotPath = v
+			}
+			if v, ok := counters["nodesTouched"].(float64); ok {
+				out.NodesTouched = int64(v)
+			}
+			if v, ok := counters["edgesTouched"].(float64); ok {
+				out.EdgesTouched = int64(v)
+			}
+			if v, ok := counters["cacheHits"].(float64); ok {
+				out.CacheHits = int64(v)
+			}
+		}
+	}
+	return out, nil
+}
+
+// DiffRunSummaries compares two runs by version hash and returns log paths for replay.
+func (s *server) DiffRunSummaries(ctx context.Context, req *pb.DiffRunSummariesRequest) (*pb.DiffRunSummariesResponse, error) {
+	left, err := s.GetRunSummary(ctx, &pb.RunSummaryRequest{ArtifactId: req.GetLeftArtifactId()})
+	if err != nil {
+		return nil, err
+	}
+	right, err := s.GetRunSummary(ctx, &pb.RunSummaryRequest{ArtifactId: req.GetRightArtifactId()})
+	if err != nil {
+		return nil, err
+	}
+	versionEqual := left.GetVersionHash() != "" && right.GetVersionHash() != "" && left.GetVersionHash() == right.GetVersionHash()
+	notes := "versionHash differs; replay logs to inspect changes"
+	logPath := right.GetLogEventsPath()
+	if versionEqual {
+		notes = "versionHash matches; no replay needed"
+		logPath = right.GetLogEventsPath()
+		if logPath == "" {
+			logPath = left.GetLogEventsPath()
+		}
+	}
+	return &pb.DiffRunSummariesResponse{
+		Left:          left,
+		Right:         right,
+		VersionEqual:  versionEqual,
+		Notes:         notes,
+		LogEventsPath: logPath,
+	}, nil
+}
+
 func extractErrorCode(err error) (string, bool) {
 	var coded interface {
 		CodeValue() string
@@ -698,4 +831,14 @@ func getTemplateDescription(id string) string {
 		return desc
 	}
 	return "Connector for " + id
+}
+
+func resolveMetadataDSN() string {
+	if val := os.Getenv("METADATA_DATABASE_URL"); strings.TrimSpace(val) != "" {
+		return val
+	}
+	if val := os.Getenv("DATABASE_URL"); strings.TrimSpace(val) != "" {
+		return val
+	}
+	return ""
 }

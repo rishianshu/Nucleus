@@ -7,6 +7,7 @@ import {
 } from "@metadata/core";
 import path from "node:path";
 import { seedMetadataStoreIfEmpty } from "./seeds/sample.js";
+import { GrpcGraphStore } from "./graph/grpcGraphStore.js";
 
 let storePromise: Promise<MetadataStore> | null = null;
 let graphStorePromise: Promise<GraphStore> | null = null;
@@ -20,9 +21,13 @@ export function getMetadataStore(): Promise<MetadataStore> {
 
 export function getGraphStore(): Promise<GraphStore> {
   if (!graphStorePromise) {
-    graphStorePromise = getMetadataStore().then((store) =>
-      createGraphStore({ metadataStore: store, driver: process.env.GRAPH_STORE_DRIVER }),
-    );
+    if (process.env.KG_GRPC_ADDR) {
+      graphStorePromise = Promise.resolve(new GrpcGraphStore(process.env.KG_GRPC_ADDR));
+    } else {
+      graphStorePromise = getMetadataStore().then((store) =>
+        createGraphStore({ metadataStore: store, driver: process.env.GRAPH_STORE_DRIVER }),
+      );
+    }
   }
   return graphStorePromise;
 }

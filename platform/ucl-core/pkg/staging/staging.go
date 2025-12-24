@@ -64,14 +64,16 @@ type CodedError interface {
 
 // RecordEnvelope wraps a payload with ingestion metadata to avoid raw maps in staging.
 type RecordEnvelope struct {
-	RecordKind string         `json:"recordKind"`           // "raw" | "cdm"
-	EntityKind string         `json:"entityKind"`           // e.g., "work.item"
-	Source     SourceRef      `json:"source"`               // source endpoint metadata
-	TenantID   string         `json:"tenantId,omitempty"`   // optional tenant
-	ProjectKey string         `json:"projectKey,omitempty"` // optional project/workspace hint
-	Payload    map[string]any `json:"payload"`              // actual record payload
-	ObservedAt string         `json:"observedAt,omitempty"` // ISO timestamp
+	RecordKind    string         `json:"recordKind"`                   // "raw" | "cdm"
+	EntityKind    string         `json:"entityKind"`                   // e.g., "work.item"
+	Source        SourceRef      `json:"source"`                       // source endpoint metadata
+	TenantID      string         `json:"tenantId,omitempty"`           // optional tenant
+	ProjectKey    string         `json:"projectKey,omitempty"`         // optional project/workspace hint
+	Payload       map[string]any `json:"payload"`                      // actual record payload
+	VectorPayload map[string]any `json:"vectorPayload,omitempty"`      // pre-normalized vector-ready record (if endpoint supports VectorProfileProvider)
+	ObservedAt    string         `json:"observedAt,omitempty"`         // ISO timestamp
 }
+
 
 // SourceRef describes the originating endpoint/source for staged data.
 type SourceRef struct {
@@ -161,10 +163,10 @@ func (r *Registry) SelectProvider(preferred string, estimatedBytes int64, thresh
 	}
 
 	if estimatedBytes > threshold {
-		if p, ok := r.Get(ProviderObjectStore); ok {
+		if p, ok := r.Get(ProviderMinIO); ok {
 			return p, nil
 		}
-		if p, ok := r.Get(ProviderMinIO); ok {
+		if p, ok := r.Get(ProviderObjectStore); ok {
 			return p, nil
 		}
 		return nil, &Error{Code: CodeStagingUnavailable, Retryable: true, Err: fmt.Errorf("object-store staging required for %d bytes", estimatedBytes)}

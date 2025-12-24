@@ -16,6 +16,7 @@ type ObjectStore interface {
 	PutObject(ctx context.Context, bucket, key string, data []byte) error
 	GetObject(ctx context.Context, bucket, key string) ([]byte, error)
 	ListPrefix(ctx context.Context, bucket, prefix string) ([]string, error)
+	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
 // LocalStore persists objects on disk to mimic MinIO behaviour for tests.
@@ -131,6 +132,20 @@ func (s *LocalStore) ListPrefix(ctx context.Context, bucket, prefix string) ([]s
 	}
 	sort.Strings(keys)
 	return keys, nil
+}
+
+func (s *LocalStore) DeleteObject(ctx context.Context, bucket, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	fullPath := filepath.Join(s.bucketPath(bucket), filepath.FromSlash(key))
+	if err := os.Remove(fullPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return wrapError(CodeStagingWriteFailed, true, err)
+	}
+	return nil
 }
 
 func (s *LocalStore) bucketPath(bucket string) string {

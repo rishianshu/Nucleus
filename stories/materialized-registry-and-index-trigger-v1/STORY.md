@@ -1,0 +1,3 @@
+# Story — materialized-registry-and-index-trigger-v1
+
+- 2025-12-14: Added `materialized_artifacts` Prisma schema/migration with READY/INDEXING/INDEXED/FAILED statuses and canonical/source metadata, wired ingestion completion to tenant-derived registry upsert and Temporal index trigger using only `materializedArtifactId`, updated the code index runner/worker to read handles from the registry, exposed a tenant-scoped GraphQL registry query, and shipped tests for idempotent upsert, tenant isolation, canonical meta (GitHub/Confluence), and registry-driven indexing/failure reruns (`pnpm --filter @apps/metadata-api test:brain` green).

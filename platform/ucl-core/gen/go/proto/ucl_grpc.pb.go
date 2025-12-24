@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v6.33.1
-// source: proto/ucl.proto
+// source: ucl.proto
 
-package uclpb
+package proto
 
 import (
 	context "context"
@@ -28,6 +28,8 @@ const (
 	UCLService_ProbeEndpointCapabilities_FullMethodName = "/ucl.v1.UCLService/ProbeEndpointCapabilities"
 	UCLService_StartOperation_FullMethodName            = "/ucl.v1.UCLService/StartOperation"
 	UCLService_GetOperation_FullMethodName              = "/ucl.v1.UCLService/GetOperation"
+	UCLService_GetRunSummary_FullMethodName             = "/ucl.v1.UCLService/GetRunSummary"
+	UCLService_DiffRunSummaries_FullMethodName          = "/ucl.v1.UCLService/DiffRunSummaries"
 )
 
 // UCLServiceClient is the client API for UCLService service.
@@ -55,6 +57,10 @@ type UCLServiceClient interface {
 	StartOperation(ctx context.Context, in *StartOperationRequest, opts ...grpc.CallOption) (*StartOperationResponse, error)
 	// GetOperation polls long-running workflow state.
 	GetOperation(ctx context.Context, in *GetOperationRequest, opts ...grpc.CallOption) (*OperationState, error)
+	// GetRunSummary returns clustering/indexing summary for an artifact/run.
+	GetRunSummary(ctx context.Context, in *RunSummaryRequest, opts ...grpc.CallOption) (*RunSummaryResponse, error)
+	// DiffRunSummaries compares two artifacts by version hash and returns log paths for replay.
+	DiffRunSummaries(ctx context.Context, in *DiffRunSummariesRequest, opts ...grpc.CallOption) (*DiffRunSummariesResponse, error)
 }
 
 type uCLServiceClient struct {
@@ -155,6 +161,26 @@ func (c *uCLServiceClient) GetOperation(ctx context.Context, in *GetOperationReq
 	return out, nil
 }
 
+func (c *uCLServiceClient) GetRunSummary(ctx context.Context, in *RunSummaryRequest, opts ...grpc.CallOption) (*RunSummaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunSummaryResponse)
+	err := c.cc.Invoke(ctx, UCLService_GetRunSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *uCLServiceClient) DiffRunSummaries(ctx context.Context, in *DiffRunSummariesRequest, opts ...grpc.CallOption) (*DiffRunSummariesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DiffRunSummariesResponse)
+	err := c.cc.Invoke(ctx, UCLService_DiffRunSummaries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UCLServiceServer is the server API for UCLService service.
 // All implementations must embed UnimplementedUCLServiceServer
 // for forward compatibility.
@@ -180,6 +206,10 @@ type UCLServiceServer interface {
 	StartOperation(context.Context, *StartOperationRequest) (*StartOperationResponse, error)
 	// GetOperation polls long-running workflow state.
 	GetOperation(context.Context, *GetOperationRequest) (*OperationState, error)
+	// GetRunSummary returns clustering/indexing summary for an artifact/run.
+	GetRunSummary(context.Context, *RunSummaryRequest) (*RunSummaryResponse, error)
+	// DiffRunSummaries compares two artifacts by version hash and returns log paths for replay.
+	DiffRunSummaries(context.Context, *DiffRunSummariesRequest) (*DiffRunSummariesResponse, error)
 	mustEmbedUnimplementedUCLServiceServer()
 }
 
@@ -216,6 +246,12 @@ func (UnimplementedUCLServiceServer) StartOperation(context.Context, *StartOpera
 }
 func (UnimplementedUCLServiceServer) GetOperation(context.Context, *GetOperationRequest) (*OperationState, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOperation not implemented")
+}
+func (UnimplementedUCLServiceServer) GetRunSummary(context.Context, *RunSummaryRequest) (*RunSummaryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRunSummary not implemented")
+}
+func (UnimplementedUCLServiceServer) DiffRunSummaries(context.Context, *DiffRunSummariesRequest) (*DiffRunSummariesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DiffRunSummaries not implemented")
 }
 func (UnimplementedUCLServiceServer) mustEmbedUnimplementedUCLServiceServer() {}
 func (UnimplementedUCLServiceServer) testEmbeddedByValue()                    {}
@@ -400,6 +436,42 @@ func _UCLService_GetOperation_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UCLService_GetRunSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UCLServiceServer).GetRunSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UCLService_GetRunSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UCLServiceServer).GetRunSummary(ctx, req.(*RunSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UCLService_DiffRunSummaries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiffRunSummariesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UCLServiceServer).DiffRunSummaries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UCLService_DiffRunSummaries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UCLServiceServer).DiffRunSummaries(ctx, req.(*DiffRunSummariesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UCLService_ServiceDesc is the grpc.ServiceDesc for UCLService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -443,7 +515,15 @@ var UCLService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetOperation",
 			Handler:    _UCLService_GetOperation_Handler,
 		},
+		{
+			MethodName: "GetRunSummary",
+			Handler:    _UCLService_GetRunSummary_Handler,
+		},
+		{
+			MethodName: "DiffRunSummaries",
+			Handler:    _UCLService_DiffRunSummaries_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/ucl.proto",
+	Metadata: "ucl.proto",
 }

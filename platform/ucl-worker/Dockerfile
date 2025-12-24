@@ -39,6 +39,6 @@ USER worker
 # Worker configuration via environment
 ENV TEMPORAL_HOST_PORT=temporal:7233
 ENV TEMPORAL_NAMESPACE=default
-ENV TASK_QUEUE=metadata-go
+ENV TASK_QUEUE=brain-go
 
 ENTRYPOINT ["/app/worker"]

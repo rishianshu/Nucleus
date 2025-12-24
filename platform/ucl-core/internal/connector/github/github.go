@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	nethttp "net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,6 +21,7 @@ import (
 var (
 	_ endpoint.SourceEndpoint    = (*GitHub)(nil)
 	_ endpoint.AdaptiveIngestion = (*GitHub)(nil)
+	_ endpoint.SliceCapable      = (*GitHub)(nil)
 )
 
 // GitHub implements a semantic GitHub code source.
@@ -64,8 +67,16 @@ func New(config map[string]any) (*GitHub, error) {
 	}, nil
 }
 
-// ValidateConfig verifies connectivity and auth by hitting /user.
+// ValidateConfig verifies connectivity. If no token is provided, we only probe a public endpoint.
 func (g *GitHub) ValidateConfig(ctx context.Context, config map[string]any) (*endpoint.ValidationResult, error) {
+	if strings.TrimSpace(g.config.Token) == "" {
+		return &endpoint.ValidationResult{
+			Valid:           true,
+			Message:         "Public access (no token) - GitHub may rate limit (60 req/hr)",
+			DetectedVersion: "rest",
+		}, nil
+	}
+
 	user, err := g.fetchCurrentUser(ctx)
 	if err != nil {
 		return nil, err
@@ -90,6 +101,14 @@ func (g *GitHub) GetCapabilities() *endpoint.Capabilities {
 		SupportsPreview:     true,
 		SupportsMetadata:    true,
 	}
+}
+
+// ConnectionURL exposes the base URL for config builds.
+func (g *GitHub) ConnectionURL() string {
+	if strings.TrimSpace(g.config.BaseURL) != "" {
+		return g.config.BaseURL
+	}
+	return defaultBaseURL
 }
 
 // GetDescriptor describes the GitHub endpoint template.
@@ -135,6 +154,12 @@ func (g *GitHub) GetDescriptor() *endpoint.Descriptor {
 					Scopes:      []string{"repo", "read:user"},
 					Interactive: true,
 				},
+				{
+					Mode:        "anonymous",
+					Label:       "Public (no token)",
+					Scopes:      []string{},
+					Interactive: false,
+				},
 			},
 			ProfileBinding: &endpoint.ProfileBindingDescriptor{
 				Supported:      true,
@@ -144,7 +169,7 @@ func (g *GitHub) GetDescriptor() *endpoint.Descriptor {
 		},
 		Fields: []*endpoint.FieldDescriptor{
 			{Key: "base_url", Label: "Base URL", ValueType: "string", Required: false, DefaultValue: defaultBase, Placeholder: defaultBase},
-			{Key: "token", Label: "Token", ValueType: "password", Required: true, Sensitive: true, Description: "GitHub personal access token or app token."},
+			{Key: "token", Label: "Token", ValueType: "password", Required: false, Sensitive: true, Description: "GitHub PAT/app token (optional for public repos; recommended to avoid rate limits)."},
 			{Key: "owners", Label: "Owner allowlist", ValueType: "string", Required: false, Description: "Comma-separated owner/org filters."},
 			{Key: "repos", Label: "Repo allowlist", ValueType: "string", Required: false, Description: "Comma-separated repo names (owner/repo)."},
 			{Key: "branch", Label: "Branch", ValueType: "string", Required: false, Description: "Branch/ref to use; defaults to repo default branch."},
@@ -367,6 +392,25 @@ func (g *GitHub) Read(ctx context.Context, req *endpoint.ReadRequest) (endpoint.
 		return g.handleAPISurface(ctx, req)
 	}
 
+	// Handle API-backed datasets directly
+	if datasetType := datasetTypePrefix(req.DatasetID); datasetType != "" {
+		if _, ok := githubDatasets[datasetType]; ok && datasetType != "github.files" && datasetType != "github.file_chunks" {
+			params := map[string]any{}
+			if req.Limit > 0 {
+				params["limit"] = int(req.Limit)
+			}
+			return g.readAPIDataset(ctx, datasetType, &endpoint.SliceReadRequest{
+				DatasetID:  req.DatasetID,
+				Filter:     req.Filter,
+				Checkpoint: req.Checkpoint, // CHECKPOINT FIX: Pass checkpoint for incremental ingestion
+				Slice: &endpoint.IngestionSlice{
+					SliceID: "full",
+					Params:  params,
+				},
+			})
+		}
+	}
+
 	if req.Filter != nil {
 		if path, ok := req.Filter["path"].(string); ok && strings.TrimSpace(path) != "" {
 			return g.previewFile(ctx, req, path)
@@ -408,12 +452,141 @@ func (g *GitHub) ProbeIngestion(ctx context.Context, req *endpoint.ProbeRequest)
 	}, nil
 }
 
+// GetCheckpoint returns nil because GitHub currently does not persist watermarks.
+func (g *GitHub) GetCheckpoint(ctx context.Context, datasetID string) (*endpoint.Checkpoint, error) {
+	_ = ctx
+	_ = datasetID
+	return nil, nil
+}
+
+// PlanSlices proxies to PlanIngestion to satisfy SliceCapable for Temporal ingestion.
+func (g *GitHub) PlanSlices(ctx context.Context, req *endpoint.PlanRequest) (*endpoint.IngestionPlan, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	pageLimit := int(req.TargetSliceSize)
+	plan, err := g.PlanIngestion(ctx, &endpoint.PlanIngestionRequest{
+		DatasetID: req.DatasetID,
+		PageLimit: pageLimit,
+		Filters:   nil,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if req.Strategy != "" {
+		plan.Strategy = req.Strategy
+	}
+	return plan, nil
+}
+
 // PlanIngestion builds deterministic slices.
 func (g *GitHub) PlanIngestion(ctx context.Context, req *endpoint.PlanIngestionRequest) (*endpoint.IngestionPlan, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	datasetType := datasetTypePrefix(req.DatasetID)
+	if def, ok := githubDatasets[datasetType]; ok && datasetType != "github.files" && datasetType != "github.file_chunks" && datasetType != "github.api_surface" {
+		repos, err := g.fetchRepos(ctx)
+		if err != nil {
+			return nil, err
+		}
+		_, targetProject := parseDatasetProject(req.DatasetID, g.config.TenantID)
+		if targetProject != "" {
+			filtered := make([]Repo, 0, 1)
+			for _, r := range repos {
+				if strings.EqualFold(r.ProjectKey(), targetProject) {
+					filtered = append(filtered, r)
+					break
+				}
+			}
+			repos = filtered
+		}
+
+		if len(repos) == 0 {
+			return nil, fmt.Errorf("no repositories available for dataset %s", req.DatasetID)
+		}
+
+		limit := req.PageLimit
+		if limit <= 0 {
+			limit = 100
+		}
+
+		slices := make([]*endpoint.IngestionSlice, 0, len(repos))
+		seq := 0
+		for _, repo := range repos {
+			slices = append(slices, &endpoint.IngestionSlice{
+				SliceID:  fmt.Sprintf("%s:%s", datasetType, repo.ProjectKey()),
+				Sequence: seq,
+				Params: map[string]any{
+					"projectKey": repo.ProjectKey(),
+					"limit":      int(limit),
+				},
+			})
+			seq++
+		}
+
+		strategy := "full"
+		if def.SupportsIncremental {
+			strategy = "incremental"
+		}
+
+		stats := map[string]any{
+			"repos": len(repos),
+			"limit": limit,
+		}
+
+		return &endpoint.IngestionPlan{
+			DatasetID:  req.DatasetID,
+			Strategy:   strategy,
+			Slices:     slices,
+			Statistics: stats,
+		}, nil
+	}
+
+	if datasetType == "github.api_surface" {
+		limit := req.PageLimit
+		if limit <= 0 {
+			limit = 100
+		}
+		return &endpoint.IngestionPlan{
+			DatasetID: req.DatasetID,
+			Strategy:  "full",
+			Slices: []*endpoint.IngestionSlice{
+				{
+					SliceID:  "full",
+					Sequence: 0,
+					Params: map[string]any{
+						"limit": int(limit),
+					},
+				},
+			},
+			Statistics: map[string]any{
+				"limit": limit,
+			},
+		}, nil
+	}
+
 	repos, err := g.fetchRepos(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	_, targetProject := parseDatasetProject(req.DatasetID, g.config.TenantID)
+	if targetProject != "" {
+		filtered := make([]Repo, 0, 1)
+		for _, r := range repos {
+			if strings.EqualFold(r.ProjectKey(), targetProject) {
+				filtered = append(filtered, r)
+				break
+			}
+		}
+		repos = filtered
+	}
+	if len(repos) == 0 {
+		return nil, fmt.Errorf("no repositories available for dataset %s", req.DatasetID)
+	}
+
 	pageLimit := req.PageLimit
 	if pageLimit <= 0 {
 		pageLimit = 100
@@ -463,6 +636,19 @@ func (g *GitHub) PlanIngestion(ctx context.Context, req *endpoint.PlanIngestionR
 func (g *GitHub) ReadSlice(ctx context.Context, req *endpoint.SliceReadRequest) (endpoint.Iterator[endpoint.Record], error) {
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
+	}
+
+	// Handle API-backed datasets directly
+	if datasetType := datasetTypePrefix(req.DatasetID); datasetType != "" {
+		if _, ok := githubDatasets[datasetType]; ok && datasetType != "github.files" && datasetType != "github.file_chunks" {
+			if req.Slice == nil {
+				req.Slice = &endpoint.IngestionSlice{SliceID: "full", Params: map[string]any{}}
+			}
+			if req.Slice.Params == nil {
+				req.Slice.Params = map[string]any{}
+			}
+			return g.readAPIDataset(ctx, datasetType, req)
+		}
 	}
 
 	tenant, projectKey := parseDatasetProject(req.DatasetID, g.config.TenantID)
@@ -760,6 +946,241 @@ func (g *GitHub) fetchTree(ctx context.Context, repo Repo, branch string) ([]tre
 	return payload.Tree, nil
 }
 
+func (g *GitHub) readAPIDataset(ctx context.Context, datasetType string, req *endpoint.SliceReadRequest) (endpoint.Iterator[endpoint.Record], error) {
+	def, ok := githubDatasets[datasetType]
+	if !ok {
+		return nil, fmt.Errorf("unsupported dataset: %s", datasetType)
+	}
+	_, projectKey := parseDatasetProject(req.DatasetID, g.config.TenantID)
+	if projectKey == "" {
+		if req.Slice != nil {
+			if key, ok := req.Slice.Params["projectKey"].(string); ok && key != "" {
+				projectKey = key
+			}
+		}
+	}
+	if projectKey == "" {
+		return nil, fmt.Errorf("project key is required for dataset %s", datasetType)
+	}
+	ownerRepo := strings.SplitN(projectKey, "/", 2)
+	if len(ownerRepo) != 2 {
+		return nil, fmt.Errorf("invalid project key: %s", projectKey)
+	}
+	owner, repoName := ownerRepo[0], ownerRepo[1]
+	path := strings.ReplaceAll(strings.ReplaceAll(def.APIPath, "{owner}", owner), "{repo}", repoName)
+
+	query := url.Values{}
+	limit := 50
+	if req != nil && req.Slice != nil {
+		if l, ok := req.Slice.Params["limit"].(int); ok && l > 0 {
+			limit = l
+		}
+	}
+	query.Set("per_page", fmt.Sprintf("%d", limit))
+
+	// CHECKPOINT FIX: Use checkpoint for incremental reads
+	// Extract watermark from checkpoint and add 'since=' to API query
+	var sinceWatermark string
+	if req.Checkpoint != nil && def.SupportsIncremental {
+		// DEBUG: Log checkpoint received
+		log.Printf("[github-checkpoint] received checkpoint: %+v", req.Checkpoint)
+		
+		// Try multiple keys for watermark (cursor, watermark, since)
+		if wm, ok := req.Checkpoint["watermark"].(string); ok && wm != "" {
+			sinceWatermark = wm
+			log.Printf("[github-checkpoint] found watermark key: %s", wm)
+		} else if wm, ok := req.Checkpoint["cursor"].(string); ok && wm != "" {
+			sinceWatermark = wm
+			log.Printf("[github-checkpoint] found cursor key: %s", wm)
+		} else if wm, ok := req.Checkpoint["since"].(string); ok && wm != "" {
+			sinceWatermark = wm
+			log.Printf("[github-checkpoint] found since key: %s", wm)
+		} else {
+			// Log keys available in checkpoint
+			var keys []string
+			for k := range req.Checkpoint {
+				keys = append(keys, k)
+			}
+			log.Printf("[github-checkpoint] no watermark found, available keys: %v", keys)
+		}
+		if sinceWatermark != "" {
+			query.Set("since", sinceWatermark)
+			query.Set("sort", "updated")
+			query.Set("direction", "asc")
+			log.Printf("[github-checkpoint] using since=%s for incremental query", sinceWatermark)
+		}
+	} else {
+		log.Printf("[github-checkpoint] checkpoint is nil or not incremental, doing full fetch")
+	}
+
+	resp, err := g.Client.Get(ctx, path, query)
+	if err != nil {
+		return nil, mapHTTPError(err)
+	}
+
+	// Some endpoints return an object with items; issues/commits return arrays
+	var data any
+	if err := resp.JSON(&data); err != nil {
+		return nil, err
+	}
+	records := mapAPIPayload(datasetType, projectKey, data)
+
+	// CHECKPOINT FIX: Track high watermark from records
+	// Use the IncrementalCursor field (e.g., "updatedAt") to find the latest value
+	highWatermark := sinceWatermark
+	cursorField := def.IncrementalCursor
+	if cursorField != "" {
+		for _, rec := range records {
+			if ts, ok := rec[cursorField].(string); ok && ts > highWatermark {
+				highWatermark = ts
+			}
+		}
+		log.Printf("[github-checkpoint] extracted highWatermark=%q from %d records using cursorField=%s", highWatermark, len(records), cursorField)
+	}
+
+	return &recordIterator{
+		records:       records,
+		highWatermark: highWatermark,
+		cursorField:   cursorField,
+	}, nil
+}
+
+func mapAPIPayload(datasetType, projectKey string, payload any) []endpoint.Record {
+	var out []endpoint.Record
+	switch v := payload.(type) {
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				out = append(out, mapSingleRecord(datasetType, projectKey, m))
+			}
+		}
+	case map[string]any:
+		// Some endpoints wrap array in "items"
+		if items, ok := v["items"].([]any); ok {
+			for _, item := range items {
+				if m, ok := item.(map[string]any); ok {
+					out = append(out, mapSingleRecord(datasetType, projectKey, m))
+				}
+			}
+		}
+	}
+	return out
+}
+
+func mapSingleRecord(datasetType, projectKey string, m map[string]any) endpoint.Record {
+	record := endpoint.Record{}
+	record["_projectKey"] = projectKey
+	record["_datasetType"] = datasetType
+	switch datasetType {
+	case "github.repos":
+		record["repoId"] = asString(m["node_id"])
+		record["name"] = asString(m["name"])
+		record["fullName"] = asString(m["full_name"])
+		record["owner"] = asString(fromMap(m, "owner", "login"))
+		record["defaultBranch"] = asString(m["default_branch"])
+		record["visibility"] = asString(m["visibility"])
+		record["description"] = asString(m["description"])
+		record["htmlUrl"] = asString(m["html_url"])
+		record["apiUrl"] = asString(m["url"])
+		record["language"] = asString(m["language"])
+		record["stargazersCount"] = asInt(m["stargazers_count"])
+		record["forksCount"] = asInt(m["forks_count"])
+		record["createdAt"] = asString(m["created_at"])
+		record["updatedAt"] = asString(m["updated_at"])
+	case "github.issues":
+		record["_entity"] = "github.issues"
+		record["issueId"] = asString(m["node_id"])
+		record["number"] = asInt(m["number"])
+		record["repo"] = projectKey
+		record["title"] = asString(m["title"])
+		record["body"] = asString(m["body"])
+		record["state"] = asString(m["state"])
+		record["author"] = asString(fromMap(m, "user", "login"))
+		record["assignees"] = m["assignees"]
+		record["labels"] = m["labels"]
+		record["milestone"] = asString(fromMap(m, "milestone", "title"))
+		record["htmlUrl"] = asString(m["html_url"])
+		record["commentsCount"] = asInt(m["comments"])
+		record["createdAt"] = asString(m["created_at"])
+		record["updatedAt"] = asString(m["updated_at"])
+		record["closedAt"] = asString(m["closed_at"])
+	case "github.pull_requests":
+		record["prId"] = asString(m["node_id"])
+		record["number"] = asInt(m["number"])
+		record["repo"] = projectKey
+		record["title"] = asString(m["title"])
+		record["body"] = asString(m["body"])
+		record["state"] = asString(m["state"])
+		record["author"] = asString(fromMap(m, "user", "login"))
+		record["assignees"] = m["assignees"]
+		record["labels"] = m["labels"]
+		record["headBranch"] = asString(fromMap(m, "head", "ref"))
+		record["baseBranch"] = asString(fromMap(m, "base", "ref"))
+		record["htmlUrl"] = asString(m["html_url"])
+		record["merged"] = m["merged"]
+		record["mergedAt"] = asString(m["merged_at"])
+		record["mergedBy"] = asString(fromMap(m, "merged_by", "login"))
+		record["createdAt"] = asString(m["created_at"])
+		record["updatedAt"] = asString(m["updated_at"])
+		record["closedAt"] = asString(m["closed_at"])
+	case "github.commits":
+		record["sha"] = asString(m["sha"])
+		record["repo"] = projectKey
+		record["message"] = asString(fromMap(m, "commit", "message"))
+		author := asString(fromMap(m, "author", "login"))
+		if author == "" {
+			author = asString(fromMap(fromMap(m, "commit"), "author", "name"))
+		}
+		record["author"] = author
+		record["authorEmail"] = asString(fromMap(fromMap(m, "commit"), "author", "email"))
+		committer := asString(fromMap(m, "committer", "login"))
+		if committer == "" {
+			committer = asString(fromMap(fromMap(m, "commit"), "committer", "name"))
+		}
+		record["committer"] = committer
+		record["committerEmail"] = asString(fromMap(fromMap(m, "commit"), "committer", "email"))
+		record["htmlUrl"] = asString(m["html_url"])
+		record["createdAt"] = asString(fromMap(fromMap(m, "commit"), "author", "date"))
+		record["committedAt"] = asString(fromMap(fromMap(m, "commit"), "author", "date"))
+	case "github.comments":
+		record["commentId"] = asString(m["node_id"])
+		record["repo"] = projectKey
+		issueURL := asString(m["issue_url"])
+		if issueURL != "" {
+			parts := strings.Split(strings.TrimSuffix(issueURL, "/"), "/")
+			if len(parts) > 0 {
+				if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+					record["issueNumber"] = n
+				}
+			}
+		}
+		record["author"] = asString(fromMap(m, "user", "login"))
+		record["body"] = asString(m["body"])
+		record["htmlUrl"] = asString(m["html_url"])
+		record["createdAt"] = asString(m["created_at"])
+		record["updatedAt"] = asString(m["updated_at"])
+	case "github.releases":
+		record["releaseId"] = asString(m["node_id"])
+		record["repo"] = projectKey
+		record["tagName"] = asString(m["tag_name"])
+		record["name"] = asString(m["name"])
+		record["body"] = asString(m["body"])
+		record["author"] = asString(fromMap(m, "author", "login"))
+		record["draft"] = m["draft"]
+		record["prerelease"] = m["prerelease"]
+		record["htmlUrl"] = asString(m["html_url"])
+		record["tarballUrl"] = asString(m["tarball_url"])
+		record["zipballUrl"] = asString(m["zipball_url"])
+		record["createdAt"] = asString(m["created_at"])
+		record["publishedAt"] = asString(m["published_at"])
+	default:
+		for k, v := range m {
+			record[k] = v
+		}
+	}
+	return record
+}
+
 func (g *GitHub) fetchContent(ctx context.Context, repo Repo, path string, ref string) (FileContent, error) {
 	reqPath := fmt.Sprintf("/repos/%s/contents/%s", repo.ProjectKey(), strings.TrimPrefix(path, "/"))
 	query := url.Values{}
@@ -855,8 +1276,10 @@ func (c FileContent) Text() string {
 }
 
 type recordIterator struct {
-	records []endpoint.Record
-	index   int
+	records       []endpoint.Record
+	index         int
+	highWatermark string // Tracks latest timestamp for checkpoint
+	cursorField   string // Field name for cursor (e.g., "updatedAt")
 }
 
 func (it *recordIterator) Next() bool {
@@ -874,6 +1297,21 @@ func (it *recordIterator) Value() endpoint.Record {
 
 func (it *recordIterator) Err() error   { return nil }
 func (it *recordIterator) Close() error { return nil }
+
+// Checkpoint returns the checkpoint with high watermark for incremental reads.
+// This is used by the ingestion framework to persist the watermark for next run.
+func (it *recordIterator) Checkpoint() *endpoint.Checkpoint {
+	if it.highWatermark == "" {
+		return nil
+	}
+	return &endpoint.Checkpoint{
+		Watermark: it.highWatermark,
+		Metadata: map[string]any{
+			"cursorField": it.cursorField,
+			"recordCount": len(it.records),
+		},
+	}
+}
 
 type githubError struct {
 	code      string
@@ -948,10 +1386,19 @@ func parseDatasetProject(datasetID, fallbackTenant string) (string, string) {
 		return fallbackTenant, ""
 	}
 	parts := strings.Split(datasetID, ":")
-	if len(parts) >= 4 {
+	if len(parts) >= 3 {
 		tenant := parts[len(parts)-2]
 		project := parts[len(parts)-1]
 		return tenant, project
+	}
+	// Handle unitIds like "github.octocat/hello-world/issues" (no tenant prefix)
+	if strings.Contains(datasetID, "/") {
+		trimmed := strings.TrimPrefix(datasetID, "github.")
+		slashParts := strings.Split(trimmed, "/")
+		if len(slashParts) >= 2 {
+			project := strings.ToLower(strings.Join(slashParts[:2], "/"))
+			return fallbackTenant, project
+		}
 	}
 	if strings.Contains(datasetID, "/") {
 		return fallbackTenant, datasetID
@@ -964,6 +1411,55 @@ func decodeContent(body string, encoding string) ([]byte, error) {
 		return base64.StdEncoding.DecodeString(strings.TrimSpace(body))
 	}
 	return []byte(body), nil
+}
+
+func datasetTypePrefix(datasetID string) string {
+	if datasetID == "" {
+		return ""
+	}
+	parts := strings.Split(datasetID, ":")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+func fromMap(m any, keys ...string) any {
+	cur := m
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		if obj, ok := cur.(map[string]any); ok {
+			cur = obj[k]
+		} else {
+			return nil
+		}
+	}
+	return cur
+}
+
+func asString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func asInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func isLikelyBinary(data []byte) bool {
@@ -1051,4 +1547,174 @@ func toSet(values []string) map[string]bool {
 		out[strings.ToLower(strings.TrimSpace(v))] = true
 	}
 	return out
+}
+
+// ============================================================================
+// VectorProfileProvider Implementation
+// ============================================================================
+
+// GetVectorProfile returns the appropriate vector profile ID for a given entity kind.
+// This is used by staging to determine how to normalize records for vector indexing.
+func (g *GitHub) GetVectorProfile(entityKind string) string {
+	switch entityKind {
+	case "code.file_chunk":
+		return "source.github.code.v1"
+	case "github.issues", "work.item":
+		return "source.github.issues.v1"
+	case "github.pull_requests":
+		return "source.github.prs.v1"
+	case "github.commits":
+		return "source.github.commits.v1"
+	default:
+		return "source.github.generic.v1"
+	}
+}
+
+// NormalizeForIndex transforms a raw ingestion record into a VectorIndexRecord
+// suitable for embedding by brain-worker. Returns false if record cannot be indexed.
+func (g *GitHub) NormalizeForIndex(rec endpoint.Record) (endpoint.VectorIndexRecord, bool) {
+	entityKind := asString(rec["_entity"])
+	if entityKind == "" {
+		// Check nested payload for entityType
+		if payload, ok := rec["payload"].(map[string]any); ok {
+			entityKind = asString(payload["entityType"])
+		}
+	}
+
+	switch entityKind {
+	case "code.file_chunk":
+		return g.normalizeCodeChunk(rec)
+	case "github.issues":
+		return g.normalizeIssue(rec)
+	case "github.pull_requests":
+		return g.normalizePR(rec)
+	default:
+		return endpoint.VectorIndexRecord{}, false
+	}
+}
+
+func (g *GitHub) normalizeCodeChunk(rec endpoint.Record) (endpoint.VectorIndexRecord, bool) {
+	repo := asString(rec["repo"])
+	if repo == "" {
+		repo = asString(rec["_projectKey"])
+	}
+	path := asString(rec["path"])
+	sha := asString(rec["sha"])
+	chunkIdx := asInt(rec["chunkIndex"])
+	text := asString(rec["text"])
+
+	if repo == "" || path == "" || text == "" {
+		return endpoint.VectorIndexRecord{}, false
+	}
+
+	nodeID := fmt.Sprintf("code:github:%s:%s:%d", repo, path, chunkIdx)
+	return endpoint.VectorIndexRecord{
+		NodeID:       nodeID,
+		ProfileID:    "source.github.code.v1",
+		EntityKind:   "code.file_chunk",
+		Text:         text,
+		SourceFamily: "github",
+		TenantID:     asString(rec["_tenantId"]),
+		ProjectKey:   repo,
+		SourceURL:    asString(rec["_sourceUrl"]),
+		ExternalID:   asString(rec["_externalId"]),
+		Metadata: map[string]any{
+			"repo":       repo,
+			"path":       path,
+			"sha":        sha,
+			"chunkIndex": chunkIdx,
+			"language":   asString(rec["language"]),
+		},
+	}, true
+}
+
+func (g *GitHub) normalizeIssue(rec endpoint.Record) (endpoint.VectorIndexRecord, bool) {
+	// Handle nested payload structure from staging
+	var payload map[string]any
+	if p, ok := rec["payload"].(map[string]any); ok {
+		if nested, ok := p["payload"].(map[string]any); ok {
+			payload = nested // nested structure: payload.payload.*
+		} else {
+			payload = p
+		}
+	} else {
+		payload = rec // flat structure
+	}
+
+	issueID := asString(payload["issueId"])
+	if issueID == "" {
+		issueID = fmt.Sprintf("%d", asInt(payload["number"]))
+	}
+	title := asString(payload["title"])
+	body := asString(payload["body"])
+	repo := asString(payload["repo"])
+	if repo == "" {
+		repo = asString(payload["_projectKey"])
+	}
+
+	if issueID == "" || title == "" || repo == "" {
+		return endpoint.VectorIndexRecord{}, false
+	}
+
+	// Combine title and body for text content
+	text := strings.TrimSpace(fmt.Sprintf("%s\n\n%s", title, body))
+	nodeID := fmt.Sprintf("work:github:%s:issue:%s", repo, issueID)
+
+	return endpoint.VectorIndexRecord{
+		NodeID:       nodeID,
+		ProfileID:    "source.github.issues.v1",
+		EntityKind:   "work.item",
+		Text:         text,
+		SourceFamily: "github",
+		TenantID:     asString(rec["_tenantId"]),
+		ProjectKey:   repo,
+		SourceURL:    asString(payload["htmlUrl"]),
+		ExternalID:   issueID,
+		Metadata: map[string]any{
+			"issueId": issueID,
+			"repo":    repo,
+			"state":   asString(payload["state"]),
+			"author":  asString(payload["author"]),
+		},
+	}, true
+}
+
+func (g *GitHub) normalizePR(rec endpoint.Record) (endpoint.VectorIndexRecord, bool) {
+	prID := asString(rec["prId"])
+	if prID == "" {
+		prID = fmt.Sprintf("%d", asInt(rec["number"]))
+	}
+	title := asString(rec["title"])
+	body := asString(rec["body"])
+	repo := asString(rec["repo"])
+	if repo == "" {
+		repo = asString(rec["_projectKey"])
+	}
+
+	if prID == "" || title == "" || repo == "" {
+		return endpoint.VectorIndexRecord{}, false
+	}
+
+	text := strings.TrimSpace(fmt.Sprintf("%s\n\n%s", title, body))
+	nodeID := fmt.Sprintf("work:github:%s:pr:%s", repo, prID)
+
+	return endpoint.VectorIndexRecord{
+		NodeID:       nodeID,
+		ProfileID:    "source.github.prs.v1",
+		EntityKind:   "work.item",
+		Text:         text,
+		SourceFamily: "github",
+		TenantID:     asString(rec["_tenantId"]),
+		ProjectKey:   repo,
+		SourceURL:    asString(rec["htmlUrl"]),
+		ExternalID:   prID,
+		Metadata: map[string]any{
+			"prId":       prID,
+			"repo":       repo,
+			"state":      asString(rec["state"]),
+			"author":     asString(rec["author"]),
+			"headBranch": asString(rec["headBranch"]),
+			"baseBranch": asString(rec["baseBranch"]),
+		},
+	}, true
 }

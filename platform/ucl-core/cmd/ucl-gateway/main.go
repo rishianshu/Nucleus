@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
+	gatewayv1 "github.com/nucleus/ucl-core/gen/gateway/v1"
 	"github.com/nucleus/ucl-core/internal/gateway"
 )
 
@@ -41,7 +42,7 @@ func main() {
 
 	// Register services
 	gatewaySvc := gateway.NewService()
-	gateway.RegisterGatewayServiceServer(server, gatewaySvc)
+	gatewayv1.RegisterGatewayServiceServer(server, gatewaySvc)
 
 	// Health check
 	healthSvc := health.NewServer()

@@ -29,6 +29,7 @@ type StatePatch = {
   lastRunAt?: Date | string | null;
   lastError?: string | null;
   stats?: Record<string, unknown> | null;
+  sinkId?: string | null;
 };
 
 type PrismaClient = Awaited<ReturnType<typeof getPrismaClient>>;
@@ -94,6 +95,10 @@ export async function markUnitState(key: UnitKey, patch: StatePatch) {
 export async function ensureUnitState(key: UnitKey): Promise<IngestionUnitStateRow> {
   const existing = await getUnitState(key);
   if (existing) {
+    if (key.sinkId && existing.sinkId !== key.sinkId) {
+      await markUnitState(key, { sinkId: key.sinkId });
+      return { ...existing, sinkId: key.sinkId };
+    }
     return existing;
   }
   return upsertUnitState(key, { state: "IDLE" });
@@ -103,6 +108,9 @@ function normalizePatch(patch: StatePatch) {
   const normalized: Record<string, unknown> = {};
   if (patch.state) {
     normalized.state = patch.state;
+  }
+  if (patch.sinkId !== undefined) {
+    normalized.sinkId = patch.sinkId ?? DEFAULT_SINK_ID;
   }
   if (patch.checkpoint !== undefined) {
     normalized.checkpoint = patch.checkpoint ?? null;

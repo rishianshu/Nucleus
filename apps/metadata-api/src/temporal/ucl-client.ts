@@ -207,6 +207,19 @@ export interface StartOperationResult {
   state: OperationState;
 }
 
+export interface RunSummary {
+  artifactId: string;
+  tenantId: string;
+  sourceFamily: string;
+  sinkEndpointId: string;
+  versionHash: string;
+  nodesTouched: number;
+  edgesTouched: number;
+  cacheHits: number;
+  logEventsPath: string;
+  logSnapshotPath: string;
+}
+
 // Lazy-loaded gRPC client
 let clientPromise: Promise<any> | null = null;
 
@@ -437,6 +450,77 @@ export async function getOperation(operationId: string): Promise<OperationState>
         resolve(normalizeOperationState(response));
       }
     );
+  });
+}
+
+export async function getRunSummary(artifactId: string): Promise<RunSummary> {
+  const client = await getClient();
+  return new Promise((resolve, reject) => {
+    client.GetRunSummary({ artifactId }, (err: Error | null, res: any) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve({
+        artifactId: res?.artifactId ?? artifactId,
+        tenantId: res?.tenantId ?? "",
+        sourceFamily: res?.sourceFamily ?? "",
+        sinkEndpointId: res?.sinkEndpointId ?? "",
+        versionHash: res?.versionHash ?? "",
+        nodesTouched: Number(res?.nodesTouched ?? 0),
+        edgesTouched: Number(res?.edgesTouched ?? 0),
+        cacheHits: Number(res?.cacheHits ?? 0),
+        logEventsPath: res?.logEventsPath ?? "",
+        logSnapshotPath: res?.logSnapshotPath ?? "",
+      });
+    });
+  });
+}
+
+export async function diffRunSummaries(leftArtifactId: string, rightArtifactId: string): Promise<{
+  left: RunSummary;
+  right: RunSummary;
+  versionEqual: boolean;
+  notes: string;
+  logEventsPath?: string;
+}> {
+  const client = await getClient();
+  return new Promise((resolve, reject) => {
+    client.DiffRunSummaries({ leftArtifactId, rightArtifactId }, (err: Error | null, res: any) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve({
+        left: {
+          artifactId: res?.left?.artifactId ?? leftArtifactId,
+          tenantId: res?.left?.tenantId ?? "",
+          sourceFamily: res?.left?.sourceFamily ?? "",
+          sinkEndpointId: res?.left?.sinkEndpointId ?? "",
+          versionHash: res?.left?.versionHash ?? "",
+          nodesTouched: Number(res?.left?.nodesTouched ?? 0),
+          edgesTouched: Number(res?.left?.edgesTouched ?? 0),
+          cacheHits: Number(res?.left?.cacheHits ?? 0),
+          logEventsPath: res?.left?.logEventsPath ?? "",
+          logSnapshotPath: res?.left?.logSnapshotPath ?? "",
+        },
+        right: {
+          artifactId: res?.right?.artifactId ?? rightArtifactId,
+          tenantId: res?.right?.tenantId ?? "",
+          sourceFamily: res?.right?.sourceFamily ?? "",
+          sinkEndpointId: res?.right?.sinkEndpointId ?? "",
+          versionHash: res?.right?.versionHash ?? "",
+          nodesTouched: Number(res?.right?.nodesTouched ?? 0),
+          edgesTouched: Number(res?.right?.edgesTouched ?? 0),
+          cacheHits: Number(res?.right?.cacheHits ?? 0),
+          logEventsPath: res?.right?.logEventsPath ?? "",
+          logSnapshotPath: res?.right?.logSnapshotPath ?? "",
+        },
+        versionEqual: !!res?.versionEqual,
+        notes: res?.notes ?? "",
+        logEventsPath: res?.logEventsPath ?? "",
+      });
+    });
   });
 }
 

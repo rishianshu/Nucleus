@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -33,7 +32,7 @@ func TestMinioNegativeCases(t *testing.T) {
 		t.Fatalf("expected unreachable endpoint to be retryable")
 	}
 
-	// Missing bucket when constructing staging provider should fail fast.
+	// Missing bucket should be auto-provisioned now; provider should still be created.
 	rootMissing := filepath.Join(root, "missing")
 	cfg := uclminio.ParseConfig(map[string]any{
 		"endpointUrl":     "",
@@ -43,24 +42,10 @@ func TestMinioNegativeCases(t *testing.T) {
 		"rootPath":        rootMissing,
 	})
 	provider, provErr := uclminio.NewStagingProvider(cfg, nil)
-	if provErr == nil {
-		providerID := ""
-		if provider != nil {
-			providerID = provider.ID()
-		}
-		t.Fatalf("expected staging provider creation to fail, provider=%s", providerID)
+	if provErr != nil {
+		t.Fatalf("expected staging provider creation to succeed with auto-provision, got: %v", provErr)
 	}
-	var coded interface {
-		CodeValue() string
-		RetryableStatus() bool
-	}
-	if !errors.As(provErr, &coded) {
-		t.Fatalf("expected coded error, got %v", provErr)
-	}
-	if coded.CodeValue() != uclminio.CodeBucketNotFound {
-		t.Fatalf("expected %s, got %s", uclminio.CodeBucketNotFound, coded.CodeValue())
-	}
-	if coded.RetryableStatus() {
-		t.Fatalf("bucket-not-found should not be retryable")
+	if provider == nil || provider.ID() == "" {
+		t.Fatalf("expected staging provider to be non-nil with an ID")
 	}
 }

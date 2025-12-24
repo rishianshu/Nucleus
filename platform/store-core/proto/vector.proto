@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package vector;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/nucleus/store-core/gen/go/vectorpb";
+
+service VectorService {
+  rpc UpsertEntries(UpsertEntriesRequest) returns (UpsertEntriesResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc DeleteByArtifact(DeleteByArtifactRequest) returns (DeleteByArtifactResponse);
+  rpc ListEntries(ListEntriesRequest) returns (ListEntriesResponse);
+}
+
+message Entry {
+  string tenant_id = 1;
+  string project_id = 2;
+  string profile_id = 3;
+  string node_id = 4;
+  string source_family = 5;
+  string artifact_id = 6;
+  string run_id = 7;
+  string sink_endpoint_id = 8;
+  string dataset_slug = 9;
+  string entity_kind = 10;
+  repeated string labels = 11;
+  repeated string tags = 12;
+  string content_text = 13;
+  google.protobuf.Struct metadata = 14;
+  google.protobuf.Struct raw_payload = 15;
+  google.protobuf.Struct raw_metadata = 16;
+  repeated float embedding = 17;
+}
+
+message UpsertEntriesRequest {
+  repeated Entry entries = 1;
+}
+message UpsertEntriesResponse {
+  int32 upserted = 1;
+}
+
+message SearchRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  repeated string profile_ids = 3;
+  string source_family = 4;
+  string artifact_id = 5;
+  string run_id = 6;
+  string sink_endpoint_id = 7;
+  string dataset_slug = 8;
+  repeated string entity_kinds = 9;
+  repeated string labels = 10;
+  repeated string tags = 11;
+  int32 top_k = 12;
+  repeated float embedding = 13;
+}
+
+message SearchHit {
+  string node_id = 1;
+  string profile_id = 2;
+  float score = 3;
+  string content_text = 4;
+  google.protobuf.Struct metadata = 5;
+}
+
+message SearchResponse {
+  repeated SearchHit hits = 1;
+}
+
+message DeleteByArtifactRequest {
+  string tenant_id = 1;
+  string artifact_id = 2;
+  string run_id = 3;
+}
+message DeleteByArtifactResponse {}
+
+message ListEntriesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  repeated string profile_ids = 3;
+  string source_family = 4;
+  string artifact_id = 5;
+  string run_id = 6;
+  string sink_endpoint_id = 7;
+  string dataset_slug = 8;
+  repeated string entity_kinds = 9;
+  repeated string labels = 10;
+  repeated string tags = 11;
+  int32 limit = 12;
+}
+
+message ListEntriesResponse {
+  repeated Entry entries = 1;
+}

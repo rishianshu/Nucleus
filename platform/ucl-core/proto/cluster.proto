@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package cluster;
+
+option go_package = "github.com/nucleus/ucl-core/pkg/clusterpb";
+
+service ClusterService {
+  rpc BuildClusters(BuildRequest) returns (BuildResponse) {}
+  rpc ListClusters(ListRequest) returns (ListResponse) {}
+}
+
+message BuildRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  int32 max_seeds = 3;
+  int32 max_cluster_size = 4;
+  string window_start = 5;
+  string window_end = 6;
+}
+
+message BuildResponse {
+  int32 clusters_created = 1;
+  int32 members_linked = 2;
+}
+
+message ListRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string window_start = 3;
+  string window_end = 4;
+}
+
+message ClusterSummary {
+  string cluster_node_id = 1;
+  string cluster_kind = 2;
+  repeated string member_node_ids = 3;
+}
+
+message ListResponse {
+  repeated ClusterSummary clusters = 1;
+}

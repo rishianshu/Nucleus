@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package brain.v1;
+
+option go_package = "github.com/nucleus/brain-core/gen/go/brainpb;brainpb";
+
+// BrainService surfaces metadata/knowledge-base run summaries and diffs.
+service BrainService {
+  rpc GetRunSummary(RunSummaryRequest) returns (RunSummaryResponse);
+  rpc DiffRunSummaries(DiffRunSummariesRequest) returns (DiffRunSummariesResponse);
+}
+
+message RunSummaryRequest {
+  string artifact_id = 1;
+}
+
+message RunSummaryResponse {
+  string artifact_id = 1;
+  string tenant_id = 2;
+  string source_family = 3;
+  string sink_endpoint_id = 4;
+  string version_hash = 5;
+  string log_events_path = 6;
+  string log_snapshot_path = 7;
+  int64 nodes_touched = 8;
+  int64 edges_touched = 9;
+  int64 cache_hits = 10;
+}
+
+message DiffRunSummariesRequest {
+  string left_artifact_id = 1;
+  string right_artifact_id = 2;
+}
+
+message DiffRunSummariesResponse {
+  RunSummaryResponse left = 1;
+  RunSummaryResponse right = 2;
+  bool version_equal = 3;
+  string notes = 4;
+  string log_events_path = 5;
+}

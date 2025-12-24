@@ -1,3 +1,6 @@
+/**
+ * Signal types - TypeScript types for SignalService
+ */
 export type SignalStatus = "ACTIVE" | "DISABLED" | "DRAFT";
 export type SignalInstanceStatus = "OPEN" | "RESOLVED" | "SUPPRESSED";
 export type SignalSeverity = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
@@ -103,15 +106,15 @@ export type UpsertSignalInstanceInput = {
 export interface SignalStore {
   // Definitions
   getDefinition(id: string): Promise<SignalDefinition | null>;
-  getDefinitionBySlug(slug: string): Promise<SignalDefinition | null>;
+  getDefinitionBySlug?(slug: string): Promise<SignalDefinition | null>;
   listDefinitions(filter?: SignalDefinitionFilter): Promise<SignalDefinition[]>;
-  createDefinition(input: CreateSignalDefinitionInput): Promise<SignalDefinition>;
-  updateDefinition(id: string, patch: UpdateSignalDefinitionInput): Promise<SignalDefinition>;
+  createDefinition?(input: CreateSignalDefinitionInput): Promise<SignalDefinition>;
+  updateDefinition?(id: string, patch: UpdateSignalDefinitionInput): Promise<SignalDefinition>;
 
   // Instances
   getInstance(id: string): Promise<SignalInstance | null>;
   listInstances(filter?: SignalInstanceFilter): Promise<SignalInstance[]>;
   listInstancesPaged?(filter?: SignalInstancePageFilter): Promise<SignalInstancePage>;
-  upsertInstance(input: UpsertSignalInstanceInput): Promise<SignalInstance>;
-  updateInstanceStatus(id: string, status: SignalInstanceStatus, resolvedAt?: Date | string | null): Promise<SignalInstance>;
+  upsertInstance(input: Partial<SignalInstance> | UpsertSignalInstanceInput): Promise<SignalInstance>;
+  updateInstanceStatus(definitionId: string, entityRef: string, status: SignalInstanceStatus): Promise<SignalInstance>;
 }

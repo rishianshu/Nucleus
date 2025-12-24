@@ -8,9 +8,11 @@ import {
   type GraphStore,
   type MetadataRecord,
   type MetadataEndpointDescriptor,
+  type MetadataEndpointTemplateFamily,
   type TenantContext,
   type IngestionSinkContext,
   type NormalizedRecord,
+  type MetadataEndpointFieldValueType,
 } from "@metadata/core";
 import { resolveEndpointDriverId } from "../ingestion/helpers.js";
 import { getPrismaClient } from "../prismaClient.js";
@@ -25,9 +27,90 @@ import { upsertJdbcRelations } from "../graph/jdbcRelations.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "kb";
-const DEFAULT_STAGING_PROVIDER = process.env.INGESTION_DEFAULT_STAGING_PROVIDER ?? "in_memory";
+const DEFAULT_SINK_ID = process.env.INGESTION_DEFAULT_SINK ?? "cdm";
+const DEFAULT_STAGING_PROVIDER = process.env.INGESTION_DEFAULT_STAGING_PROVIDER ?? "object.minio";
 const DEFAULT_INGESTION_DRIVER = process.env.INGESTION_DEFAULT_DRIVER ?? "static";
+
+const ALLOWED_TEMPLATE_FAMILIES = new Set<MetadataEndpointTemplateFamily>(["JDBC", "HTTP", "STREAM"]);
+
+function firstRepoSlug(params: Record<string, unknown> | null | undefined): string | null {
+  if (!params) return null;
+  const raw = params.repos ?? params.repositories ?? null;
+  if (typeof raw === "string") {
+    const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+    return parts[0]?.toLowerCase() ?? null;
+  }
+  if (Array.isArray(raw)) {
+    const first = raw.find((v) => typeof v === "string" && v.trim().length > 0);
+    return first ? first.toLowerCase() : null;
+  }
+  return null;
+}
+
+function sanitizeDatasetSlug(id: string | null): string | null {
+  if (!id) return null;
+  return id.replace(/^cdm\./i, "").replace(/[.:/]/g, "_").trim();
+}
+
+function normalizeTemplateFamily(family: string | undefined | null): MetadataEndpointTemplateFamily {
+  if (!family) {
+    return "HTTP";
+  }
+  const upper = family.toUpperCase() as MetadataEndpointTemplateFamily;
+  return ALLOWED_TEMPLATE_FAMILIES.has(upper) ? upper : "HTTP";
+}
+
+const FIELD_VALUE_TYPE_MAP: Record<string, MetadataEndpointFieldValueType> = {
+  string: "TEXT",
+  text: "TEXT",
+  password: "PASSWORD",
+  secret: "PASSWORD",
+  number: "NUMBER",
+  numeric: "NUMBER",
+  float: "NUMBER",
+  double: "NUMBER",
+  integer: "INTEGER",
+  int: "INTEGER",
+  boolean: "BOOLEAN",
+  bool: "BOOLEAN",
+  url: "URL",
+  uri: "URL",
+  host: "HOSTNAME",
+  hostname: "HOSTNAME",
+  port: "PORT",
+  json: "JSON",
+  enum: "ENUM",
+  list: "LIST",
+  array: "LIST",
+};
+
+const ALLOWED_FIELD_VALUE_TYPES = new Set<MetadataEndpointFieldValueType>([
+  "STRING",
+  "PASSWORD",
+  "NUMBER",
+  "INTEGER",
+  "BOOLEAN",
+  "URL",
+  "HOSTNAME",
+  "PORT",
+  "JSON",
+  "ENUM",
+  "LIST",
+  "TEXT",
+]);
+
+function normalizeFieldValueType(raw: string | null | undefined): MetadataEndpointFieldValueType {
+  if (!raw) {
+    return "TEXT";
+  }
+  const normalized = raw.trim().toLowerCase();
+  const mapped = FIELD_VALUE_TYPE_MAP[normalized];
+  if (mapped) {
+    return mapped;
+  }
+  const upper = normalized.toUpperCase() as MetadataEndpointFieldValueType;
+  return ALLOWED_FIELD_VALUE_TYPES.has(upper) ? upper : "TEXT";
+}
 
 export type MetadataActivities = {
   createCollectionRun(input: {
@@ -54,6 +137,25 @@ export type MetadataActivities = {
   failIngestionRun(input: FailIngestionRunInput): Promise<void>;
   persistIngestionBatches(input: PersistIngestionBatchesInput): Promise<void>;
   loadStagedRecords(input: { path: string; stagingProviderId?: string | null }): Promise<unknown[]>;
+  listVectorProfilesByFamily(input: { family: string | null }): Promise<Array<{ id: string; family: string }>>;
+  registerMaterializedArtifact(input: {
+    runId: string;
+    artifactKind: string;
+    datasetId?: string | null;
+    datasetSlug?: string | null;
+    datasetPrefix?: string | null;
+    bucket?: string | null;
+    basePrefix?: string | null;
+    sinkId?: string | null;
+    sinkEndpointId?: string | null;
+    sourceFamily?: string | null;
+    tenantId?: string | null;
+    endpointId?: string | null;
+    unitId?: string | null;
+  }): Promise<{ id: string; status: string }>;
+  startVectorIndexing(input: {
+    materializedArtifactId: string;
+  }): Promise<{ status: string; runId: string; counters: Record<string, unknown> }>;
 };
 
 const DEFAULT_METADATA_PROJECT = process.env.METADATA_DEFAULT_PROJECT ?? "global";
@@ -88,6 +190,10 @@ type StartIngestionRunInput = {
   endpointId: string;
   unitId: string;
   sinkId?: string | null;
+  sinkEndpointId?: string | null;
+  stagingProviderId?: string | null;
+  tenantId?: string | null;
+  datasetId?: string | null;
 };
 
 type StartIngestionRunResult = {
@@ -101,10 +207,19 @@ type StartIngestionRunResult = {
   mode: string | null;
   dataMode: string | null;
   sinkEndpointId: string | null;
+  sinkEndpointConfig: Record<string, unknown> | null;
+  sinkEndpointTemplateId: string | null;
   cdmModelId: string | null;
   filter: Record<string, unknown> | null;
   transientState: Record<string, unknown> | null;
   transientStateVersion: string | null;
+  sourceFamily: string | null;
+  datasetSlug: string | null;
+  datasetPrefix: string | null;
+  bucket: string | null;
+  basePrefix: string | null;
+  datasetId: string | null;
+  tenantId: string | null;
 };
 
 type CompleteIngestionRunInput = {
@@ -343,7 +458,7 @@ export const activities: MetadataActivities = {
     // Transform gRPC types to app types
     return grpcTemplates.map((t) => ({
       id: t.id,
-      family: t.family as "JDBC" | "HTTP" | "STREAM",
+      family: normalizeTemplateFamily(t.family),
       title: t.displayName,
       vendor: t.vendor,
       description: t.description ?? null,
@@ -355,11 +470,11 @@ export const activities: MetadataActivities = {
       driver: null,
       docsUrl: null,
       agentPrompt: null,
-      defaultLabels: [],
+      defaultLabels: Array.isArray(t.defaultLabels) ? t.defaultLabels : [],
       fields: t.fields.map((f) => ({
         key: f.name,
         label: f.label,
-        valueType: f.type,
+        valueType: normalizeFieldValueType(f.type),
         required: f.required,
         description: f.description ?? null,
         defaultValue: f.defaultValue ?? null,
@@ -385,8 +500,13 @@ export const activities: MetadataActivities = {
       throw new Error(result.error ?? "Failed to build config");
     }
     // Transform gRPC types to app types
+    const resolvedUrl =
+      result.connectionUrl ||
+      (parameters?.base_url as string | undefined) ||
+      (parameters?.baseUrl as string | undefined) ||
+      "";
     const payload: EndpointBuildResult = {
-      url: result.connectionUrl ?? "",
+      url: resolvedUrl,
       config: result.config as Record<string, unknown>,
       labels: extras?.labels ?? [],
     };
@@ -438,7 +558,15 @@ export const activities: MetadataActivities = {
       throw error;
     }
   },
-  async startIngestionRun({ endpointId, unitId, sinkId }: StartIngestionRunInput): Promise<StartIngestionRunResult> {
+  async startIngestionRun({
+    endpointId,
+    unitId,
+    sinkId,
+    sinkEndpointId: sinkEndpointIdInput,
+    stagingProviderId: stagingProviderIdInput,
+    tenantId: tenantInput,
+    datasetId: datasetInput,
+  }: StartIngestionRunInput): Promise<StartIngestionRunResult> {
     const store = await getMetadataStore();
     const endpoints = await store.listEndpoints();
     const endpoint = endpoints.find((entry) => entry.id === endpointId);
@@ -457,31 +585,87 @@ export const activities: MetadataActivities = {
     if (config && !config.enabled) {
       throw new Error(`Ingestion config disabled for unit ${unitId}`);
     }
-    const resolvedSinkId = resolveSinkId(config?.sinkId ?? sinkId);
-    if (!getIngestionSink(resolvedSinkId)) {
-      throw new Error(`Ingestion sink "${resolvedSinkId}" is not registered`);
-    }
+    const endpointConfig = normalizeRecordPayload(endpoint.config);
+    const templateId = typeof endpointConfig.templateId === "string" ? endpointConfig.templateId : null;
+    const resolvedSinkId = resolveSinkId(config?.sinkId ?? sinkId, templateId, unitId);
     const vendorKey = endpoint.domain ?? endpoint.sourceId ?? endpoint.id ?? endpointId;
-    const stagingProviderId = resolveStagingProvider(endpoint);
+    const stagingProviderId = stagingProviderIdInput ?? resolveStagingProvider(endpoint);
     const policyOverrides =
       config?.policy && typeof config.policy === "object" ? (config.policy as Record<string, unknown>) : null;
     let policy = mergeIngestionPolicies(resolveIngestionPolicy(endpoint), policyOverrides);
-    const sinkEndpointId = config?.sinkEndpointId ?? null;
+    const sinkEndpointId = sinkEndpointIdInput ?? config?.sinkEndpointId ?? null;
+    const sinkEndpoint = sinkEndpointId ? endpoints.find((entry) => entry.id === sinkEndpointId) ?? null : null;
     const dataMode = typeof config?.mode === "string" ? config.mode : null;
-    const endpointConfig = normalizeRecordPayload(endpoint.config);
-    const templateId = typeof endpointConfig.templateId === "string" ? endpointConfig.templateId : null;
+    const sourceFamily = endpoint.domain ?? templateId ?? null;
+    const tenantId = tenantInput ?? process.env.TENANT_ID ?? "default";
     const endpointParameters = isRecord(endpointConfig.parameters)
       ? (endpointConfig.parameters as Record<string, unknown>)
       : null;
+    const flatEndpointConfig = isRecord(endpointConfig) ? (endpointConfig as Record<string, unknown>) : null;
     const policyParameters = isRecord((policy ?? {}).parameters)
       ? ((policy as Record<string, unknown>).parameters as Record<string, unknown>)
       : null;
-    if (endpointParameters || policyParameters) {
+    const mergedParams = {
+      ...(flatEndpointConfig ?? {}),
+      ...(endpointParameters ?? {}),
+      ...(policyParameters ?? {}),
+    };
+    if (Object.keys(mergedParams).length > 0) {
       policy = {
         ...(policy ?? {}),
-        parameters: { ...(endpointParameters ?? {}), ...(policyParameters ?? {}) },
+        parameters: mergedParams,
       };
+      if (process.env.METADATA_AUTH_DEBUG === "1") {
+        console.info("[ingestion.params.merge]", {
+          endpointId,
+          unitId,
+          keys: Object.keys(mergedParams),
+          tokenLength: typeof mergedParams.token === "string" ? mergedParams.token.length : null,
+        });
+      }
     }
+    let datasetId = (config as any)?.datasetId ?? datasetInput ?? unitId ?? null;
+    let datasetSlug = (config as any)?.datasetSlug ?? datasetInput ?? unitId ?? null;
+    const sinkCfg = sinkEndpoint?.config && typeof sinkEndpoint.config === "object" ? (sinkEndpoint.config as Record<string, unknown>) : {};
+    const bucket = (config as any)?.bucket ?? (sinkCfg as any)?.bucket ?? null;
+    const basePrefix = (config as any)?.basePrefix ?? (sinkCfg as any)?.basePrefix ?? "sink";
+    const rawRepo =
+      endpoint && endpoint.config && typeof (endpoint as any).config.repos === "string"
+        ? ((endpoint as any).config.repos as string)
+        : null;
+    const repoSlugFromConfig =
+      firstRepoSlug(isRecord(endpointConfig.parameters) ? (endpointConfig.parameters as Record<string, unknown>) : null) ??
+      firstRepoSlug(endpointConfig as Record<string, unknown>);
+    const repoSlug =
+      firstRepoSlug(
+        normalizeRecordPayload((policy ?? {}).parameters ?? endpointConfig.parameters ?? {}) as Record<string, unknown>,
+      ) ?? null;
+    const repoCandidate =
+      repoSlug ??
+      repoSlugFromConfig ??
+      firstRepoSlug(endpointParameters) ??
+      firstRepoSlug(policyParameters) ??
+      (rawRepo ? firstRepoSlug({ repos: rawRepo }) : null) ??
+      null;
+    if ((templateId === "http.github" || sourceFamily === "code.github") && repoCandidate && (datasetId === null || datasetId === unitId)) {
+      datasetId = `${unitId}:${tenantId}:${repoCandidate}`;
+    }
+    if ((templateId === "http.github" || sourceFamily === "code.github") && repoCandidate && (!datasetSlug || datasetSlug === unitId)) {
+      datasetSlug = sanitizeDatasetSlug(datasetId) ?? sanitizeDatasetSlug(datasetSlug) ?? datasetSlug;
+    } else {
+      datasetSlug = sanitizeDatasetSlug(datasetSlug) ?? datasetSlug;
+    }
+    if (process.env.METADATA_AUTH_DEBUG === "1") {
+      console.info("[ingestion.start]", {
+        endpointId,
+        unitId,
+        datasetId,
+        datasetSlug,
+        repoSlug,
+      });
+    }
+    const datasetPrefix =
+      bucket && datasetSlug ? `minio://${bucket}/${trimSlashes([basePrefix, tenantId, datasetSlug].join("/"))}` : (config as any)?.datasetPrefix ?? null;
     if (process.env.METADATA_AUTH_DEBUG === "1") {
       console.info("[ingestion.policy]", {
         endpointId,
@@ -511,6 +695,12 @@ export const activities: MetadataActivities = {
       vendor: vendorKey,
     };
     const checkpointState = await readCheckpoint(checkpointKey);
+    console.log("[checkpoint-debug] readCheckpoint result:", {
+      key: checkpointKey,
+      hasCheckpoint: checkpointState.checkpoint != null,
+      checkpointKeys: checkpointState.checkpoint ? Object.keys(checkpointState.checkpoint) : [],
+      version: checkpointState.version,
+    });
     const transientState = await readTransientState({ endpointId, unitId, sinkId: resolvedSinkId });
     const filterConfig =
       config?.filter && typeof config.filter === "object" ? (config.filter as Record<string, unknown>) : null;
@@ -535,10 +725,19 @@ export const activities: MetadataActivities = {
       mode: config?.runMode ?? null,
       dataMode: dataMode ?? null,
       sinkEndpointId,
+      sinkEndpointConfig: sinkEndpoint?.config && typeof sinkEndpoint.config === "object" ? (sinkEndpoint.config as Record<string, unknown>) : null,
+      sinkEndpointTemplateId: sinkEndpoint?.domain ?? sinkEndpoint?.sourceId ?? null,
       cdmModelId,
       filter: filterConfig,
       transientState: transientState.state,
       transientStateVersion: transientState.version,
+      sourceFamily,
+      datasetSlug,
+      datasetPrefix,
+      bucket,
+      basePrefix,
+      datasetId,
+      tenantId,
     };
   },
   async completeIngestionRun({
@@ -554,10 +753,57 @@ export const activities: MetadataActivities = {
     newTransientState,
   }: CompleteIngestionRunInput): Promise<void> {
     const checkpointKey = buildCheckpointKey({ endpointId, unitId, sinkId, vendorKey });
+    
+    // CHECKPOINT ARCHITECTURE FIX (UAT):
+    // Store checkpoint in flat structure with watermark at top level.
+    // Go returns: { watermark: "ISO_TIMESTAMP", cursorField: "updatedAt", ... }
+    // We store: { watermark: "ISO_TIMESTAMP", recordCount, dataMode, ... } - NO nested cursor objects.
+    const cpData = newCheckpoint && typeof newCheckpoint === "object" ? (newCheckpoint as Record<string, unknown>) : {};
+    
+    // Extract watermark from multiple possible sources (in priority order):
+    // 1. Top-level watermark (preferred - from Go)
+    // 2. Top-level cursor if it's a string (legacy scalar format)  
+    // 3. Nested cursor.watermark (legacy nested format - needs flattening)
+    // 4. Nested cursor.cursor if string (deeply nested legacy)
+    let watermark: string | null = null;
+    if (typeof cpData.watermark === "string" && cpData.watermark) {
+      watermark = cpData.watermark;
+    } else if (typeof cpData.cursor === "string" && cpData.cursor) {
+      watermark = cpData.cursor;
+    } else if (cpData.cursor && typeof cpData.cursor === "object") {
+      // Legacy nested cursor object - extract watermark from inside
+      const nestedCursor = cpData.cursor as Record<string, unknown>;
+      if (typeof nestedCursor.watermark === "string" && nestedCursor.watermark) {
+        watermark = nestedCursor.watermark;
+      } else if (typeof nestedCursor.cursor === "string" && nestedCursor.cursor) {
+        watermark = nestedCursor.cursor;
+      }
+    }
+    
+    // Extract cursorField (tells us which field was used for incremental - e.g., "updatedAt")
+    const cursorField = typeof cpData.cursorField === "string" ? cpData.cursorField : null;
+    
+    // CHECKPOINT HISTORY: Track version for future history archival
+    const existingVersion = typeof checkpointVersion === "string" ? parseInt(checkpointVersion, 10) || 0 : 0;
+    const newVersion = existingVersion + 1;
+
+    // Build flat checkpoint record - NO nested cursor objects
     const record: IngestionCheckpointRecord = {
-      cursor: newCheckpoint ?? null,
+      // Primary fields for incremental ingestion
+      watermark,  // High-water-mark timestamp for incremental
+      cursor: watermark,  // Keep for backward compat - same as watermark (scalar only)
+      
+      // Metadata (flat, at top level)
       lastRunId: runId,
+      lastUpdatedAt: new Date().toISOString(),
       stats,
+      metadata: {
+        cursorField,  // Which field was used (e.g., "updatedAt")
+        recordCount: typeof cpData.recordCount === "number" ? cpData.recordCount : 0,
+        dataMode: typeof cpData.dataMode === "string" ? cpData.dataMode : null,
+        version: newVersion,
+        lastRunAt: typeof cpData.lastRunAt === "string" ? cpData.lastRunAt : new Date().toISOString(),
+      },
     };
     await writeCheckpoint(checkpointKey, record, {
       expectedVersion: checkpointVersion ?? undefined,
@@ -617,16 +863,16 @@ export const activities: MetadataActivities = {
     sinkId,
     runId,
     records,
-    staging,
-    stats,
-    sinkEndpointId,
-    dataMode,
-    cdmModelId,
+  staging,
+  stats,
+  sinkEndpointId,
+  dataMode,
+  cdmModelId,
   }: PersistIngestionBatchesInput): Promise<void> {
     const workingRecords: NormalizedRecordInput[] = Array.isArray(records) ? [...records] : [];
     if (workingRecords.length === 0 && Array.isArray(staging) && staging.length > 0) {
       for (const handle of staging) {
-        const loaded = await loadRecordsFromHandle(handle);
+        const loaded = await loadRecordsFromHandle(handle, { endpointId, unitId });
         if (loaded.length > 0) {
           workingRecords.push(...loaded);
         }
@@ -668,10 +914,12 @@ export const activities: MetadataActivities = {
     path: string;
     stagingProviderId?: string | null;
   }): Promise<unknown[]> {
-    const provider = stagingProviderId ?? DEFAULT_STAGING_PROVIDER;
-    const loader = STAGING_LOADERS[provider];
+    if (!stagingProviderId) {
+      throw new Error("stagingProviderId is required when loading staged records");
+    }
+    const loader = STAGING_LOADERS[stagingProviderId];
     if (!loader) {
-      throw new Error(`Unsupported staging provider '${provider}'`);
+      throw new Error(`Unsupported staging provider '${stagingProviderId}'`);
     }
     try {
       const content = await loader(filePath);
@@ -679,6 +927,79 @@ export const activities: MetadataActivities = {
     } finally {
       await deleteTempFile(filePath).catch(() => {});
     }
+  },
+  async listVectorProfilesByFamily({ family }: { family: string | null }) {
+    if (!family) {
+      return [];
+    }
+    const prisma = await getPrismaClient();
+    const rows = await prisma.vectorIndexProfile.findMany({
+      where: { family: family.split(".")[0] },
+      select: { id: true, family: true },
+    });
+    return rows;
+  },
+  async registerMaterializedArtifact(args) {
+    const prisma = await getPrismaClient();
+    const { PrismaMaterializedRegistry, buildMaterializedMetadata } = await import("../brain/materializedRegistry.js");
+    const registry = new PrismaMaterializedRegistry(async () => prisma);
+    const tenantId = args.tenantId ?? process.env.TENANT_ID ?? null;
+    if (!tenantId) {
+      throw new Error("tenantId is required to register materialized artifacts");
+    }
+    const artifactKind = args.artifactKind ?? args.datasetSlug ?? "unknown";
+    const handleUri =
+      args.datasetPrefix ??
+      (args.bucket && args.basePrefix && args.datasetSlug
+        ? `minio://${args.bucket}/${trimSlashes([args.basePrefix, tenantId, args.datasetSlug].join("/"))}`
+        : null);
+    if (!handleUri) {
+      throw new Error("datasetPrefix or bucket/basePrefix/datasetSlug is required to build registry handle");
+    }
+    let datasetRecord: Record<string, unknown> | null = null;
+    if (args.datasetId) {
+      try {
+        const store = await getMetadataStore();
+        datasetRecord = await store.getRecord(CATALOG_DATASET_DOMAIN, args.datasetId);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[registry] failed to fetch dataset metadata", error);
+      }
+    }
+    const { canonicalMeta, sourceMeta } = buildMaterializedMetadata({
+      artifactKind,
+      sourceFamily: args.sourceFamily ?? null,
+      datasetId: args.datasetId ?? null,
+      datasetSlug: args.datasetSlug ?? null,
+      datasetRecord,
+    });
+    const result = await registry.upsertArtifact({
+      tenantId,
+      sourceRunId: args.runId,
+      artifactKind,
+      sourceFamily: args.sourceFamily ?? null,
+      sinkEndpointId: args.sinkEndpointId ?? null,
+      handle: {
+        uri: handleUri,
+        bucket: args.bucket ?? null,
+        basePrefix: args.basePrefix ?? null,
+        datasetSlug: args.datasetSlug ?? null,
+        sinkId: args.sinkId ?? null,
+        runId: args.runId,
+        tenantId,
+      },
+      canonicalMeta,
+      sourceMeta,
+    });
+    return { id: result.id, status: result.status };
+  },
+  async startVectorIndexing(args) {
+    // TS indexer is deprecated; return a stub response so callers do not fail while Go indexer takes over.
+    return {
+      status: "SKIPPED",
+      runId: args?.materializedArtifactId ?? null,
+      counters: null,
+    };
   },
 };
 
@@ -723,30 +1044,97 @@ function normalizeSchemas(input: unknown[]): string[] {
 }
 
 const STAGING_LOADERS: Record<string, (path: string) => Promise<unknown>> = {
-  file: readJsonFile,
-  in_memory: readJsonFile,
+  file: readJsonMaybeJsonLines,
+  in_memory: readJsonMaybeJsonLines,
+  object: readJsonMaybeJsonLines, // object-store provider writes to local disk in dev
+  "object.minio": readJsonMaybeJsonLines,
 };
 
-async function readJsonFile(filePath: string): Promise<unknown> {
-  const content = await fs.readFile(filePath, "utf-8");
-  return JSON.parse(content);
+async function readJsonMaybeJsonLines(filePath: string): Promise<unknown> {
+  const rawBuffer = Buffer.from(await fs.readFile(filePath)) as Buffer;
+  let buf = rawBuffer;
+  if (filePath.endsWith(".gz")) {
+    const { gunzip } = await import("node:zlib");
+    buf = await new Promise<Buffer>((resolve, reject) =>
+      gunzip(rawBuffer as any, (err, output) => (err ? reject(err) : resolve(output as Buffer))),
+    );
+  }
+  const text = buf.toString("utf-8").trim();
+  if (!text) {
+    return [];
+  }
+  // Try JSON array/object first
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Fallback to JSONL
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    return lines.map((line) => JSON.parse(line));
+  }
 }
 
-async function loadRecordsFromHandle(handle: { path: string; providerId?: string | null }): Promise<NormalizedRecordInput[]> {
+async function loadRecordsFromHandle(
+  handle: { path: string; providerId?: string | null },
+  context: { endpointId: string; unitId: string }
+): Promise<NormalizedRecordInput[]> {
   if (!handle?.path) {
     return [];
   }
-  const provider = handle.providerId ?? DEFAULT_STAGING_PROVIDER;
-  const loader = STAGING_LOADERS[provider];
+  if (!handle.providerId) {
+    throw new Error("stagingProviderId is required when loading staged handle");
+  }
+  const loader = STAGING_LOADERS[handle.providerId];
   if (!loader) {
-    throw new Error(`Unsupported staging provider '${provider}'`);
+    throw new Error(`Unsupported staging provider '${handle.providerId}'`);
   }
   try {
     const content = await loader(handle.path);
-    return Array.isArray(content) ? (content as NormalizedRecordInput[]) : [];
+    if (Array.isArray(content)) {
+      return normalizeLoadedRecords(content, context);
+    }
+    return [];
   } finally {
     await deleteTempFile(handle.path).catch(() => {});
   }
+}
+
+function normalizeLoadedRecords(
+  records: unknown[],
+  context: { endpointId: string; unitId: string }
+): NormalizedRecordInput[] {
+  return records.map((rec, idx) => {
+    if (rec && typeof rec === "object" && "entityType" in (rec as Record<string, unknown>)) {
+      return rec as NormalizedRecordInput;
+    }
+    const raw = (rec as Record<string, unknown>) ?? {};
+    const entityType =
+      (typeof raw._entity === "string" && raw._entity) ||
+      (typeof raw._datasetType === "string" && raw._datasetType) ||
+      context.unitId;
+    const logicalId =
+      (typeof raw._externalId === "string" && raw._externalId) ||
+      (typeof raw.sha === "string" && raw.sha) ||
+      (typeof raw.issueId === "string" && raw.issueId) ||
+      (typeof raw.number === "number" && String(raw.number)) ||
+      `${context.unitId}:${idx}`;
+    const displayName =
+      (typeof raw.title === "string" && raw.title) ||
+      (typeof raw.path === "string" && raw.path) ||
+      logicalId;
+    return {
+      entityType,
+      logicalId,
+      displayName,
+      scope: {
+        orgId: "default",
+      },
+      provenance: {
+        endpointId: context.endpointId,
+        vendor: context.endpointId,
+      },
+      payload: raw,
+    };
+  });
 }
 
 function groupRecordsByCdmModel(
@@ -865,6 +1253,10 @@ function normalizeRecordPayload(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function trimSlashes(value: string): string {
+  return value.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
 async function deleteTempFile(recordsPath?: string | null) {
   if (!recordsPath) {
     return;
@@ -876,9 +1268,15 @@ async function deleteTempFile(recordsPath?: string | null) {
   }
 }
 
-function resolveSinkId(candidate?: string | null): string {
+function resolveSinkId(candidate: string | null | undefined, templateId: string | null, unitId: string): string {
   if (candidate && candidate.trim().length > 0) {
     return candidate.trim();
+  }
+  // Default mapping: GitHub code units -> minio, semantic -> cdm
+  const lowerTemplate = (templateId ?? "").toLowerCase();
+  const lowerUnit = unitId.toLowerCase();
+  if (lowerTemplate.startsWith("http.github")) {
+    return "minio";
   }
   return DEFAULT_SINK_ID;
 }

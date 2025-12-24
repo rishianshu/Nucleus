@@ -121,15 +121,16 @@ func (it *spaceIterator) Close() error { return nil }
 // =============================================================================
 
 type pageIterator struct {
-	confluence *Confluence
-	ctx        context.Context
-	limit      int64
-	start      int
-	current    []Content
-	index      int
-	done       bool
-	err        error
-	count      int64
+	confluence    *Confluence
+	ctx           context.Context
+	limit         int64
+	start         int
+	current       []Content
+	index         int
+	done          bool
+	err           error
+	count         int64
+	highWatermark string // Track latest updatedAt for checkpoint
 }
 
 func newPageIterator(c *Confluence, ctx context.Context, limit int64) *pageIterator {
@@ -219,6 +220,10 @@ func (it *pageIterator) Value() endpoint.Record {
 			if page.History.LastUpdated.By != nil {
 				updatedBy = page.History.LastUpdated.By.DisplayName
 			}
+			// Track high watermark for checkpoint
+			if updatedAt > it.highWatermark {
+				it.highWatermark = updatedAt
+			}
 		}
 	}
 
@@ -247,6 +252,20 @@ func (it *pageIterator) Value() endpoint.Record {
 
 func (it *pageIterator) Err() error   { return it.err }
 func (it *pageIterator) Close() error { return nil }
+
+// Checkpoint returns the checkpoint with high watermark for incremental reads.
+func (it *pageIterator) Checkpoint() *endpoint.Checkpoint {
+	if it.highWatermark == "" {
+		return nil
+	}
+	return &endpoint.Checkpoint{
+		Watermark: it.highWatermark,
+		Metadata: map[string]any{
+			"cursorField": "updatedAt",
+			"fetched":     it.count,
+		},
+	}
+}
 
 // =============================================================================
 // ATTACHMENT ITERATOR

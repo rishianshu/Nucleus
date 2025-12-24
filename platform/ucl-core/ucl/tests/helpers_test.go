@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/nucleus/ucl-core/pkg/endpoint"
@@ -132,4 +133,30 @@ func registerStubEndpoint(templateID string, records, slices int, failErr error)
 		}, nil
 	})
 	return id
+}
+
+func requireLocalMinioEnv(t *testing.T) {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("MINIO_ENDPOINT", "file://"+root)
+	t.Setenv("MINIO_ACCESS_KEY", "minioadmin")
+	t.Setenv("MINIO_SECRET_KEY", "minioadmin")
+	t.Setenv("MINIO_BUCKET", "ucl-staging")
+	t.Setenv("MINIO_STAGE_PREFIX", "sink")
+	t.Setenv("TENANT_ID", "tenant-default")
+}
+
+func clearMinioEnv(t *testing.T) {
+	t.Helper()
+	vars := []string{
+		"MINIO_ENDPOINT",
+		"MINIO_ACCESS_KEY",
+		"MINIO_SECRET_KEY",
+		"MINIO_BUCKET",
+		"MINIO_STAGE_PREFIX",
+		"TENANT_ID",
+	}
+	for _, key := range vars {
+		t.Setenv(key, "")
+	}
 }

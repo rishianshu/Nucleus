@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package kg;
+
+option go_package = "github.com/nucleus/ucl-core/pkg/kgpb";
+
+message Node {
+  string id = 1;
+  string type = 2;
+  map<string, string> properties = 3;
+}
+
+message Edge {
+  string id = 1;
+  string type = 2;
+  string from_id = 3;
+  string to_id = 4;
+  map<string, string> properties = 5;
+}
+
+message UpsertNodeRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  Node node = 3;
+}
+message UpsertNodeResponse { Node node = 1; }
+
+message UpsertEdgeRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  Edge edge = 3;
+}
+message UpsertEdgeResponse { Edge edge = 1; }
+
+message GetNodeRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string node_id = 3;
+}
+message GetNodeResponse { Node node = 1; }
+
+message ListEntitiesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  repeated string entity_types = 3;
+  int32 limit = 4;
+}
+message ListEntitiesResponse { repeated Node nodes = 1; }
+
+message ListEdgesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  repeated string edge_types = 3;
+  string source_id = 4;
+  string target_id = 5;
+  int32 limit = 6;
+}
+message ListEdgesResponse { repeated Edge edges = 1; }
+
+message ListNeighborsRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string node_id = 3;
+  repeated string edge_types = 4;
+  int32 limit = 5;
+}
+message ListNeighborsResponse { repeated Node neighbors = 1; }
+
+service KgService {
+  rpc UpsertNode(UpsertNodeRequest) returns (UpsertNodeResponse);
+  rpc UpsertEdge(UpsertEdgeRequest) returns (UpsertEdgeResponse);
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+  rpc ListEntities(ListEntitiesRequest) returns (ListEntitiesResponse);
+  rpc ListEdges(ListEdgesRequest) returns (ListEdgesResponse);
+  rpc ListNeighbors(ListNeighborsRequest) returns (ListNeighborsResponse);
+}

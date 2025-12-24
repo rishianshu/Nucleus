@@ -58,6 +58,9 @@ type SinkEndpoint interface {
 
 	// GetLatestWatermark returns the last committed watermark for incremental syncs.
 	GetLatestWatermark(ctx context.Context, datasetID string) (string, error)
+
+	// Provision ensures the destination dataset exists. No-op if already provisioned.
+	Provision(ctx context.Context, datasetID string, schema *Schema) error
 }
 
 // ActionEndpoint can execute control-plane actions.

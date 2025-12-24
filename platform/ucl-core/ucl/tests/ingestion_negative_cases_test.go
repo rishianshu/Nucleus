@@ -13,6 +13,8 @@ import (
 
 func TestIngestionNegativeCases(t *testing.T) {
 	t.Run("staging unavailable", func(t *testing.T) {
+		clearMinioEnv(t)
+
 		templateID := registerStubEndpoint("stub.ingestion.noobject", 100, 1, nil)
 		manager := orchestration.NewManager()
 
@@ -42,6 +44,8 @@ func TestIngestionNegativeCases(t *testing.T) {
 	})
 
 	t.Run("auth failure", func(t *testing.T) {
+		requireLocalMinioEnv(t)
+
 		templateID := registerStubEndpoint("stub.ingestion.auth", 50, 1, fmt.Errorf("auth failure"))
 		manager := orchestration.NewManager()
 
@@ -68,6 +72,8 @@ func TestIngestionNegativeCases(t *testing.T) {
 	})
 
 	t.Run("endpoint unreachable", func(t *testing.T) {
+		requireLocalMinioEnv(t)
+
 		templateID := registerStubEndpoint("stub.ingestion.unreachable", 50, 1, fmt.Errorf("endpoint unreachable"))
 		manager := orchestration.NewManager()
 

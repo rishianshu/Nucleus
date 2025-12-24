@@ -1,17 +1,14 @@
-export { GraphNodeIndexer } from "./indexer.js";
 export { PrismaIndexProfileStore } from "./indexProfileStore.js";
-export { PrismaVectorIndexStore, VECTOR_DIMENSION } from "./vectorIndexStore.js";
-export { BrainVectorSearchService } from "./vectorSearch.js";
 export { ClusterBuilderService, ClusterReadService } from "./clusters.js";
 export { BrainEpisodeReadService } from "./episodes.js";
 export { BrainSearchService } from "./search.js";
-export { HashingEmbeddingProvider } from "./embeddingUtils.js";
+export { DeterministicFakeEmbeddingProvider, HashingEmbeddingProvider } from "./embeddingUtils.js";
+export { OllamaEmbeddingProvider } from "./embeddingUtils.js";
+export { makeEmbeddingProvider } from "./embeddingProviderFactory.js";
+export { PrismaMaterializedRegistry, NoopMaterializedRegistry } from "./materializedRegistry.js";
 export type {
   IndexProfile,
   IndexProfileStore,
-  VectorIndexEntryInput,
-  VectorIndexQueryFilter,
-  VectorIndexStore,
   EmbeddingProvider,
   NodeIndexer,
   BrainVectorSearch,
@@ -19,6 +16,8 @@ export type {
   ClusterBuilder,
   ClusterRead,
   ClusterSummary,
+  MaterializedRegistry,
+  MaterializedStatus,
 } from "./types.js";
 export type {
   BrainSearchFilter,

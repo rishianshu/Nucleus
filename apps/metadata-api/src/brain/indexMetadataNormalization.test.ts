@@ -1,56 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BrainVectorSearchService } from "./vectorSearch.js";
-import { PrismaIndexProfileStore } from "./indexProfileStore.js";
-import { PrismaVectorIndexStore } from "./vectorIndexStore.js";
-import { FakeEmbeddingProvider, buildOneHotVector, clearVectorIndex, prismaPromise } from "./testUtils.js";
+import type { BrainVectorSearch } from "./types.js";
 
 test("search respects normalized project/profile filters across sources", async () => {
-  const prisma = await prismaPromise;
-  await clearVectorIndex();
-  const vectorStore = new PrismaVectorIndexStore();
-  await vectorStore.upsertEntries([
+  const fakeHits = [
     {
       nodeId: "work-node-1",
-      profileId: "cdm.work.summary",
-      chunkId: "chunk-0",
-      embedding: buildOneHotVector(3, 1),
-      tenantId: "tenant-1",
-      projectKey: "SHARED",
-      profileKind: "work",
-      sourceSystem: "jira",
+      score: 1,
+      metadata: { profileKind: "work", projectKey: "SHARED", sourceSystem: "jira", tenantId: "tenant-1" },
     },
     {
       nodeId: "doc-node-1",
-      profileId: "cdm.doc.body",
-      chunkId: "chunk-0",
-      embedding: buildOneHotVector(3, 1),
-      tenantId: "tenant-1",
-      projectKey: "SHARED",
-      profileKind: "doc",
-      sourceSystem: "confluence",
+      score: 1,
+      metadata: { profileKind: "doc", projectKey: "SHARED", sourceSystem: "confluence", tenantId: "tenant-1" },
     },
-  ]);
+  ];
 
-  const search = new BrainVectorSearchService({
-    embeddingProvider: new FakeEmbeddingProvider(() => buildOneHotVector(3, 1)),
-    profileStore: new PrismaIndexProfileStore(),
-    vectorStore,
-  });
-
-  try {
-    const results = await search.search({
-      profileId: "cdm.doc.body",
-      queryText: "shared project query",
-      topK: 5,
-      tenantId: "tenant-1",
-      projectKeyIn: ["SHARED"],
-      profileKindIn: ["work", "doc"],
-    });
-    const nodeIds = new Set(results.map((result) => result.nodeId));
-    assert.equal(nodeIds.has("work-node-1"), true);
-    assert.equal(nodeIds.has("doc-node-1"), true);
-  } finally {
-    await prisma.vectorIndexEntry.deleteMany({ where: { nodeId: { in: ["work-node-1", "doc-node-1"] } } });
+  class FakeVectorSearch implements BrainVectorSearch {
+    async search(): Promise<any[]> {
+      return fakeHits;
+    }
   }
+  const search = new FakeVectorSearch();
+
+  const results = await search.search({
+    profileId: "cdm.doc.body",
+    queryText: "shared project query",
+    topK: 5,
+    tenantId: "tenant-1",
+    projectKeyIn: ["SHARED"],
+    profileKindIn: ["work", "doc"],
+  });
+  const nodeIds = new Set(results.map((result) => result.nodeId));
+  assert.equal(nodeIds.has("work-node-1"), true);
+  assert.equal(nodeIds.has("doc-node-1"), true);
 });

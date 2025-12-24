@@ -8,17 +8,17 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
+	orchestration "github.com/nucleus/ucl-core/pkg/orchestration"
 	"github.com/nucleus/ucl-worker/internal/activities"
 )
 
 const (
-	defaultTaskQueue     = "metadata-go"
-	defaultTemporalAddr  = "127.0.0.1:7233"
-	defaultNamespace     = "default"
+	defaultTaskQueue    = "metadata-go"
+	defaultTemporalAddr = "127.0.0.1:7233"
+	defaultNamespace    = "default"
 )
 
 func main() {
-	// Configuration from environment
 	temporalAddr := getEnv("TEMPORAL_ADDRESS", defaultTemporalAddr)
 	namespace := getEnv("TEMPORAL_NAMESPACE", defaultNamespace)
 	taskQueue := getEnv("METADATA_GO_TASK_QUEUE", defaultTaskQueue)
@@ -26,7 +26,6 @@ func main() {
 	log.Printf("Starting UCL worker: address=%s namespace=%s queue=%s",
 		temporalAddr, namespace, taskQueue)
 
-	// Create Temporal client
 	c, err := client.Dial(client.Options{
 		HostPort:  temporalAddr,
 		Namespace: namespace,
@@ -36,19 +35,17 @@ func main() {
 	}
 	defer c.Close()
 
-	// Create worker
 	w := worker.New(c, taskQueue, worker.Options{})
 
-	// Register activities
 	acts := activities.NewActivities()
 	w.RegisterActivity(acts.CollectCatalogSnapshots)
 	w.RegisterActivity(acts.PreviewDataset)
 	w.RegisterActivity(acts.PlanIngestionUnit)
 	w.RegisterActivity(acts.RunIngestionUnit)
+	w.RegisterActivity(orchestration.SinkRunner)
 
-	log.Printf("Registered 4 activities: CollectCatalogSnapshots, PreviewDataset, PlanIngestionUnit, RunIngestionUnit")
+	log.Printf("Registered ingestion activities: CollectCatalogSnapshots, PreviewDataset, PlanIngestionUnit, RunIngestionUnit, SinkRunner")
 
-	// Run worker
 	if err := w.Run(worker.InterruptCh()); err != nil {
 		log.Fatalf("Worker failed: %v", err)
 	}

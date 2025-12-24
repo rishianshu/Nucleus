@@ -17,6 +17,7 @@ export type MetadataEndpointFieldValueType =
   | "STRING"
   | "PASSWORD"
   | "NUMBER"
+  | "INTEGER"
   | "BOOLEAN"
   | "URL"
   | "HOSTNAME"

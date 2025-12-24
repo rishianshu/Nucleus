@@ -38,6 +38,9 @@ if [[ -f "$KEYCLOAK_SYNC_SCRIPT" ]]; then
     echo "[start-dev-stack] warning: Keycloak sync script failed (continuing)" >&2
   fi
 fi
+start_component "ucl core" "$PROJECT_ROOT/scripts/start-ucl-core-bg.sh"
+start_component "brain core server" "$PROJECT_ROOT/scripts/start-brain-core-bg.sh"
+start_component "brain worker" "$PROJECT_ROOT/scripts/start-brain-worker-bg.sh"
 start_component "metadata api" "$PROJECT_ROOT/scripts/start-metadata-api-bg.sh"
 start_component "metadata ui" "$PROJECT_ROOT/scripts/start-metadata-ui-bg.sh"
 

@@ -10,6 +10,8 @@ import (
 )
 
 func TestIngestionE2EProgressCounters(t *testing.T) {
+	requireLocalMinioEnv(t)
+
 	templateID := registerStubEndpoint("stub.ingestion.progress", 90, 3, nil)
 	manager := orchestration.NewManager()
 

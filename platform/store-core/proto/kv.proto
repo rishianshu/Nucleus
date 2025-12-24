@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package store.kv.v1;
+
+option go_package = "github.com/nucleus/store-core/gen/go/kvpb;kvpb";
+
+service KVService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc List(ListRequest) returns (ListResponse);
+}
+
+message ScopedKey {
+  string tenant_id = 1;
+  string project_id = 2;
+  string key = 3;
+}
+
+message GetRequest {
+  ScopedKey key = 1;
+}
+
+message GetResponse {
+  bytes value = 1;
+  int64 version = 2;
+  string content_type = 3;
+}
+
+message PutRequest {
+  ScopedKey key = 1;
+  bytes value = 2;
+  string content_type = 3;
+}
+
+message PutResponse {
+  int64 version = 1;
+}
+
+message DeleteRequest {
+  ScopedKey key = 1;
+}
+
+message DeleteResponse {}
+
+message ListRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string prefix = 3;
+  int32 limit = 4;
+}
+
+message ListResponse {
+  repeated ListEntry entries = 1;
+}
+
+message ListEntry {
+  string key = 1;
+  int64 version = 2;
+}

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package signal;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/nucleus/store-core/gen/go/signalpb";
+
+service SignalService {
+  rpc UpsertDefinition(UpsertDefinitionRequest) returns (UpsertDefinitionResponse);
+  rpc UpsertInstance(UpsertInstanceRequest) returns (UpsertInstanceResponse);
+  rpc ListDefinitions(ListDefinitionsRequest) returns (ListDefinitionsResponse);
+  rpc ListInstancesForDefinition(ListInstancesForDefinitionRequest) returns (ListInstancesForDefinitionResponse);
+  rpc UpdateInstanceStatus(UpdateInstanceStatusRequest) returns (UpdateInstanceStatusResponse);
+}
+
+message Definition {
+  string id = 1;
+  string slug = 2;
+  string title = 3;
+  string description = 4;
+  string status = 5;
+  string impl_mode = 6;
+  string source_family = 7;
+  string entity_kind = 8;
+  string severity = 9;
+  string process_kind = 10;
+  string policy_kind = 11;
+  repeated string tags = 12;
+  string cdm_model_id = 13;
+  google.protobuf.Struct surface_hints = 14;
+  string owner = 15;
+  google.protobuf.Struct definition_spec = 16;
+}
+
+message Instance {
+  string id = 1;
+  string definition_id = 2;
+  string status = 3;
+  string entity_ref = 4;
+  string entity_kind = 5;
+  string severity = 6;
+  string summary = 7;
+  google.protobuf.Struct details = 8;
+  string source_run_id = 9;
+}
+
+message UpsertDefinitionRequest { Definition definition = 1; }
+message UpsertDefinitionResponse { string id = 1; }
+
+message UpsertInstanceRequest { Instance instance = 1; }
+message UpsertInstanceResponse {}
+
+message ListDefinitionsRequest { string source_family = 1; }
+message ListDefinitionsResponse { repeated Definition definitions = 1; }
+
+message ListInstancesForDefinitionRequest { string definition_id = 1; }
+message ListInstancesForDefinitionResponse { repeated Instance instances = 1; }
+
+message UpdateInstanceStatusRequest {
+  string definition_id = 1;
+  string entity_ref = 2;
+  string status = 3;
+}
+message UpdateInstanceStatusResponse {}

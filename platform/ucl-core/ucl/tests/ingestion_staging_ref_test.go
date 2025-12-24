@@ -13,6 +13,8 @@ import (
 )
 
 func TestIngestionUsesStageRefsForLargeRuns(t *testing.T) {
+	requireLocalMinioEnv(t)
+
 	templateID := registerStubEndpoint("stub.ingestion.large", 10000, 4, nil)
 	manager := orchestration.NewManager()
 

@@ -101,11 +101,13 @@ func (e *Endpoint) GetDescriptor() *endpoint.Descriptor {
 // GetCapabilities advertises supported operations.
 func (e *Endpoint) GetCapabilities() *endpoint.Capabilities {
 	return &endpoint.Capabilities{
-		SupportsPreview:  false,
-		SupportsWrite:    true,
-		SupportsFinalize: true,
-		SupportsStaging:  true,
-		SupportsMetadata: false,
+		SupportsFull:        true,
+		SupportsIncremental: true,
+		SupportsPreview:     false,
+		SupportsWrite:       true,
+		SupportsFinalize:    true,
+		SupportsStaging:     true,
+		SupportsMetadata:    false,
 	}
 }
 
