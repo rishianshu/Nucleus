@@ -117,11 +117,13 @@ func (s *Searcher) Search(ctx context.Context, q Query, tf *TemporalFilter) ([]R
 	// Fuse results using RRF
 	fused := s.rrfFusion(vectorResults, keywordResults)
 
-	// Limit results
-	if len(fused) > q.Limit && q.Limit > 0 {
-		fused = fused[:q.Limit]
-	} else if len(fused) > s.opts.MaxResults {
-		fused = fused[:s.opts.MaxResults]
+	// Limit results - enforce MaxResults as absolute cap
+	limit := s.opts.MaxResults
+	if q.Limit > 0 && q.Limit < s.opts.MaxResults {
+		limit = q.Limit // Use caller's limit if smaller than max
+	}
+	if len(fused) > limit {
+		fused = fused[:limit]
 	}
 
 	return fused, nil
