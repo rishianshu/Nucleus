@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package search;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nucleus/store-core/gen/go/searchpb";
+
+// SearchService provides hybrid search capabilities.
+service SearchService {
+  // HybridSearch performs combined vector + keyword search with RRF fusion.
+  rpc HybridSearch(HybridSearchRequest) returns (HybridSearchResponse);
+  
+  // NearbyEntities finds entities similar to a given entity.
+  rpc NearbyEntities(NearbyRequest) returns (NearbyResponse);
+  
+  // FacetedSearch performs search with facet aggregations.
+  rpc FacetedSearch(FacetedSearchRequest) returns (FacetedSearchResponse);
+  
+  // Suggest provides autocomplete suggestions.
+  rpc Suggest(SuggestRequest) returns (SuggestResponse);
+}
+
+message HybridSearchRequest {
+  string query = 1;                      // Text query for FTS
+  repeated float embedding = 2;          // Query embedding for vector search
+  string tenant_id = 3;
+  string project_id = 4;
+  repeated string profile_ids = 5;
+  repeated string source_families = 6;
+  repeated string entity_kinds = 7;
+  repeated string dataset_slugs = 8;
+  TemporalFilter temporal = 9;
+  int32 limit = 10;
+  float vector_weight = 11;              // Weight for vector results (0-1)
+  float keyword_weight = 12;             // Weight for keyword results (0-1)
+}
+
+message TemporalFilter {
+  google.protobuf.Timestamp last_activity_after = 1;
+  google.protobuf.Timestamp last_activity_before = 2;
+  google.protobuf.Timestamp first_seen_after = 3;
+  google.protobuf.Timestamp first_seen_before = 4;
+  google.protobuf.Timestamp as_of = 5;   // Point-in-time snapshot
+}
+
+message SearchResult {
+  string node_id = 1;
+  string profile_id = 2;
+  float score = 3;                       // Combined RRF score
+  float vector_score = 4;
+  float keyword_score = 5;
+  int32 vector_rank = 6;
+  int32 keyword_rank = 7;
+  string content_text = 8;
+  map<string, string> metadata = 9;
+  string entity_kind = 10;
+  string source_family = 11;
+}
+
+message HybridSearchResponse {
+  repeated SearchResult results = 1;
+  int32 total_count = 2;
+  float vector_time_ms = 3;
+  float keyword_time_ms = 4;
+  float fusion_time_ms = 5;
+}
+
+message NearbyRequest {
+  string entity_id = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  int32 limit = 4;
+  float min_similarity = 5;
+  TemporalFilter temporal = 6;
+}
+
+message NearbyResponse {
+  repeated SearchResult results = 1;
+}
+
+message FacetedSearchRequest {
+  string query = 1;
+  repeated float embedding = 2;
+  string tenant_id = 3;
+  string project_id = 4;
+  repeated string facet_fields = 5;      // Fields to aggregate
+  map<string, string> filters = 6;       // Field:value filters
+  TemporalFilter temporal = 7;
+  int32 limit = 8;
+}
+
+message Facet {
+  string field = 1;
+  repeated FacetValue values = 2;
+}
+
+message FacetValue {
+  string value = 1;
+  int32 count = 2;
+}
+
+message FacetedSearchResponse {
+  repeated SearchResult results = 1;
+  repeated Facet facets = 2;
+  int32 total_count = 3;
+}
+
+message SuggestRequest {
+  string prefix = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  repeated string source_families = 4;
+  int32 limit = 5;
+}
+
+message Suggestion {
+  string text = 1;
+  string entity_kind = 2;
+  float score = 3;
+}
+
+message SuggestResponse {
+  repeated Suggestion suggestions = 1;
+}
