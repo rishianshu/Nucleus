@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package community;
+
+option go_package = "github.com/nucleus/store-core/pkg/communitypb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+// CommunityService provides community detection and management operations.
+service CommunityService {
+  // DetectCommunities runs Leiden community detection on the knowledge graph.
+  rpc DetectCommunities(DetectCommunitiesRequest) returns (DetectCommunitiesResponse);
+
+  // ListCommunities returns communities matching filter criteria.
+  rpc ListCommunities(ListCommunitiesRequest) returns (ListCommunitiesResponse);
+
+  // GetCommunity retrieves a specific community by ID.
+  rpc GetCommunity(GetCommunityRequest) returns (GetCommunityResponse);
+
+  // GetCommunityMembers returns members of a community.
+  rpc GetCommunityMembers(GetCommunityMembersRequest) returns (GetCommunityMembersResponse);
+
+  // GetCommunityHierarchy returns the hierarchical structure of communities.
+  rpc GetCommunityHierarchy(GetCommunityHierarchyRequest) returns (GetCommunityHierarchyResponse);
+
+  // GetEntityCommunities returns communities an entity belongs to.
+  rpc GetEntityCommunities(GetEntityCommunitiesRequest) returns (GetEntityCommunitiesResponse);
+}
+
+// ===== Detection =====
+
+message DetectCommunitiesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string dataset_id = 3;
+  LeidenConfig config = 4;
+  repeated Node nodes = 5;  // P1 Fix: Graph nodes for community detection
+  repeated Edge edges = 6;  // P1 Fix: Graph edges with weights
+}
+
+// Node represents an entity for community detection.
+message Node {
+  string id = 1;
+  repeated float embedding = 2;  // Vector for similarity
+  string label = 3;              // Display name
+  string type = 4;               // Entity type
+}
+
+// Edge represents a weighted connection between nodes.
+message Edge {
+  string source = 1;
+  string target = 2;
+  double weight = 3;  // Similarity or explicit edge weight
+}
+
+message LeidenConfig {
+  double resolution = 1;         // Higher = more communities (0.5-2.0, default 1.0)
+  int32 min_community_size = 2;  // Filter out small communities
+  int32 max_iterations = 3;      // Algorithm iterations
+  int32 num_levels = 4;          // Hierarchy levels (1-5)
+  double similarity_threshold = 5; // Edge creation threshold (0.0-1.0)
+}
+
+message DetectCommunitiesResponse {
+  int32 total_communities = 1;
+  int32 num_levels = 2;
+  double modularity = 3;
+  google.protobuf.Duration processing_time = 4;
+  repeated Community communities = 5; // Top-level communities only
+}
+
+// ===== Community Types =====
+
+message Community {
+  string id = 1;
+  string tenant_id = 2;
+  CommunityLevel level = 3;
+  string parent_id = 4;          // Parent community at higher level
+  string label = 5;              // Human-readable name
+  string description = 6;        // LLM-generated description
+  int32 size = 7;                // Number of members
+  double modularity = 8;         // Community modularity score
+  repeated string keywords = 9;  // Representative keywords
+  CommunityTemporal temporal = 10;
+  repeated float centroid = 11;  // Average embedding (optional)
+}
+
+enum CommunityLevel {
+  COMMUNITY_LEVEL_UNSPECIFIED = 0;
+  COMMUNITY_LEVEL_TOPIC = 1;         // Broadest grouping
+  COMMUNITY_LEVEL_CLUSTER = 2;       // Mid-level grouping
+  COMMUNITY_LEVEL_MICRO_CLUSTER = 3; // Finest grouping
+}
+
+message CommunityTemporal {
+  google.protobuf.Timestamp first_seen = 1;
+  google.protobuf.Timestamp last_seen = 2;
+  google.protobuf.Timestamp last_activity = 3;
+  int32 activity_count = 4;
+  double stability = 5;  // Membership stability (0-1)
+}
+
+message CommunityMember {
+  string entity_id = 1;
+  string community_id = 2;
+  double centrality = 3;          // How central in the community (0-1)
+  google.protobuf.Timestamp joined_at = 4;
+  google.protobuf.Timestamp left_at = 5;  // Empty if current member
+  double contribution = 6;        // Contribution to cohesion
+}
+
+// ===== List Communities =====
+
+message ListCommunitiesRequest {
+  string tenant_id = 1;
+  CommunityLevel level = 2;       // Filter by level (optional)
+  string parent_id = 3;           // Filter by parent (optional)
+  int32 min_size = 4;
+  int32 max_size = 5;
+  google.protobuf.Timestamp active_after = 6;
+  int32 limit = 7;
+  int32 offset = 8;
+}
+
+message ListCommunitiesResponse {
+  repeated Community communities = 1;
+  int32 total_count = 2;
+  bool has_more = 3;
+}
+
+// ===== Get Community =====
+
+message GetCommunityRequest {
+  string tenant_id = 1;
+  string community_id = 2;
+}
+
+message GetCommunityResponse {
+  Community community = 1;
+}
+
+// ===== Get Community Members =====
+
+message GetCommunityMembersRequest {
+  string tenant_id = 1;
+  string community_id = 2;
+  bool include_left = 3;  // Include members who have left
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message GetCommunityMembersResponse {
+  repeated CommunityMember members = 1;
+  int32 total_count = 2;
+}
+
+// ===== Get Hierarchy =====
+
+message GetCommunityHierarchyRequest {
+  string tenant_id = 1;
+  string root_id = 2;     // Required: root community ID (for tenant isolation)
+  int32 max_depth = 3;    // Max levels to traverse
+}
+
+message GetCommunityHierarchyResponse {
+  CommunityNode root = 1;
+}
+
+message CommunityNode {
+  Community community = 1;
+  repeated CommunityNode children = 2;
+}
+
+// ===== Get Entity Communities =====
+
+message GetEntityCommunitiesRequest {
+  string tenant_id = 1;
+  string entity_id = 2;
+  bool include_history = 3;  // Include past memberships
+}
+
+message GetEntityCommunitiesResponse {
+  repeated CommunityMembership memberships = 1;
+}
+
+message CommunityMembership {
+  Community community = 1;
+  CommunityMember membership = 2;
+}
