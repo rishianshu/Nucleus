@@ -13,20 +13,30 @@ import (
 // ===================================================
 
 // DefaultContextBuilder implements ContextBuilder using configured providers.
+// Uses HybridSearcher for combined vector + keyword (FTS) search.
 type DefaultContextBuilder struct {
-	vectorSearcher    VectorSearcher
+	hybridSearcher    HybridSearcher
+	embeddingProvider EmbeddingProvider // Optional: generates embeddings from text
 	graphExpander     GraphExpander
 	communityProvider CommunityProvider
 }
 
+// EmbeddingProvider generates embeddings from text queries.
+// This is optional - if nil, hybrid search will use only keyword matching.
+type EmbeddingProvider interface {
+	Embed(ctx context.Context, text string) ([]float32, error)
+}
+
 // NewDefaultContextBuilder creates a new context builder.
 func NewDefaultContextBuilder(
-	vectorSearcher VectorSearcher,
+	hybridSearcher HybridSearcher,
+	embeddingProvider EmbeddingProvider,
 	graphExpander GraphExpander,
 	communityProvider CommunityProvider,
 ) *DefaultContextBuilder {
 	return &DefaultContextBuilder{
-		vectorSearcher:    vectorSearcher,
+		hybridSearcher:    hybridSearcher,
+		embeddingProvider: embeddingProvider,
 		graphExpander:     graphExpander,
 		communityProvider: communityProvider,
 	}
@@ -54,18 +64,33 @@ func (b *DefaultContextBuilder) BuildContext(
 	// Create context
 	ragCtx := NewRAGContext(tenantID, query)
 
-	// Phase 1: Vector search for seed entities
-	if b.vectorSearcher != nil {
-		seeds, err := b.vectorSearcher.Search(
+	// Phase 1: Hybrid search (vector + keyword) for seed entities
+	if b.hybridSearcher != nil {
+		// Generate embedding if provider available
+		var embedding []float32
+		if b.embeddingProvider != nil {
+			if emb, err := b.embeddingProvider.Embed(ctx, query); err == nil {
+				embedding = emb
+			}
+			// If embedding fails, continue with keyword-only search
+		}
+
+		hybridConfig := HybridSearchConfig{
+			TopK:          config.TopK,
+			VectorWeight:  0.5,
+			KeywordWeight: 0.5,
+			MinScore:      config.ScoreThreshold,
+		}
+
+		seeds, err := b.hybridSearcher.Search(
 			ctx,
 			tenantID,
 			query,
-			config.TopK,
-			config.ScoreThreshold,
+			embedding,
+			hybridConfig,
 		)
 		if err != nil {
-			// Log but continue - vector search failure shouldn't block everything
-			// Could add seeds from other sources
+			// Log but continue - search failure shouldn't block everything
 		} else {
 			for _, seed := range seeds {
 				ragCtx.AddSeed(seed)
@@ -161,24 +186,26 @@ func applyContextBuilderDefaults(config ContextBuilderConfig) ContextBuilderConf
 }
 
 // ===================================================
-// Minimal Context Builder (Vector-Only)
-// For cases where only vector search is needed
+// Minimal Context Builder (Hybrid Search Only)
+// For cases where only search is needed (no KG expansion)
 // ===================================================
 
-// VectorOnlyContextBuilder builds context using only vector search.
-type VectorOnlyContextBuilder struct {
-	vectorSearcher VectorSearcher
+// SearchOnlyContextBuilder builds context using only hybrid search.
+type SearchOnlyContextBuilder struct {
+	hybridSearcher    HybridSearcher
+	embeddingProvider EmbeddingProvider
 }
 
-// NewVectorOnlyContextBuilder creates a vector-only context builder.
-func NewVectorOnlyContextBuilder(vectorSearcher VectorSearcher) *VectorOnlyContextBuilder {
-	return &VectorOnlyContextBuilder{
-		vectorSearcher: vectorSearcher,
+// NewSearchOnlyContextBuilder creates a search-only context builder.
+func NewSearchOnlyContextBuilder(hybridSearcher HybridSearcher, embeddingProvider EmbeddingProvider) *SearchOnlyContextBuilder {
+	return &SearchOnlyContextBuilder{
+		hybridSearcher:    hybridSearcher,
+		embeddingProvider: embeddingProvider,
 	}
 }
 
-// BuildContext creates a context with only vector search results.
-func (b *VectorOnlyContextBuilder) BuildContext(
+// BuildContext creates a context with only hybrid search results (no KG expansion).
+func (b *SearchOnlyContextBuilder) BuildContext(
 	ctx context.Context,
 	tenantID, query string,
 	config ContextBuilderConfig,
@@ -191,22 +218,37 @@ func (b *VectorOnlyContextBuilder) BuildContext(
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
-	if b.vectorSearcher == nil {
-		return nil, fmt.Errorf("vector searcher not configured")
+	if b.hybridSearcher == nil {
+		return nil, fmt.Errorf("hybrid searcher not configured")
 	}
 
 	config = applyContextBuilderDefaults(config)
 	ragCtx := NewRAGContext(tenantID, query)
 
-	seeds, err := b.vectorSearcher.Search(
+	// Generate embedding if provider available
+	var embedding []float32
+	if b.embeddingProvider != nil {
+		if emb, err := b.embeddingProvider.Embed(ctx, query); err == nil {
+			embedding = emb
+		}
+	}
+
+	hybridConfig := HybridSearchConfig{
+		TopK:          config.TopK,
+		VectorWeight:  0.5,
+		KeywordWeight: 0.5,
+		MinScore:      config.ScoreThreshold,
+	}
+
+	seeds, err := b.hybridSearcher.Search(
 		ctx,
 		tenantID,
 		query,
-		config.TopK,
-		config.ScoreThreshold,
+		embedding,
+		hybridConfig,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("vector search failed: %w", err)
+		return nil, fmt.Errorf("hybrid search failed: %w", err)
 	}
 
 	for _, seed := range seeds {
@@ -382,6 +424,6 @@ func (c *InMemoryContextCache) Set(key CacheKey, ctx *RAGContext) {
 
 // Ensure interface compliance
 var _ ContextBuilder = (*DefaultContextBuilder)(nil)
-var _ ContextBuilder = (*VectorOnlyContextBuilder)(nil)
+var _ ContextBuilder = (*SearchOnlyContextBuilder)(nil)
 var _ ContextBuilder = (*CachedContextBuilder)(nil)
 var _ ContextCache = (*InMemoryContextCache)(nil)

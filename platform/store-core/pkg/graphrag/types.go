@@ -39,10 +39,14 @@ type RAGContext struct {
 type EntityMatch struct {
 	ID          string             `json:"id"`
 	Type        string             `json:"type"`
-	Score       float32            `json:"score"`       // Similarity score
+	Name        string             `json:"name"`        // Display name
+	Description string             `json:"description"` // Entity description  
+	Score       float32            `json:"score"`       // Similarity score (combined RRF)
 	Content     string             `json:"content"`     // Text content
 	Embedding   []float32          `json:"embedding"`   // Optional embedding
 	Properties  map[string]string  `json:"properties"`
+	Metadata    map[string]string  `json:"metadata"`    // Additional metadata from search
+	ProfileID   string             `json:"profileId"`   // Profile/source identifier
 	HopDistance int                `json:"hopDistance"` // 0 for seeds, >0 for expanded
 }
 
@@ -183,10 +187,33 @@ type GraphExpander interface {
 	GetNeighbors(ctx context.Context, tenantID, nodeID string, edgeTypes []string, limit int) ([]GraphNode, []GraphEdge, error)
 }
 
-// VectorSearcher performs vector similarity search.
-type VectorSearcher interface {
-	// Search returns entities similar to the query.
-	Search(ctx context.Context, tenantID, query string, topK int, threshold float32) ([]EntityMatch, error)
+// HybridSearcher performs combined vector + keyword search with RRF fusion.
+// This integrates with the existing hybridsearch.Searcher for full-text search support.
+type HybridSearcher interface {
+	// Search performs hybrid search returning entities matching the query.
+	// Uses vector similarity + FTS keyword matching with RRF fusion.
+	Search(ctx context.Context, tenantID, query string, embedding []float32, config HybridSearchConfig) ([]EntityMatch, error)
+}
+
+// HybridSearchConfig configures the hybrid search behavior.
+type HybridSearchConfig struct {
+	TopK          int     `json:"topK"`          // Max results to return
+	VectorWeight  float32 `json:"vectorWeight"`  // Weight for vector search (0-1)
+	KeywordWeight float32 `json:"keywordWeight"` // Weight for keyword/FTS search (0-1)
+	MinScore      float32 `json:"minScore"`      // Minimum combined score threshold
+	ProjectID     string  `json:"projectId"`     // Optional project filter
+	ProfileIDs    []string `json:"profileIds"`   // Optional profile filters
+	EntityKinds   []string `json:"entityKinds"`  // Optional entity kind filters
+}
+
+// DefaultHybridSearchConfig returns sensible defaults.
+func DefaultHybridSearchConfig() HybridSearchConfig {
+	return HybridSearchConfig{
+		TopK:          20,
+		VectorWeight:  0.5,
+		KeywordWeight: 0.5,
+		MinScore:      0.0,
+	}
 }
 
 // CommunityProvider provides community context.
