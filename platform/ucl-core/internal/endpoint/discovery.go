@@ -180,3 +180,77 @@ func (r *DiscoveryRegistry) GetEntityMapper(endpointID string) (EntityMapper, bo
 	return m, ok
 }
 
+// ===================================================
+// Phase 3: Entity Resolution & Temporal Tracking
+// ===================================================
+
+// EntityResolver resolves entities across sources to canonical IDs.
+// Implements cross-source matching and deduplication.
+type EntityResolver interface {
+	// Resolve maps an entity to its canonical ID, creating if new.
+	// Returns the canonical ID and whether this is a new entity.
+	Resolve(ctx context.Context, entity Entity) (canonicalID string, isNew bool, err error)
+
+	// GetAliases returns all known aliases for a canonical entity.
+	GetAliases(ctx context.Context, canonicalID string) ([]string, error)
+
+	// Merge merges two entities into one canonical entity.
+	// All aliases and properties from secondaryID are moved to primaryID.
+	Merge(ctx context.Context, primaryID, secondaryID string) error
+}
+
+// MatchRule defines how entities are matched for resolution.
+type MatchRule struct {
+	Fields    []string // Fields to match on, e.g., ["email", "username"]
+	Algorithm string   // "exact", "fuzzy", "embedding"
+	Threshold float32  // Similarity threshold (0.0-1.0)
+}
+
+// RelationEvent represents a change to a relation (create, update, expire).
+// Used by RelationEventProcessor to track relation lifecycle.
+type RelationEvent struct {
+	EventType  RelationEventType
+	Relation   Relation
+	PreviousTo string     // For REASSIGN: previous target reference
+	Timestamp  time.Time  // When this event occurred
+	Metadata   map[string]any
+}
+
+// RelationEventType indicates the type of relation change.
+type RelationEventType string
+
+const (
+	RelationEventCreated  RelationEventType = "created"  // New relation established
+	RelationEventUpdated  RelationEventType = "updated"  // Relation properties changed
+	RelationEventExpired  RelationEventType = "expired"  // Relation ended (ValidTo set)
+	RelationEventReassign RelationEventType = "reassign" // Target changed (old expired, new created)
+)
+
+// RelationEventProcessor detects and emits relation changes over time.
+// Enables SCD2-style temporal tracking for relations like assignment changes.
+type RelationEventProcessor interface {
+	// ProcessRelations compares current relations against known state,
+	// emitting events for any changes (new, updated, expired, reassigned).
+	// previousRelations: last known relations from this source/entity
+	// currentRelations: newly extracted relations from this ingestion
+	ProcessRelations(
+		ctx context.Context,
+		entityRef string,
+		previousRelations []Relation,
+		currentRelations []Relation,
+		timestamp time.Time,
+	) ([]RelationEvent, error)
+}
+
+// EdgeKey uniquely identifies a relation for deduplication.
+// Used by relation dedup: (from+to+type) → single edge with merged properties.
+type EdgeKey struct {
+	FromRef string
+	ToRef   string
+	Type    string
+}
+
+// Key returns the string key for deduplication lookups.
+func (k EdgeKey) Key() string {
+	return k.FromRef + "|" + k.Type + "|" + k.ToRef
+}
