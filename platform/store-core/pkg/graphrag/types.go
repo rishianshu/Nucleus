@@ -202,7 +202,8 @@ type KGClient interface {
 	GetNode(ctx context.Context, tenantID, nodeID string) (*GraphNode, error)
 	
 	// ListNeighbors returns neighboring nodes.
-	ListNeighbors(ctx context.Context, tenantID, nodeID string, edgeTypes []string, limit int) ([]GraphNode, []GraphEdge, error)
+	// P2 Fix: Added direction parameter for directional traversal.
+	ListNeighbors(ctx context.Context, tenantID, nodeID string, edgeTypes []string, direction EdgeDirection, limit int) ([]GraphNode, []GraphEdge, error)
 	
 	// ListEdges returns edges for a node.
 	ListEdges(ctx context.Context, tenantID, sourceID, targetID string, edgeTypes []string, limit int) ([]GraphEdge, error)
