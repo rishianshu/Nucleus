@@ -113,23 +113,31 @@ type CommunitySummary struct {
 
 // ContextBuilderConfig configures the RAG context building process.
 type ContextBuilderConfig struct {
-	// Vector search settings
-	TopK              int     `json:"topK"`              // Number of seed entities
-	ScoreThreshold    float32 `json:"scoreThreshold"`    // Minimum similarity score
+	// Search settings
+	TopK              int       `json:"topK"`              // Number of seed entities
+	ScoreThreshold    float32   `json:"scoreThreshold"`    // Minimum similarity score
+	QueryEmbedding    []float32 `json:"queryEmbedding"`    // Pre-computed embedding (optional)
+	VectorWeight      float32   `json:"vectorWeight"`      // Weight for vector search (0-1)
+	KeywordWeight     float32   `json:"keywordWeight"`     // Weight for keyword/FTS (0-1)
+
+	// Filter settings
+	ProjectID         string    `json:"projectId"`         // Optional project filter
+	ProfileIDs        []string  `json:"profileIds"`        // Optional profile filters
+	EntityKinds       []string  `json:"entityKinds"`       // Optional entity kind filters
 
 	// Graph expansion settings
-	MaxHops           int     `json:"maxHops"`           // Maximum traversal depth
-	MaxNodesPerHop    int     `json:"maxNodesPerHop"`    // Limit per hop level
-	MaxTotalNodes     int     `json:"maxTotalNodes"`     // Total expansion limit
-	EdgeTypes         []string `json:"edgeTypes"`        // Filter to specific edge types
+	MaxHops           int       `json:"maxHops"`           // Maximum traversal depth
+	MaxNodesPerHop    int       `json:"maxNodesPerHop"`    // Limit per hop level
+	MaxTotalNodes     int       `json:"maxTotalNodes"`     // Total expansion limit
+	EdgeTypes         []string  `json:"edgeTypes"`         // Filter to specific edge types
 
 	// Community settings
-	IncludeCommunities bool    `json:"includeCommunities"` // Include community context
-	MaxCommunities     int     `json:"maxCommunities"`     // Max communities to include
+	IncludeCommunities bool     `json:"includeCommunities"` // Include community context
+	MaxCommunities     int      `json:"maxCommunities"`     // Max communities to include
 
 	// Content settings
-	IncludeContent    bool    `json:"includeContent"`    // Include text content
-	MaxContentLength  int     `json:"maxContentLength"`  // Truncate content
+	IncludeContent    bool      `json:"includeContent"`    // Include text content
+	MaxContentLength  int       `json:"maxContentLength"`  // Truncate content
 }
 
 // DefaultContextBuilderConfig returns sensible defaults.

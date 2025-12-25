@@ -66,20 +66,34 @@ func (b *DefaultContextBuilder) BuildContext(
 
 	// Phase 1: Hybrid search (vector + keyword) for seed entities
 	if b.hybridSearcher != nil {
-		// Generate embedding if provider available
+		// P1 Fix: Use pre-computed embedding from config if available
 		var embedding []float32
-		if b.embeddingProvider != nil {
+		if len(config.QueryEmbedding) > 0 {
+			embedding = config.QueryEmbedding
+		} else if b.embeddingProvider != nil {
 			if emb, err := b.embeddingProvider.Embed(ctx, query); err == nil {
 				embedding = emb
 			}
 			// If embedding fails, continue with keyword-only search
 		}
 
+		// P2 Fix: Use weights and filters from config
+		vectorWeight := config.VectorWeight
+		keywordWeight := config.KeywordWeight
+		if vectorWeight <= 0 && keywordWeight <= 0 {
+			// Default weights if not specified
+			vectorWeight = 0.5
+			keywordWeight = 0.5
+		}
+
 		hybridConfig := HybridSearchConfig{
 			TopK:          config.TopK,
-			VectorWeight:  0.5,
-			KeywordWeight: 0.5,
+			VectorWeight:  vectorWeight,
+			KeywordWeight: keywordWeight,
 			MinScore:      config.ScoreThreshold,
+			ProjectID:     config.ProjectID,
+			ProfileIDs:    config.ProfileIDs,
+			EntityKinds:   config.EntityKinds,
 		}
 
 		seeds, err := b.hybridSearcher.Search(

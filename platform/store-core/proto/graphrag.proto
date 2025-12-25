@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package graphrag;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nucleus/store-core/gen/go/graphragpb";
+
+// GraphRAGService provides GraphRAG context building capabilities.
+// Combines hybrid search (vector + FTS) with knowledge graph expansion
+// and community context for comprehensive RAG queries.
+service GraphRAGService {
+  // BuildContext creates a complete RAG context for a query.
+  // This is the main entry point for GraphRAG - it performs:
+  // 1. Hybrid search (vector + keyword) to find seed entities
+  // 2. Multi-hop KG expansion from seeds
+  // 3. Community context gathering
+  rpc BuildContext(BuildContextRequest) returns (BuildContextResponse);
+  
+  // ExpandGraph performs graph expansion from seed nodes.
+  // Use this for direct KG traversal without the full RAG pipeline.
+  rpc ExpandGraph(ExpandGraphRequest) returns (ExpandGraphResponse);
+  
+  // GetEntityCommunities retrieves communities for given entities.
+  rpc GetEntityCommunities(GetEntityCommunitiesRequest) returns (GetEntityCommunitiesResponse);
+}
+
+// ===================================================
+// BuildContext RPC
+// ===================================================
+
+message BuildContextRequest {
+  string tenant_id = 1;
+  string query = 2;
+  
+  // Optional: pre-computed embedding for the query
+  // If provided, skips embedding generation
+  repeated float query_embedding = 3;
+  
+  // Search configuration
+  int32 top_k = 4;                       // Number of seed entities (default: 20)
+  float min_score = 5;                   // Minimum hybrid search score
+  float vector_weight = 6;               // Weight for vector search (0-1, default: 0.5)
+  float keyword_weight = 7;              // Weight for keyword/FTS (0-1, default: 0.5)
+  
+  // Graph expansion configuration
+  int32 max_hops = 8;                    // Max traversal depth (default: 2)
+  int32 max_nodes_per_hop = 9;           // Nodes per hop level (default: 20)
+  int32 max_total_nodes = 10;            // Total expansion limit (default: 100)
+  repeated string edge_types = 11;       // Filter to specific edge types
+  
+  // Community configuration
+  bool include_communities = 12;         // Whether to include community context
+  int32 max_communities = 13;            // Max communities to include (default: 5)
+  
+  // Content configuration
+  bool include_content = 14;             // Whether to include text content
+  int32 max_content_length = 15;         // Truncate content (default: 500)
+  
+  // Filters
+  string project_id = 16;
+  repeated string profile_ids = 17;
+  repeated string entity_kinds = 18;
+}
+
+message BuildContextResponse {
+  RAGContext context = 1;
+  float search_time_ms = 2;
+  float expansion_time_ms = 3;
+  float community_time_ms = 4;
+  float total_time_ms = 5;
+}
+
+message RAGContext {
+  string query = 1;
+  string tenant_id = 2;
+  google.protobuf.Timestamp generated_at = 3;
+  
+  // Seed entities from hybrid search
+  repeated EntityMatch seed_entities = 4;
+  
+  // Expanded graph from KG traversal
+  GraphExpansion expanded_graph = 5;
+  
+  // Community context
+  repeated CommunitySummary communities = 6;
+  
+  // Lineage for traceability
+  repeated string lineage = 7;
+}
+
+message EntityMatch {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  string description = 4;
+  float score = 5;
+  string content = 6;
+  map<string, string> properties = 7;
+  map<string, string> metadata = 8;
+  string profile_id = 9;
+  int32 hop_distance = 10;               // 0 for seeds
+}
+
+message GraphExpansion {
+  repeated GraphNode nodes = 1;
+  repeated GraphEdge edges = 2;
+  int32 total_nodes = 3;
+  int32 total_edges = 4;
+  int32 max_hops = 5;
+}
+
+message GraphNode {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  map<string, string> properties = 4;
+  string content = 5;
+  int32 hop_distance = 6;
+  string profile_id = 7;
+}
+
+message GraphEdge {
+  string id = 1;
+  string from_id = 2;
+  string to_id = 3;
+  string type = 4;
+  map<string, string> properties = 5;
+  float weight = 6;
+  string direction = 7;
+}
+
+message CommunitySummary {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  int32 level = 4;                       // Hierarchy level
+  int32 member_count = 5;
+  float relevance_score = 6;
+  repeated string member_ids = 7;        // Sample member IDs
+}
+
+// ===================================================
+// ExpandGraph RPC
+// ===================================================
+
+message ExpandGraphRequest {
+  string tenant_id = 1;
+  repeated string seed_ids = 2;          // Starting node IDs
+  
+  // Expansion configuration
+  int32 max_hops = 3;
+  int32 max_nodes_per_hop = 4;
+  int32 max_total_nodes = 5;
+  repeated string edge_types = 6;
+  string direction = 7;                  // "out", "in", or "any"
+}
+
+message ExpandGraphResponse {
+  GraphExpansion expansion = 1;
+  float time_ms = 2;
+}
+
+// ===================================================
+// GetEntityCommunities RPC
+// ===================================================
+
+message GetEntityCommunitiesRequest {
+  string tenant_id = 1;
+  repeated string entity_ids = 2;
+  int32 max_communities = 3;
+}
+
+message GetEntityCommunitiesResponse {
+  repeated CommunitySummary communities = 1;
+}
