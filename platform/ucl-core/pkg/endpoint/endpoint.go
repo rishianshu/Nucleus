@@ -52,6 +52,14 @@ type (
 	DiscoveryRegistry  = internal.DiscoveryRegistry
 	RelationDirection  = internal.RelationDirection
 	EntityType         = internal.EntityType
+
+	// Phase 3: Entity Resolution & Temporal Tracking
+	EntityResolver           = internal.EntityResolver
+	MatchRule                = internal.MatchRule
+	RelationEvent            = internal.RelationEvent
+	RelationEventType        = internal.RelationEventType
+	RelationEventProcessor   = internal.RelationEventProcessor
+	EdgeKey                  = internal.EdgeKey
 )
 
 // Strategy type for ingestion planning
@@ -62,6 +70,19 @@ const (
 	StrategyIncremental Strategy = "incremental"
 	StrategyAdaptive    Strategy = "adaptive"
 )
+
+// RelationEventType constants for temporal tracking
+const (
+	RelationEventCreated  = internal.RelationEventCreated
+	RelationEventUpdated  = internal.RelationEventUpdated
+	RelationEventExpired  = internal.RelationEventExpired
+	RelationEventReassign = internal.RelationEventReassign
+)
+
+// NewRelationEventProcessor creates a new SCD2-style relation event processor.
+func NewRelationEventProcessor() *internal.DefaultRelationEventProcessor {
+	return internal.NewRelationEventProcessor()
+}
 
 // DefaultRegistry returns the default endpoint registry.
 func DefaultRegistry() *internal.Registry {
