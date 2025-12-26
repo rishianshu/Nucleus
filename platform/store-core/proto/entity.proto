@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package entity;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/nucleus/store-core/gen/go/entitypb";
+
+// EntityService provides canonical entity registry operations.
+// Enables cross-source entity resolution and deduplication.
+service EntityService {
+  // ResolveEntity resolves a source entity to a canonical entity.
+  // Creates new entity if no high-confidence match found.
+  rpc ResolveEntity(ResolveEntityRequest) returns (ResolveEntityResponse);
+  
+  // GetEntity retrieves an entity by canonical ID.
+  rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
+  
+  // GetBySourceRef retrieves by source reference.
+  rpc GetBySourceRef(GetBySourceRefRequest) returns (GetEntityResponse);
+  
+  // FindMatches finds potential canonical entity matches.
+  rpc FindMatches(FindMatchesRequest) returns (FindMatchesResponse);
+  
+  // MergeEntities merges two entities into one.
+  rpc MergeEntities(MergeEntitiesRequest) returns (MergeEntitiesResponse);
+  
+  // AddAlias adds an alias to an entity.
+  rpc AddAlias(AddAliasRequest) returns (AddAliasResponse);
+  
+  // AddSourceRef links a source entity to a canonical entity.
+  rpc AddSourceRef(AddSourceRefRequest) returns (AddSourceRefResponse);
+  
+  // ListEntities lists entities with filters.
+  rpc ListEntities(ListEntitiesRequest) returns (ListEntitiesResponse);
+  
+  // ResolveBatch resolves multiple source entities at once.
+  rpc ResolveBatch(ResolveBatchRequest) returns (ResolveBatchResponse);
+}
+
+// CanonicalEntity represents a unified entity across sources.
+message CanonicalEntity {
+  string id = 1;
+  string tenant_id = 2;
+  string type = 3;                    // person, project, document, policy, process
+  string name = 4;
+  repeated string aliases = 5;
+  map<string, string> qualifiers = 6; // Disambiguation qualifiers
+  google.protobuf.Struct properties = 7;
+  repeated SourceRef source_refs = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  repeated string merged_from = 11;   // IDs of merged entities
+}
+
+// SourceRef links to a source system entity.
+message SourceRef {
+  string source = 1;      // jira, github, confluence
+  string external_id = 2;
+  string node_id = 3;
+  string url = 4;
+  google.protobuf.Timestamp last_synced = 5;
+}
+
+// MatchResult represents a potential entity match.
+message MatchResult {
+  string canonical_id = 1;
+  float score = 2;
+  string matched_by = 3;  // Rule ID
+  string reason = 4;
+}
+
+// ResolveEntityRequest for entity resolution.
+message ResolveEntityRequest {
+  string tenant_id = 1;
+  string source = 2;
+  string external_id = 3;
+  string type = 4;
+  string name = 5;
+  string email = 6;
+  repeated string aliases = 7;
+  map<string, string> qualifiers = 8;
+  google.protobuf.Struct properties = 9;
+  string url = 10;
+  string node_id = 11;
+}
+
+// ResolveEntityResponse for entity resolution.
+message ResolveEntityResponse {
+  CanonicalEntity entity = 1;
+  bool created = 2;
+  string matched_by = 3;
+}
+
+// GetEntityRequest for retrieving by ID.
+message GetEntityRequest {
+  string tenant_id = 1;
+  string id = 2;
+}
+
+// GetBySourceRefRequest for retrieving by source reference.
+message GetBySourceRefRequest {
+  string tenant_id = 1;
+  string source = 2;
+  string external_id = 3;
+}
+
+// GetEntityResponse for entity retrieval.
+message GetEntityResponse {
+  CanonicalEntity entity = 1;
+}
+
+// FindMatchesRequest for finding potential matches.
+message FindMatchesRequest {
+  string tenant_id = 1;
+  string source = 2;
+  string external_id = 3;
+  string type = 4;
+  string name = 5;
+  string email = 6;
+  map<string, string> qualifiers = 7;
+}
+
+// FindMatchesResponse for match results.
+message FindMatchesResponse {
+  repeated MatchResult matches = 1;
+}
+
+// MergeEntitiesRequest for merging entities.
+message MergeEntitiesRequest {
+  string tenant_id = 1;
+  string survivor_id = 2;
+  string merged_id = 3;
+}
+
+// MergeEntitiesResponse for merge result.
+message MergeEntitiesResponse {
+  CanonicalEntity entity = 1;
+}
+
+// AddAliasRequest for adding an alias.
+message AddAliasRequest {
+  string tenant_id = 1;
+  string id = 2;
+  string alias = 3;
+}
+
+// AddAliasResponse (empty on success).
+message AddAliasResponse {}
+
+// AddSourceRefRequest for linking source entity.
+message AddSourceRefRequest {
+  string tenant_id = 1;
+  string id = 2;
+  SourceRef source_ref = 3;
+}
+
+// AddSourceRefResponse (empty on success).
+message AddSourceRefResponse {}
+
+// ListEntitiesRequest for listing entities.
+message ListEntitiesRequest {
+  string tenant_id = 1;
+  repeated string types = 2;
+  string name_like = 3;
+  map<string, string> qualifiers = 4;
+  string source = 5;
+  google.protobuf.Timestamp updated_after = 6;
+  int32 limit = 7;
+  int32 offset = 8;
+}
+
+// ListEntitiesResponse for entity list.
+message ListEntitiesResponse {
+  repeated CanonicalEntity entities = 1;
+  int32 total = 2;
+}
+
+// ResolveBatchRequest for batch resolution.
+message ResolveBatchRequest {
+  string tenant_id = 1;
+  repeated SourceEntity sources = 2;
+}
+
+// SourceEntity for batch resolution.
+message SourceEntity {
+  string source = 1;
+  string external_id = 2;
+  string type = 3;
+  string name = 4;
+  string email = 5;
+  repeated string aliases = 6;
+  map<string, string> qualifiers = 7;
+  google.protobuf.Struct properties = 8;
+  string url = 9;
+  string node_id = 10;
+}
+
+// ResolveBatchResponse for batch results.
+message ResolveBatchResponse {
+  // Map of source_key (source:external_id) to resolved entity
+  map<string, CanonicalEntity> results = 1;
+  int32 resolved_count = 2;
+  int32 created_count = 3;
+  // P2 Fix: Add errors map to match service response
+  map<string, string> errors = 4; // source_key -> error message
+}
