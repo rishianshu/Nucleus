@@ -114,16 +114,26 @@ type AddSourceRefRequest struct {
 	SourceRef SourceRef `json:"sourceRef"`
 }
 
-// ListEntitiesRequest for listing entities.
+// ListEntitiesRequest for listing entities with temporal support.
 type ListEntitiesRequest struct {
-	TenantID     string            `json:"tenantId"`
-	Types        []string          `json:"types"`
-	NameLike     string            `json:"nameLike"`
-	Qualifiers   map[string]string `json:"qualifiers"`
-	Source       string            `json:"source"`
-	UpdatedAfter time.Time         `json:"updatedAfter"`
-	Limit        int               `json:"limit"`
-	Offset       int               `json:"offset"`
+	TenantID           string            `json:"tenantId"`
+	Types              []string          `json:"types"`
+	NameLike           string            `json:"nameLike"`
+	Qualifiers         map[string]string `json:"qualifiers"`
+	Source             string            `json:"source"`
+	// Temporal filters
+	UpdatedAfter       *time.Time        `json:"updatedAfter"`
+	FirstSeenAfter     *time.Time        `json:"firstSeenAfter"`
+	FirstSeenBefore    *time.Time        `json:"firstSeenBefore"`
+	LastActivityAfter  *time.Time        `json:"lastActivityAfter"`
+	LastActivityBefore *time.Time        `json:"lastActivityBefore"`
+	MinActivityCount   int               `json:"minActivityCount"`
+	// P2 Fix: Add missing temporal filter fields
+	MinMentionCount    int               `json:"minMentionCount"`
+	MinVelocity        float64           `json:"minVelocity"`
+	AsOf               *time.Time        `json:"asOf"`
+	Limit              int               `json:"limit"`
+	Offset             int               `json:"offset"`
 }
 
 // ListEntitiesResponse for entity list.
@@ -331,11 +341,20 @@ func (s *Service) ListEntities(ctx context.Context, req *ListEntitiesRequest) (*
 	}
 
 	filter := EntityFilter{
-		Types:        req.Types,
-		NameLike:     req.NameLike,
-		Qualifiers:   req.Qualifiers,
-		Source:       req.Source,
-		UpdatedAfter: req.UpdatedAfter,
+		Types:              req.Types,
+		NameLike:           req.NameLike,
+		Qualifiers:         req.Qualifiers,
+		Source:             req.Source,
+		UpdatedAfter:       req.UpdatedAfter,
+		FirstSeenAfter:     req.FirstSeenAfter,
+		FirstSeenBefore:    req.FirstSeenBefore,
+		LastActivityAfter:  req.LastActivityAfter,
+		LastActivityBefore: req.LastActivityBefore,
+		MinActivityCount:   req.MinActivityCount,
+		// P2 Fix: Pass through missing temporal fields
+		MinMentionCount:    req.MinMentionCount,
+		MinVelocity:        req.MinVelocity,
+		AsOf:               req.AsOf,
 	}
 
 	entities, err := s.registry.List(ctx, req.TenantID, filter, limit, req.Offset)

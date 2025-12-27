@@ -21,9 +21,42 @@ type CanonicalEntity struct {
 	Qualifiers  map[string]string `json:"qualifiers"`  // Disambiguation qualifiers (e.g., department, specialty)
 	Properties  map[string]any    `json:"properties"`  // Merged properties from all sources
 	SourceRefs  []SourceRef       `json:"sourceRefs"`  // References to source entities
-	CreatedAt   time.Time         `json:"createdAt"`   // First seen
+	Temporal    TemporalMetadata  `json:"temporal"`    // Temporal tracking for time-based queries
+	CreatedAt   time.Time         `json:"createdAt"`   // First seen (legacy, use Temporal.FirstSeenAt)
 	UpdatedAt   time.Time         `json:"updatedAt"`   // Last updated
 	MergedFrom  []string          `json:"mergedFrom"`  // IDs of entities merged into this one
+}
+
+// TemporalMetadata provides rich temporal tracking for entities.
+// Enables time-based filtering, activity tracking, and point-in-time queries.
+type TemporalMetadata struct {
+	// FirstSeenAt is when this entity was first observed in any source.
+	FirstSeenAt time.Time `json:"firstSeenAt"`
+	
+	// LastSeenAt is when this entity was last observed in any source.
+	LastSeenAt time.Time `json:"lastSeenAt"`
+	
+	// LastActivityAt is when the entity last had meaningful activity.
+	// (e.g., a Jira issue was updated, a person made a commit)
+	LastActivityAt time.Time `json:"lastActivityAt"`
+	
+	// ActivityCount tracks total observed activities/mentions.
+	ActivityCount int `json:"activityCount"`
+	
+	// LastMentionedAt is when the entity was last mentioned in content.
+	LastMentionedAt *time.Time `json:"lastMentionedAt,omitempty"`
+	
+	// MentionCount tracks total mentions across all sources.
+	MentionCount int `json:"mentionCount"`
+	
+	// Velocity tracks activity rate (mentions per day over last 30 days).
+	Velocity float64 `json:"velocity"`
+	
+	// SourceFirstSeen maps source -> first seen time in that source.
+	SourceFirstSeen map[string]time.Time `json:"sourceFirstSeen,omitempty"`
+	
+	// SourceLastSeen maps source -> last seen time in that source.
+	SourceLastSeen map[string]time.Time `json:"sourceLastSeen,omitempty"`
 }
 
 // SourceRef links a canonical entity to a source system entity.
@@ -115,13 +148,26 @@ type EntityRegistry interface {
 	Merge(ctx context.Context, tenantID, survivorID, mergedID string) (*CanonicalEntity, error)
 }
 
-// EntityFilter for listing entities.
+// EntityFilter for listing entities with temporal support.
 type EntityFilter struct {
+	// Basic filters
 	Types      []string          `json:"types"`
 	NameLike   string            `json:"nameLike"`
 	Qualifiers map[string]string `json:"qualifiers"`
 	Source     string            `json:"source"`
-	UpdatedAfter time.Time       `json:"updatedAfter"`
+	
+	// Temporal filters
+	UpdatedAfter       *time.Time `json:"updatedAfter"`
+	FirstSeenAfter     *time.Time `json:"firstSeenAfter"`
+	FirstSeenBefore    *time.Time `json:"firstSeenBefore"`
+	LastActivityAfter  *time.Time `json:"lastActivityAfter"`
+	LastActivityBefore *time.Time `json:"lastActivityBefore"`
+	MinActivityCount   int        `json:"minActivityCount"`
+	MinMentionCount    int        `json:"minMentionCount"`
+	MinVelocity        float64    `json:"minVelocity"`
+	
+	// Point-in-time query (entities that existed as of this time)
+	AsOf *time.Time `json:"asOf"`
 }
 
 // EntityMatcher finds matching canonical entities for source entities.

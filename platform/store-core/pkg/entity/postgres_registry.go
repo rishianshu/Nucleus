@@ -38,7 +38,7 @@ func (r *PostgresEntityRegistry) ensureSchema() error {
 	-- P1 Fix: Ensure pg_trgm extension exists for fuzzy search
 	CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-	-- Canonical entities table
+	-- Canonical entities table with temporal metadata
 	-- P0 Fix: Use TEXT for ID to accommodate existing generateCanonicalID format
 	CREATE TABLE IF NOT EXISTS canonical_entities (
 		id TEXT PRIMARY KEY,
@@ -49,6 +49,17 @@ func (r *PostgresEntityRegistry) ensureSchema() error {
 		qualifiers JSONB DEFAULT '{}',
 		properties JSONB DEFAULT '{}',
 		merged_from TEXT[] DEFAULT '{}',
+		-- P1 Fix: Add temporal metadata columns for time-based queries
+		first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		activity_count INT NOT NULL DEFAULT 0,
+		mention_count INT NOT NULL DEFAULT 0,
+		velocity DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+		-- P2 Fix: Add remaining temporal fields
+		last_mentioned_at TIMESTAMPTZ,
+		source_first_seen JSONB DEFAULT '{}',
+		source_last_seen JSONB DEFAULT '{}',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
@@ -77,8 +88,71 @@ func (r *PostgresEntityRegistry) ensureSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_entities_aliases ON canonical_entities USING gin(aliases);
 	`
 
+	// Execute main schema
 	_, err := r.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// P0 Fix: Add temporal columns for existing tables via ALTER TABLE
+	// These are safe to run multiple times due to IF NOT EXISTS semantics
+	alterStatements := []string{
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ DEFAULT NOW()`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT NOW()`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS activity_count INT DEFAULT 0`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS mention_count INT DEFAULT 0`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS velocity DOUBLE PRECISION DEFAULT 0.0`,
+		// P2 Fix: Add remaining temporal fields for full coverage
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS last_mentioned_at TIMESTAMPTZ`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS source_first_seen JSONB DEFAULT '{}'`,
+		`ALTER TABLE canonical_entities ADD COLUMN IF NOT EXISTS source_last_seen JSONB DEFAULT '{}'`,
+	}
+
+	for _, stmt := range alterStatements {
+		_, err := r.db.Exec(stmt)
+		if err != nil {
+			return err
+		}
+	}
+
+	// P1 Fix: Backfill temporal columns from historical timestamps for existing rows
+	// This preserves the original created_at as first_seen_at and updated_at as last_activity_at
+	// Only updates rows where first_seen_at still has the migration default (NOW() > created_at)
+	backfillStatements := []string{
+		// Backfill first_seen_at from created_at where it wasn't set correctly
+		`UPDATE canonical_entities SET first_seen_at = created_at WHERE first_seen_at > created_at + INTERVAL '1 second'`,
+		// Backfill last_seen_at from updated_at
+		`UPDATE canonical_entities SET last_seen_at = updated_at WHERE last_seen_at > updated_at + INTERVAL '1 second'`,
+		// Backfill last_activity_at from updated_at
+		`UPDATE canonical_entities SET last_activity_at = updated_at WHERE last_activity_at > updated_at + INTERVAL '1 second'`,
+	}
+
+	for _, stmt := range backfillStatements {
+		_, err := r.db.Exec(stmt)
+		if err != nil {
+			// Non-fatal: backfill errors shouldn't block schema migration
+			// Log would be ideal but we don't have logger access here
+			continue
+		}
+	}
+
+	// P1 Fix: Create temporal indexes AFTER columns exist
+	// Moved from schema block to ensure backward-compatible migration
+	temporalIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_entities_last_activity ON canonical_entities(tenant_id, last_activity_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_entities_activity_count ON canonical_entities(tenant_id, activity_count)`,
+		`CREATE INDEX IF NOT EXISTS idx_entities_velocity ON canonical_entities(tenant_id, velocity)`,
+	}
+
+	for _, stmt := range temporalIndexes {
+		_, err := r.db.Exec(stmt)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Create creates a new canonical entity.
@@ -91,6 +165,17 @@ func (r *PostgresEntityRegistry) Create(ctx context.Context, entity *CanonicalEn
 	}
 	entity.UpdatedAt = time.Now()
 
+	// P1 Fix: Initialize temporal metadata if not set
+	if entity.Temporal.FirstSeenAt.IsZero() {
+		entity.Temporal.FirstSeenAt = entity.CreatedAt
+	}
+	if entity.Temporal.LastSeenAt.IsZero() {
+		entity.Temporal.LastSeenAt = entity.CreatedAt
+	}
+	if entity.Temporal.LastActivityAt.IsZero() {
+		entity.Temporal.LastActivityAt = entity.CreatedAt
+	}
+
 	qualifiersJSON, err := json.Marshal(entity.Qualifiers)
 	if err != nil {
 		return fmt.Errorf("failed to marshal qualifiers: %w", err)
@@ -101,20 +186,46 @@ func (r *PostgresEntityRegistry) Create(ctx context.Context, entity *CanonicalEn
 		return fmt.Errorf("failed to marshal properties: %w", err)
 	}
 
+	// P1 Fix: Ensure nil maps marshal to '{}' instead of 'null'
+	sourceFirstSeen := entity.Temporal.SourceFirstSeen
+	if sourceFirstSeen == nil {
+		sourceFirstSeen = make(map[string]time.Time)
+	}
+	sourceLastSeen := entity.Temporal.SourceLastSeen
+	if sourceLastSeen == nil {
+		sourceLastSeen = make(map[string]time.Time)
+	}
+
+	sourceFirstSeenJSON, err := json.Marshal(sourceFirstSeen)
+	if err != nil {
+		return fmt.Errorf("failed to marshal source_first_seen: %w", err)
+	}
+	sourceLastSeenJSON, err := json.Marshal(sourceLastSeen)
+	if err != nil {
+		return fmt.Errorf("failed to marshal source_last_seen: %w", err)
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Insert entity
+	// P2 Fix: Insert entity with ALL temporal columns (including JSONB maps)
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO canonical_entities 
-		(id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		(id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from,
+		 first_seen_at, last_seen_at, last_activity_at, activity_count, mention_count, velocity,
+		 last_mentioned_at, source_first_seen, source_last_seen,
+		 created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`, entity.ID, entity.TenantID, entity.Type, entity.Name,
 		pq.Array(entity.Aliases), qualifiersJSON, propertiesJSON,
-		pq.Array(entity.MergedFrom), entity.CreatedAt, entity.UpdatedAt)
+		pq.Array(entity.MergedFrom),
+		entity.Temporal.FirstSeenAt, entity.Temporal.LastSeenAt, entity.Temporal.LastActivityAt,
+		entity.Temporal.ActivityCount, entity.Temporal.MentionCount, entity.Temporal.Velocity,
+		entity.Temporal.LastMentionedAt, sourceFirstSeenJSON, sourceLastSeenJSON,
+		entity.CreatedAt, entity.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert entity: %w", err)
 	}
@@ -141,16 +252,26 @@ func (r *PostgresEntityRegistry) Create(ctx context.Context, entity *CanonicalEn
 func (r *PostgresEntityRegistry) Get(ctx context.Context, tenantID, id string) (*CanonicalEntity, error) {
 	entity := &CanonicalEntity{}
 	var qualifiersJSON, propertiesJSON []byte
+	var sourceFirstSeenJSON, sourceLastSeenJSON []byte
 	var aliases, mergedFrom []string
 
+	// P2 Fix: Include ALL temporal columns in SELECT
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from, created_at, updated_at
+		SELECT id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from,
+		       first_seen_at, last_seen_at, last_activity_at, activity_count, mention_count, velocity,
+		       last_mentioned_at, source_first_seen, source_last_seen,
+		       created_at, updated_at
 		FROM canonical_entities
 		WHERE id = $1 AND tenant_id = $2
 	`, id, tenantID).Scan(
 		&entity.ID, &entity.TenantID, &entity.Type, &entity.Name,
 		pq.Array(&aliases), &qualifiersJSON, &propertiesJSON,
-		pq.Array(&mergedFrom), &entity.CreatedAt, &entity.UpdatedAt)
+		pq.Array(&mergedFrom),
+		&entity.Temporal.FirstSeenAt, &entity.Temporal.LastSeenAt,
+		&entity.Temporal.LastActivityAt, &entity.Temporal.ActivityCount,
+		&entity.Temporal.MentionCount, &entity.Temporal.Velocity,
+		&entity.Temporal.LastMentionedAt, &sourceFirstSeenJSON, &sourceLastSeenJSON,
+		&entity.CreatedAt, &entity.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -167,6 +288,17 @@ func (r *PostgresEntityRegistry) Get(ctx context.Context, tenantID, id string) (
 	}
 	if err := json.Unmarshal(propertiesJSON, &entity.Properties); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal properties: %w", err)
+	}
+	// P2 Fix: Unmarshal source-specific temporal maps
+	if len(sourceFirstSeenJSON) > 0 {
+		if err := json.Unmarshal(sourceFirstSeenJSON, &entity.Temporal.SourceFirstSeen); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal source_first_seen: %w", err)
+		}
+	}
+	if len(sourceLastSeenJSON) > 0 {
+		if err := json.Unmarshal(sourceLastSeenJSON, &entity.Temporal.SourceLastSeen); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal source_last_seen: %w", err)
+		}
 	}
 
 	// Get source refs
@@ -201,6 +333,8 @@ func (r *PostgresEntityRegistry) GetBySourceRef(ctx context.Context, tenantID, s
 // Update updates an existing entity.
 func (r *PostgresEntityRegistry) Update(ctx context.Context, entity *CanonicalEntity) error {
 	entity.UpdatedAt = time.Now()
+	// P1 Fix: Update last_seen_at on every update
+	entity.Temporal.LastSeenAt = entity.UpdatedAt
 
 	qualifiersJSON, err := json.Marshal(entity.Qualifiers)
 	if err != nil {
@@ -212,20 +346,53 @@ func (r *PostgresEntityRegistry) Update(ctx context.Context, entity *CanonicalEn
 		return fmt.Errorf("failed to marshal properties: %w", err)
 	}
 
+	// P1 Fix: Ensure nil maps marshal to '{}' instead of 'null'
+	sourceFirstSeen := entity.Temporal.SourceFirstSeen
+	if sourceFirstSeen == nil {
+		sourceFirstSeen = make(map[string]time.Time)
+	}
+	sourceLastSeen := entity.Temporal.SourceLastSeen
+	if sourceLastSeen == nil {
+		sourceLastSeen = make(map[string]time.Time)
+	}
+
+	sourceFirstSeenJSON, err := json.Marshal(sourceFirstSeen)
+	if err != nil {
+		return fmt.Errorf("failed to marshal source_first_seen: %w", err)
+	}
+	sourceLastSeenJSON, err := json.Marshal(sourceLastSeen)
+	if err != nil {
+		return fmt.Errorf("failed to marshal source_last_seen: %w", err)
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
+	// P1 Fix: Use COALESCE/NULLIF to preserve existing temporal values when caller passes empty,
+	// with -1 sentinels on counters/velocity so zero updates are applied while -1 preserves.
 	result, err := tx.ExecContext(ctx, `
 		UPDATE canonical_entities 
 		SET entity_type = $1, name = $2, aliases = $3, qualifiers = $4, 
-		    properties = $5, merged_from = $6, updated_at = $7
-		WHERE id = $8 AND tenant_id = $9
+		    properties = $5, merged_from = $6,
+		    last_seen_at = $7,
+		    last_activity_at = COALESCE(NULLIF($8, '0001-01-01 00:00:00+00'::timestamptz), last_activity_at),
+		    activity_count = COALESCE(NULLIF($9, -1), activity_count),
+		    mention_count = COALESCE(NULLIF($10, -1), mention_count),
+		    velocity = COALESCE(NULLIF($11, -1), velocity),
+		    last_mentioned_at = COALESCE($12, last_mentioned_at),
+		    source_first_seen = CASE WHEN $13::jsonb = '{}'::jsonb THEN source_first_seen ELSE $13 END,
+		    source_last_seen = CASE WHEN $14::jsonb = '{}'::jsonb THEN source_last_seen ELSE $14 END,
+		    updated_at = $15
+		WHERE id = $16 AND tenant_id = $17
 	`, entity.Type, entity.Name, pq.Array(entity.Aliases), qualifiersJSON,
-		propertiesJSON, pq.Array(entity.MergedFrom), entity.UpdatedAt,
-		entity.ID, entity.TenantID)
+		propertiesJSON, pq.Array(entity.MergedFrom),
+		entity.Temporal.LastSeenAt, entity.Temporal.LastActivityAt,
+		entity.Temporal.ActivityCount, entity.Temporal.MentionCount, entity.Temporal.Velocity,
+		entity.Temporal.LastMentionedAt, sourceFirstSeenJSON, sourceLastSeenJSON,
+		entity.UpdatedAt, entity.ID, entity.TenantID)
 	if err != nil {
 		return fmt.Errorf("failed to update entity: %w", err)
 	}
@@ -258,7 +425,11 @@ func (r *PostgresEntityRegistry) Delete(ctx context.Context, tenantID, id string
 // List lists entities with filters.
 func (r *PostgresEntityRegistry) List(ctx context.Context, tenantID string, filter EntityFilter, limit, offset int) ([]*CanonicalEntity, error) {
 	query := strings.Builder{}
-	query.WriteString("SELECT id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from, created_at, updated_at FROM canonical_entities WHERE tenant_id = $1")
+	// P2 Fix: Include ALL temporal columns in SELECT
+	query.WriteString(`SELECT id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from, 
+		first_seen_at, last_seen_at, last_activity_at, activity_count, mention_count, velocity,
+		last_mentioned_at, source_first_seen, source_last_seen,
+		created_at, updated_at FROM canonical_entities WHERE tenant_id = $1`)
 	args := []any{tenantID}
 	argNum := 2
 
@@ -282,9 +453,61 @@ func (r *PostgresEntityRegistry) List(ctx context.Context, tenantID string, filt
 		argNum++
 	}
 
-	if !filter.UpdatedAfter.IsZero() {
+	// P0 Fix: Add nil checks for pointer-based temporal filters
+	if filter.UpdatedAfter != nil && !filter.UpdatedAfter.IsZero() {
 		query.WriteString(fmt.Sprintf(" AND updated_at > $%d", argNum))
-		args = append(args, filter.UpdatedAfter)
+		args = append(args, *filter.UpdatedAfter)
+		argNum++
+	}
+
+	// Additional temporal filters
+	if filter.FirstSeenAfter != nil && !filter.FirstSeenAfter.IsZero() {
+		query.WriteString(fmt.Sprintf(" AND first_seen_at > $%d", argNum))
+		args = append(args, *filter.FirstSeenAfter)
+		argNum++
+	}
+
+	if filter.FirstSeenBefore != nil && !filter.FirstSeenBefore.IsZero() {
+		query.WriteString(fmt.Sprintf(" AND first_seen_at < $%d", argNum))
+		args = append(args, *filter.FirstSeenBefore)
+		argNum++
+	}
+
+	// P1 Fix: Add activity-based temporal filters
+	if filter.LastActivityAfter != nil && !filter.LastActivityAfter.IsZero() {
+		query.WriteString(fmt.Sprintf(" AND last_activity_at > $%d", argNum))
+		args = append(args, *filter.LastActivityAfter)
+		argNum++
+	}
+
+	if filter.LastActivityBefore != nil && !filter.LastActivityBefore.IsZero() {
+		query.WriteString(fmt.Sprintf(" AND last_activity_at < $%d", argNum))
+		args = append(args, *filter.LastActivityBefore)
+		argNum++
+	}
+
+	if filter.MinActivityCount > 0 {
+		query.WriteString(fmt.Sprintf(" AND activity_count >= $%d", argNum))
+		args = append(args, filter.MinActivityCount)
+		argNum++
+	}
+
+	if filter.MinMentionCount > 0 {
+		query.WriteString(fmt.Sprintf(" AND mention_count >= $%d", argNum))
+		args = append(args, filter.MinMentionCount)
+		argNum++
+	}
+
+	if filter.MinVelocity > 0 {
+		query.WriteString(fmt.Sprintf(" AND velocity >= $%d", argNum))
+		args = append(args, filter.MinVelocity)
+		argNum++
+	}
+
+	// Point-in-time query: entities that existed as of given time
+	if filter.AsOf != nil && !filter.AsOf.IsZero() {
+		query.WriteString(fmt.Sprintf(" AND first_seen_at <= $%d", argNum))
+		args = append(args, *filter.AsOf)
 		argNum++
 	}
 
@@ -303,12 +526,19 @@ func (r *PostgresEntityRegistry) List(ctx context.Context, tenantID string, filt
 	for rows.Next() {
 		entity := &CanonicalEntity{}
 		var qualifiersJSON, propertiesJSON []byte
+		var sourceFirstSeenJSON, sourceLastSeenJSON []byte
 		var aliases, mergedFrom []string
 
+		// P2 Fix: Scan ALL temporal columns into TemporalMetadata
 		err := rows.Scan(
 			&entity.ID, &entity.TenantID, &entity.Type, &entity.Name,
 			pq.Array(&aliases), &qualifiersJSON, &propertiesJSON,
-			pq.Array(&mergedFrom), &entity.CreatedAt, &entity.UpdatedAt)
+			pq.Array(&mergedFrom),
+			&entity.Temporal.FirstSeenAt, &entity.Temporal.LastSeenAt,
+			&entity.Temporal.LastActivityAt, &entity.Temporal.ActivityCount,
+			&entity.Temporal.MentionCount, &entity.Temporal.Velocity,
+			&entity.Temporal.LastMentionedAt, &sourceFirstSeenJSON, &sourceLastSeenJSON,
+			&entity.CreatedAt, &entity.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan entity: %w", err)
 		}
@@ -322,6 +552,17 @@ func (r *PostgresEntityRegistry) List(ctx context.Context, tenantID string, filt
 		}
 		if err := json.Unmarshal(propertiesJSON, &entity.Properties); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal properties for %s: %w", entity.ID, err)
+		}
+		// P2 Fix: Unmarshal source-specific temporal maps
+		if len(sourceFirstSeenJSON) > 0 {
+			if err := json.Unmarshal(sourceFirstSeenJSON, &entity.Temporal.SourceFirstSeen); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal source_first_seen for %s: %w", entity.ID, err)
+			}
+		}
+		if len(sourceLastSeenJSON) > 0 {
+			if err := json.Unmarshal(sourceLastSeenJSON, &entity.Temporal.SourceLastSeen); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal source_last_seen for %s: %w", entity.ID, err)
+			}
 		}
 
 		// Get source refs - P3 Fix: Return errors
@@ -561,17 +802,26 @@ func (r *PostgresEntityRegistry) getSourceRefs(ctx context.Context, entityID str
 func (r *PostgresEntityRegistry) getEntityForUpdate(ctx context.Context, tx *sql.Tx, tenantID, id string) (*CanonicalEntity, error) {
 	entity := &CanonicalEntity{}
 	var qualifiersJSON, propertiesJSON []byte
+	var sourceFirstSeenJSON, sourceLastSeenJSON []byte
 	var aliases, mergedFrom []string
 
 	err := tx.QueryRowContext(ctx, `
-		SELECT id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from, created_at, updated_at
+		SELECT id, tenant_id, entity_type, name, aliases, qualifiers, properties, merged_from,
+		       first_seen_at, last_seen_at, last_activity_at, activity_count, mention_count, velocity,
+		       last_mentioned_at, source_first_seen, source_last_seen,
+		       created_at, updated_at
 		FROM canonical_entities
 		WHERE id = $1 AND tenant_id = $2
 		FOR UPDATE
 	`, id, tenantID).Scan(
 		&entity.ID, &entity.TenantID, &entity.Type, &entity.Name,
 		pq.Array(&aliases), &qualifiersJSON, &propertiesJSON,
-		pq.Array(&mergedFrom), &entity.CreatedAt, &entity.UpdatedAt)
+		pq.Array(&mergedFrom),
+		&entity.Temporal.FirstSeenAt, &entity.Temporal.LastSeenAt,
+		&entity.Temporal.LastActivityAt, &entity.Temporal.ActivityCount,
+		&entity.Temporal.MentionCount, &entity.Temporal.Velocity,
+		&entity.Temporal.LastMentionedAt, &sourceFirstSeenJSON, &sourceLastSeenJSON,
+		&entity.CreatedAt, &entity.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -588,6 +838,16 @@ func (r *PostgresEntityRegistry) getEntityForUpdate(ctx context.Context, tx *sql
 	}
 	if err := json.Unmarshal(propertiesJSON, &entity.Properties); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal properties: %w", err)
+	}
+	if len(sourceFirstSeenJSON) > 0 {
+		if err := json.Unmarshal(sourceFirstSeenJSON, &entity.Temporal.SourceFirstSeen); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal source_first_seen: %w", err)
+		}
+	}
+	if len(sourceLastSeenJSON) > 0 {
+		if err := json.Unmarshal(sourceLastSeenJSON, &entity.Temporal.SourceLastSeen); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal source_last_seen: %w", err)
+		}
 	}
 
 	// Get source refs (these don't need locking, they'll be updated in transaction)
