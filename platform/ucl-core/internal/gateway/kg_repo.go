@@ -113,10 +113,6 @@ func (r *kgPostgresRepo) upsertEdge(ctx context.Context, req *kgpb.UpsertEdgeReq
 	if scopeOrg == "" {
 		scopeOrg = req.TenantId
 	}
-	logicalKey := props["logicalKey"]
-	if logicalKey == "" {
-		logicalKey = req.Edge.Id
-	}
 	sourceLogical := props["sourceLogicalKey"]
 	if sourceLogical == "" {
 		sourceLogical = req.Edge.FromId
@@ -124,6 +120,10 @@ func (r *kgPostgresRepo) upsertEdge(ctx context.Context, req *kgpb.UpsertEdgeReq
 	targetLogical := props["targetLogicalKey"]
 	if targetLogical == "" {
 		targetLogical = req.Edge.ToId
+	}
+	logicalKey := props["logicalKey"]
+	if logicalKey == "" {
+		logicalKey = fmt.Sprintf("%s|%s|%s|%s", req.TenantId, req.Edge.FromId, req.Edge.ToId, req.Edge.Type)
 	}
 	columns := []string{
 		"id", "tenant_id", "project_id", "edge_type", "source_entity_id", "target_entity_id",
@@ -164,7 +164,7 @@ func (r *kgPostgresRepo) upsertEdge(ctx context.Context, req *kgpb.UpsertEdgeReq
 	}
 	stmt := fmt.Sprintf(`INSERT INTO graph_edges (%s)
 VALUES (%s)
-ON CONFLICT (id) DO UPDATE SET %s
+ON CONFLICT (tenant_id, source_entity_id, target_entity_id, edge_type) DO UPDATE SET %s
 RETURNING id, edge_type, source_entity_id, target_entity_id, metadata;`,
 		strings.Join(columns, ","),
 		placeholders(len(columns)),
