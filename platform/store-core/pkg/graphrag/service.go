@@ -2,6 +2,8 @@ package graphrag
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -43,24 +45,24 @@ func NewService(
 
 // BuildContextRequest represents the incoming request.
 type BuildContextRequest struct {
-	TenantID         string
-	Query            string
-	QueryEmbedding   []float32
-	TopK             int
-	MinScore         float32
-	VectorWeight     float32
-	KeywordWeight    float32
-	MaxHops          int
-	MaxNodesPerHop   int
-	MaxTotalNodes    int
-	EdgeTypes        []string
+	TenantID           string
+	Query              string
+	QueryEmbedding     []float32
+	TopK               int
+	MinScore           float32
+	VectorWeight       float32
+	KeywordWeight      float32
+	MaxHops            int
+	MaxNodesPerHop     int
+	MaxTotalNodes      int
+	EdgeTypes          []string
 	IncludeCommunities bool
-	MaxCommunities   int
-	IncludeContent   bool
-	MaxContentLength int
-	ProjectID        string
-	ProfileIDs       []string
-	EntityKinds      []string
+	MaxCommunities     int
+	IncludeContent     bool
+	MaxContentLength   int
+	ProjectID          string
+	ProfileIDs         []string
+	EntityKinds        []string
 }
 
 // BuildContextResponse represents the response.
@@ -92,26 +94,26 @@ func (s *Service) BuildContext(ctx context.Context, req *BuildContextRequest) (*
 	// inside DefaultContextBuilder.BuildContext
 	config := ContextBuilderConfig{
 		// Search settings
-		TopK:               req.TopK,
-		ScoreThreshold:     req.MinScore,
-		QueryEmbedding:     req.QueryEmbedding,
-		VectorWeight:       req.VectorWeight,
-		KeywordWeight:      req.KeywordWeight,
+		TopK:           req.TopK,
+		ScoreThreshold: req.MinScore,
+		QueryEmbedding: req.QueryEmbedding,
+		VectorWeight:   req.VectorWeight,
+		KeywordWeight:  req.KeywordWeight,
 		// Filter settings
-		ProjectID:          req.ProjectID,
-		ProfileIDs:         req.ProfileIDs,
-		EntityKinds:        req.EntityKinds,
+		ProjectID:   req.ProjectID,
+		ProfileIDs:  req.ProfileIDs,
+		EntityKinds: req.EntityKinds,
 		// Expansion settings
-		MaxHops:            req.MaxHops,
-		MaxNodesPerHop:     req.MaxNodesPerHop,
-		MaxTotalNodes:      req.MaxTotalNodes,
-		EdgeTypes:          req.EdgeTypes,
+		MaxHops:        req.MaxHops,
+		MaxNodesPerHop: req.MaxNodesPerHop,
+		MaxTotalNodes:  req.MaxTotalNodes,
+		EdgeTypes:      req.EdgeTypes,
 		// Community settings
 		IncludeCommunities: req.IncludeCommunities,
 		MaxCommunities:     req.MaxCommunities,
 		// Content settings
-		IncludeContent:     req.IncludeContent,
-		MaxContentLength:   req.MaxContentLength,
+		IncludeContent:   req.IncludeContent,
+		MaxContentLength: req.MaxContentLength,
 	}
 
 	// Build context
@@ -124,6 +126,311 @@ func (s *Service) BuildContext(ctx context.Context, req *BuildContextRequest) (*
 		Context:     ragCtx,
 		TotalTimeMs: float32(time.Since(start).Milliseconds()),
 	}, nil
+}
+
+// ===================================================
+// GenerateAnswer RPC
+// ===================================================
+
+// GenerateAnswerRequest represents the request for grounded answer generation.
+type GenerateAnswerRequest struct {
+	TenantID  string
+	Query     string
+	Context   *RAGContext
+	Model     string
+	MaxTokens int
+}
+
+// GroundedAnswer represents the LLM answer with source citations.
+type GroundedAnswer struct {
+	Answer     string
+	Citations  []Citation
+	ModelUsed  string
+	Confidence float32
+	TokensUsed int
+}
+
+// Citation captures which sources were used for the answer.
+type Citation struct {
+	SourceID    string
+	SourceType  string
+	SourceName  string
+	Excerpt     string
+	StartOffset int
+	EndOffset   int
+}
+
+// GenerateAnswer builds an LLM prompt from the RAGContext and returns a mock grounded answer.
+func (s *Service) GenerateAnswer(ctx context.Context, req *GenerateAnswerRequest) (*GroundedAnswer, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if req.TenantID == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.Query == "" {
+		return nil, status.Error(codes.InvalidArgument, "query is required")
+	}
+	if req.Context == nil {
+		return nil, status.Error(codes.InvalidArgument, "context is required")
+	}
+	if req.Context.TenantID != req.TenantID {
+		return nil, status.Error(codes.PermissionDenied, "context tenant_id does not match request tenant_id")
+	}
+
+	// Build prompt from context - this will be used when the LLM is integrated.
+	prompt := buildAnswerPrompt(req.Query, req.Context, req.MaxTokens)
+
+	// Placeholder LLM call: return a mock answer using context-derived mentions.
+	answerText, citations := mockGroundedAnswer(req.Query, req.Context)
+
+	modelUsed := req.Model
+	if modelUsed == "" {
+		modelUsed = "mock-graphrag-llm"
+	}
+
+	return &GroundedAnswer{
+		Answer:     answerText,
+		Citations:  citations,
+		ModelUsed:  modelUsed,
+		Confidence: 0.5, // Placeholder confidence until LLM integration
+		TokensUsed: estimateTokens(prompt, answerText),
+	}, nil
+}
+
+// buildAnswerPrompt formats the provided RAG context into an LLM-ready prompt.
+func buildAnswerPrompt(query string, ragCtx *RAGContext, maxTokens int) string {
+	var b strings.Builder
+
+	b.WriteString("Use the graph-derived context to answer the query with citations.\n")
+	b.WriteString(fmt.Sprintf("Query: %s\n\n", query))
+
+	if len(ragCtx.SeedEntities) > 0 {
+		b.WriteString("Seed Entities:\n")
+		for _, e := range ragCtx.SeedEntities {
+			b.WriteString(fmt.Sprintf("- %s (%s) score=%.2f: %s\n",
+				defaultString(e.Name, e.ID),
+				e.Type,
+				e.Score,
+				truncateText(firstNonEmpty(e.Description, e.Content), 200),
+			))
+		}
+		b.WriteString("\n")
+	}
+
+	if ragCtx.ExpandedGraph != nil {
+		if len(ragCtx.ExpandedGraph.Nodes) > 0 {
+			b.WriteString("Graph Nodes:\n")
+			for _, n := range ragCtx.ExpandedGraph.Nodes {
+				b.WriteString(fmt.Sprintf("- %s [%s] hop:%d\n", nodeDisplayName(n), n.Type, n.HopDistance))
+			}
+			b.WriteString("\n")
+		}
+		if len(ragCtx.ExpandedGraph.Edges) > 0 {
+			b.WriteString("Graph Relationships:\n")
+			labels := buildNodeLabelLookup(ragCtx)
+			for _, e := range ragCtx.ExpandedGraph.Edges {
+				from := labels[e.FromID]
+				if from == "" {
+					from = e.FromID
+				}
+				to := labels[e.ToID]
+				if to == "" {
+					to = e.ToID
+				}
+				b.WriteString(fmt.Sprintf("- %s -[%s]-> %s (dir=%s)\n", from, e.Type, to, edgeDirectionToString(e.Direction)))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	if len(ragCtx.Communities) > 0 {
+		b.WriteString("Communities:\n")
+		for _, c := range ragCtx.Communities {
+			b.WriteString(fmt.Sprintf("- %s (level %d, size %d): %s\n",
+				c.Label, c.Level, c.Size, truncateText(c.Description, 200)))
+		}
+	}
+
+	prompt := b.String()
+	if maxTokens > 0 {
+		maxChars := maxTokens * 4
+		if len(prompt) > maxChars {
+			prompt = prompt[:maxChars] + "..."
+		}
+	}
+	return prompt
+}
+
+// mockGroundedAnswer produces a deterministic answer and citations until LLM integration.
+func mockGroundedAnswer(query string, ragCtx *RAGContext) (string, []Citation) {
+	var b strings.Builder
+	citations := make([]Citation, 0)
+
+	b.WriteString(fmt.Sprintf("Mock grounded answer for \"%s\" using the provided graph context.", query))
+
+	if len(ragCtx.SeedEntities) > 0 {
+		b.WriteString(" Key entities: ")
+		typeLookup := buildNodeTypeLookup(ragCtx)
+		limit := len(ragCtx.SeedEntities)
+		if limit > 3 {
+			limit = 3
+		}
+		for i := 0; i < limit; i++ {
+			e := ragCtx.SeedEntities[i]
+			if i > 0 {
+				if i == limit-1 {
+					b.WriteString(" and ")
+				} else {
+					b.WriteString(", ")
+				}
+			}
+			name := defaultString(e.Name, e.ID)
+			start := b.Len()
+			b.WriteString(name)
+			if e.Type != "" {
+				b.WriteString(fmt.Sprintf(" (%s)", e.Type))
+			}
+			end := b.Len()
+			citations = append(citations, Citation{
+				SourceID:    e.ID,
+				SourceType:  typeLookup[e.ID],
+				SourceName:  name,
+				Excerpt:     truncateText(firstNonEmpty(e.Description, e.Content), 200),
+				StartOffset: start,
+				EndOffset:   end,
+			})
+		}
+		b.WriteString(".")
+	}
+
+	if ragCtx.ExpandedGraph != nil && len(ragCtx.ExpandedGraph.Edges) > 0 {
+		b.WriteString(" Relationships observed include ")
+		labels := buildNodeLabelLookup(ragCtx)
+		typeLookup := buildNodeTypeLookup(ragCtx)
+		limit := len(ragCtx.ExpandedGraph.Edges)
+		if limit > 2 {
+			limit = 2
+		}
+		for i := 0; i < limit; i++ {
+			edge := ragCtx.ExpandedGraph.Edges[i]
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			from := defaultString(labels[edge.FromID], edge.FromID)
+			to := defaultString(labels[edge.ToID], edge.ToID)
+			relation := fmt.Sprintf("%s %s %s", from, edge.Type, to)
+			start := b.Len()
+			b.WriteString(relation)
+			end := b.Len()
+
+			// Track source positions for the involved nodes.
+			citations = append(citations, Citation{
+				SourceID:    edge.FromID,
+				SourceType:  typeLookup[edge.FromID],
+				SourceName:  from,
+				Excerpt:     fmt.Sprintf("Connected to %s via %s", to, edge.Type),
+				StartOffset: start,
+				EndOffset:   start + len(from),
+			})
+			citations = append(citations, Citation{
+				SourceID:    edge.ToID,
+				SourceType:  typeLookup[edge.ToID],
+				SourceName:  to,
+				Excerpt:     fmt.Sprintf("Connected from %s via %s", from, edge.Type),
+				StartOffset: end - len(to),
+				EndOffset:   end,
+			})
+		}
+		b.WriteString(".")
+	}
+
+	if len(ragCtx.Communities) > 0 {
+		community := ragCtx.Communities[0]
+		b.WriteString(" Community context: ")
+		start := b.Len()
+		b.WriteString(community.Label)
+		end := b.Len()
+		b.WriteString(" highlights shared themes.")
+		citations = append(citations, Citation{
+			SourceID:    community.ID,
+			SourceType:  "community",
+			SourceName:  community.Label,
+			Excerpt:     truncateText(community.Description, 200),
+			StartOffset: start,
+			EndOffset:   end,
+		})
+	}
+
+	return b.String(), citations
+}
+
+func buildNodeLabelLookup(ctx *RAGContext) map[string]string {
+	labels := make(map[string]string)
+	for _, e := range ctx.SeedEntities {
+		labels[e.ID] = defaultString(e.Name, e.ID)
+	}
+	if ctx.ExpandedGraph != nil {
+		for _, n := range ctx.ExpandedGraph.Nodes {
+			labels[n.ID] = nodeDisplayName(n)
+		}
+	}
+	return labels
+}
+
+func buildNodeTypeLookup(ctx *RAGContext) map[string]string {
+	types := make(map[string]string)
+	for _, e := range ctx.SeedEntities {
+		types[e.ID] = e.Type
+	}
+	if ctx.ExpandedGraph != nil {
+		for _, n := range ctx.ExpandedGraph.Nodes {
+			types[n.ID] = n.Type
+		}
+	}
+	return types
+}
+
+func nodeDisplayName(n GraphNode) string {
+	if n.Properties != nil {
+		if name := n.Properties["name"]; name != "" {
+			return name
+		}
+		if label := n.Properties["label"]; label != "" {
+			return label
+		}
+	}
+	if n.Type != "" {
+		return fmt.Sprintf("%s (%s)", n.ID, n.Type)
+	}
+	return n.ID
+}
+
+func estimateTokens(prompt, answer string) int {
+	return (len(prompt) + len(answer)) / 4
+}
+
+func truncateText(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 // ===================================================
@@ -259,15 +566,15 @@ func ToProtoRAGContext(ctx *RAGContext) *ProtoRAGContext {
 	if ctx == nil {
 		return nil
 	}
-	
+
 	return &ProtoRAGContext{
-		Query:        ctx.Query,
-		TenantID:     ctx.TenantID,
-		GeneratedAt:  timestamppb.New(ctx.GeneratedAt),
-		SeedEntities: toProtoEntityMatches(ctx.SeedEntities),
+		Query:         ctx.Query,
+		TenantID:      ctx.TenantID,
+		GeneratedAt:   timestamppb.New(ctx.GeneratedAt),
+		SeedEntities:  toProtoEntityMatches(ctx.SeedEntities),
 		ExpandedGraph: toProtoGraphExpansion(ctx.ExpandedGraph),
-		Communities:  toProtoCommunitySummaries(ctx.Communities),
-		Lineage:      ctx.Lineage,
+		Communities:   toProtoCommunitySummaries(ctx.Communities),
+		Lineage:       ctx.Lineage,
 	}
 }
 
@@ -362,7 +669,7 @@ func toProtoGraphExpansion(exp *GraphExpansion) *ProtoGraphExpansion {
 	if exp == nil {
 		return nil
 	}
-	
+
 	nodes := make([]*ProtoGraphNode, len(exp.Nodes))
 	for i, n := range exp.Nodes {
 		nodes[i] = &ProtoGraphNode{
@@ -375,7 +682,7 @@ func toProtoGraphExpansion(exp *GraphExpansion) *ProtoGraphExpansion {
 			ProfileID:   "", // GraphNode doesn't have ProfileID
 		}
 	}
-	
+
 	edges := make([]*ProtoGraphEdge, len(exp.Edges))
 	for i, e := range exp.Edges {
 		edges[i] = &ProtoGraphEdge{
@@ -388,7 +695,7 @@ func toProtoGraphExpansion(exp *GraphExpansion) *ProtoGraphExpansion {
 			Direction:  edgeDirectionToString(e.Direction),
 		}
 	}
-	
+
 	return &ProtoGraphExpansion{
 		Nodes:      nodes,
 		Edges:      edges,
@@ -403,7 +710,7 @@ func toProtoCommunitySummaries(communities []CommunitySummary) []*ProtoCommunity
 	for i, c := range communities {
 		result[i] = &ProtoCommunitySummary{
 			ID:             c.ID,
-			Name:           c.Label,       // CommunitySummary uses Label
+			Name:           c.Label, // CommunitySummary uses Label
 			Description:    c.Description,
 			Level:          int32(c.Level),
 			MemberCount:    int32(c.Size), // CommunitySummary uses Size

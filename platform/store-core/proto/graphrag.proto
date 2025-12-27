@@ -16,6 +16,9 @@ service GraphRAGService {
   // 2. Multi-hop KG expansion from seeds
   // 3. Community context gathering
   rpc BuildContext(BuildContextRequest) returns (BuildContextResponse);
+
+  // GenerateAnswer produces a grounded answer using the provided RAG context.
+  rpc GenerateAnswer(GenerateAnswerRequest) returns (GroundedAnswer);
   
   // ExpandGraph performs graph expansion from seed nodes.
   // Use this for direct KG traversal without the full RAG pipeline.
@@ -138,6 +141,35 @@ message CommunitySummary {
   int32 member_count = 5;
   float relevance_score = 6;
   repeated string member_ids = 7;        // Sample member IDs
+}
+
+// ===================================================
+// GenerateAnswer RPC
+// ===================================================
+
+message GenerateAnswerRequest {
+  string tenant_id = 1;
+  string query = 2;
+  RAGContext context = 3;  // from BuildContext
+  string model = 4;        // optional LLM model override
+  int32 max_tokens = 5;    // response length limit
+}
+
+message GroundedAnswer {
+  string answer = 1;
+  repeated Citation citations = 2;
+  string model_used = 3;
+  float confidence = 4;
+  int32 tokens_used = 5;
+}
+
+message Citation {
+  string source_id = 1;      // entity/node ID
+  string source_type = 2;    // entity type
+  string source_name = 3;    // display name
+  string excerpt = 4;        // relevant text excerpt
+  int32 start_offset = 5;    // position in answer
+  int32 end_offset = 6;
 }
 
 // ===================================================
