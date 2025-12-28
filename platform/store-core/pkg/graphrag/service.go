@@ -16,26 +16,46 @@ import (
 // Implements GraphRAGService from graphrag.proto
 // ===================================================
 
+// LLMProvider abstracts the LLM backend for answer generation.
+type LLMProvider interface {
+	// Complete sends a prompt and returns the completion.
+	Complete(ctx context.Context, prompt string, options LLMCompletionOptions) (string, error)
+	// Name returns the provider name.
+	Name() string
+}
+
+// LLMCompletionOptions configures the LLM completion.
+type LLMCompletionOptions struct {
+	Model        string  `json:"model"`
+	MaxTokens    int     `json:"maxTokens"`
+	Temperature  float32 `json:"temperature"`
+	SystemPrompt string  `json:"systemPrompt"`
+}
+
 // Service implements the GraphRAGService gRPC interface.
 type Service struct {
 	contextBuilder    ContextBuilder
 	graphExpander     GraphExpander
 	communityProvider CommunityProvider
 	embeddingProvider EmbeddingProvider
+	llmProvider       LLMProvider // Optional: nil falls back to mock
 }
 
 // NewService creates a new GraphRAG service.
+// llmProvider can be nil for mock mode.
 func NewService(
 	contextBuilder ContextBuilder,
 	graphExpander GraphExpander,
 	communityProvider CommunityProvider,
 	embeddingProvider EmbeddingProvider,
+	llmProvider LLMProvider,
 ) *Service {
 	return &Service{
 		contextBuilder:    contextBuilder,
 		graphExpander:     graphExpander,
 		communityProvider: communityProvider,
 		embeddingProvider: embeddingProvider,
+		llmProvider:       llmProvider,
 	}
 }
 
@@ -178,22 +198,55 @@ func (s *Service) GenerateAnswer(ctx context.Context, req *GenerateAnswerRequest
 		return nil, status.Error(codes.PermissionDenied, "context tenant_id does not match request tenant_id")
 	}
 
-	// Build prompt from context - this will be used when the LLM is integrated.
-	prompt := buildAnswerPrompt(req.Query, req.Context, req.MaxTokens)
+	// Determine model and max tokens first (used for both prompt and LLM call)
+	model := req.Model
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 1024
+	}
 
-	// Placeholder LLM call: return a mock answer using context-derived mentions.
-	answerText, citations := mockGroundedAnswer(req.Query, req.Context)
+	// Build prompt from context using defaulted maxTokens
+	prompt := buildAnswerPrompt(req.Query, req.Context, maxTokens)
 
-	modelUsed := req.Model
-	if modelUsed == "" {
+	var answerText string
+	var citations []Citation
+	var modelUsed string
+	var confidence float32
+
+	// Use real LLM if available, otherwise fall back to mock
+	if s.llmProvider != nil {
+		opts := LLMCompletionOptions{
+			Model:     model,
+			MaxTokens: maxTokens,
+			Temperature: 0.3,
+			SystemPrompt: "You are a helpful assistant that answers questions based on the provided context. " +
+				"Always ground your answers in the context and cite sources where applicable.",
+		}
+		llmResponse, err := s.llmProvider.Complete(ctx, prompt, opts)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "LLM completion failed: %v", err)
+		}
+		answerText = llmResponse
+		// For real LLM responses, generate citations from context entities without text offsets
+		// (offsets are only meaningful for deterministic mock answers)
+		citations = generateContextCitations(req.Context)
+		modelUsed = fmt.Sprintf("%s/%s", s.llmProvider.Name(), model)
+		confidence = 0.85 // Higher confidence with real LLM
+	} else {
+		// Mock mode: use placeholder answer
+		answerText, citations = mockGroundedAnswer(req.Query, req.Context)
 		modelUsed = "mock-graphrag-llm"
+		confidence = 0.5 // Lower confidence for mock responses
 	}
 
 	return &GroundedAnswer{
 		Answer:     answerText,
 		Citations:  citations,
 		ModelUsed:  modelUsed,
-		Confidence: 0.5, // Placeholder confidence until LLM integration
+		Confidence: confidence,
 		TokensUsed: estimateTokens(prompt, answerText),
 	}, nil
 }
@@ -389,6 +442,54 @@ func buildNodeTypeLookup(ctx *RAGContext) map[string]string {
 		}
 	}
 	return types
+}
+
+// generateContextCitations creates citations from RAG context entities without text offsets.
+// Used for real LLM responses where answer text is not deterministic.
+func generateContextCitations(ctx *RAGContext) []Citation {
+	var citations []Citation
+	seen := make(map[string]bool)
+
+	// Add citations from seed entities
+	for _, e := range ctx.SeedEntities {
+		if seen[e.ID] {
+			continue
+		}
+		seen[e.ID] = true
+		citations = append(citations, Citation{
+			SourceID:   e.ID,
+			SourceType: e.Type,
+			SourceName: defaultString(e.Name, e.ID),
+			Excerpt:    truncateText(firstNonEmpty(e.Description, e.Content), 100),
+			// No offsets for LLM-generated text
+		})
+	}
+
+	// Add citations from expanded graph nodes
+	if ctx.ExpandedGraph != nil {
+		for _, n := range ctx.ExpandedGraph.Nodes {
+			if seen[n.ID] {
+				continue
+			}
+			seen[n.ID] = true
+			name := n.ID
+			if n.Properties != nil {
+				name = defaultString(n.Properties["name"], n.Properties["label"])
+			}
+			if name == "" {
+				name = n.ID
+			}
+			citations = append(citations, Citation{
+				SourceID:   n.ID,
+				SourceType: n.Type,
+				SourceName: name,
+				Excerpt:    truncateText(n.Properties["description"], 100),
+				// No offsets for LLM-generated text
+			})
+		}
+	}
+
+	return citations
 }
 
 func nodeDisplayName(n GraphNode) string {
