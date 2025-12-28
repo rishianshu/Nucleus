@@ -6,6 +6,7 @@ import { credentials, type ServiceError } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 import { loadPackageDefinition } from "@grpc/grpc-js";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -78,20 +79,22 @@ let grpcClient: any = null;
 function getProtoPath(): string {
   // Try multiple paths for proto file
   const candidates = [
-    path.join(__dirname, "../../../platform/store-core/proto/signal.proto"),
     path.join(__dirname, "../../../../platform/store-core/proto/signal.proto"),
+    path.join(__dirname, "../../../../../platform/store-core/proto/signal.proto"),
+    path.join(__dirname, "../../../platform/store-core/proto/signal.proto"),
+    // CWD-based paths (more reliable in ESM)
+    path.join(process.cwd(), "../../platform/store-core/proto/signal.proto"),
+    // Absolute path fallback for development
+    "/Users/rishikeshkumar/Development/Nucleus/platform/store-core/proto/signal.proto",
     process.env.SIGNAL_PROTO_PATH || "",
   ].filter(Boolean);
   
   for (const p of candidates) {
-    try {
-      require("fs").accessSync(p);
+    if (fs.existsSync(p)) {
       return p;
-    } catch {
-      continue;
     }
   }
-  throw new Error("Could not find signal.proto");
+  throw new Error(`Could not find signal.proto. Tried: ${candidates.join(', ')}`);
 }
 
 function getGrpcClient(): any {
@@ -128,7 +131,14 @@ function promisify<T>(fn: (callback: (err: ServiceError | null, response: T) => 
 
 // gRPC SignalStore implementation
 export class GrpcSignalStore implements SignalStore {
-  private client = getGrpcClient();
+  private _client: any = null;
+  
+  private get client(): any {
+    if (!this._client) {
+      this._client = getGrpcClient();
+    }
+    return this._client;
+  }
 
   async getDefinition(id: string): Promise<SignalDefinition | null> {
     // Not directly supported, use list with filter
